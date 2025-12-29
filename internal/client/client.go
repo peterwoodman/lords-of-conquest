@@ -35,6 +35,7 @@ type Game struct {
 	connectScene *ConnectScene
 	lobbyScene   *LobbyScene
 	waitingScene *WaitingScene
+	gameplayScene *GameplayScene
 
 	// State
 	authenticated bool
@@ -59,6 +60,7 @@ func NewGame() (*Game, error) {
 	g.connectScene = NewConnectScene(g)
 	g.lobbyScene = NewLobbyScene(g)
 	g.waitingScene = NewWaitingScene(g)
+	g.gameplayScene = NewGameplayScene(g)
 
 	// Start with connect scene
 	g.currentScene = g.connectScene
@@ -183,6 +185,14 @@ func (g *Game) LeaveGame() error {
 	return g.network.SendPayload(protocol.TypeLeaveGame, struct{}{})
 }
 
+// SelectTerritory sends a territory selection to the server.
+func (g *Game) SelectTerritory(territoryID string) error {
+	payload := protocol.SelectTerritoryPayload{
+		TerritoryID: territoryID,
+	}
+	return g.network.SendPayload(protocol.TypeSelectTerritory, payload)
+}
+
 // handleMessage processes incoming server messages.
 func (g *Game) handleMessage(msg *protocol.Message) {
 	switch msg.Type {
@@ -247,7 +257,20 @@ func (g *Game) handleMessage(msg *protocol.Message) {
 
 	case protocol.TypeGameStarted:
 		log.Println("Game started!")
-		// TODO: Switch to gameplay scene
+		// Switch to gameplay scene
+		g.SetScene(g.gameplayScene)
+
+	case protocol.TypeGameState:
+		var payload protocol.GameStatePayload
+		if err := msg.ParsePayload(&payload); err != nil {
+			return
+		}
+		// Update gameplay scene with new state
+		if stateMap, ok := payload.State.(map[string]interface{}); ok {
+			if g.currentScene == g.gameplayScene {
+				g.gameplayScene.SetGameState(stateMap)
+			}
+		}
 
 	case protocol.TypeError:
 		var payload protocol.ErrorPayload

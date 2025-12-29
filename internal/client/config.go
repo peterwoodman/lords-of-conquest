@@ -6,6 +6,13 @@ import (
 	"path/filepath"
 )
 
+var configProfile string
+
+// SetProfile sets the config profile for multiple instances.
+func SetProfile(profile string) {
+	configProfile = profile
+}
+
 // Config holds client configuration.
 type Config struct {
 	// Connection settings
@@ -82,6 +89,12 @@ func configPath() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(configDir, "lords-of-conquest", "config.json"), nil
+
+	filename := "config.json"
+	if configProfile != "" {
+		filename = "config-" + configProfile + ".json"
+	}
+
+	return filepath.Join(configDir, "lords-of-conquest", filename), nil
 }
 

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"flag"
 	"log"
 
 	"lords-of-conquest/internal/client"
@@ -9,6 +10,11 @@ import (
 )
 
 func main() {
+	profile := flag.String("profile", "", "Profile name for separate config (e.g., player1, player2)")
+	flag.Parse()
+
+	client.SetProfile(*profile)
+
 	game, err := client.NewGame()
 	if err != nil {
 		log.Fatalf("Failed to create game: %v", err)

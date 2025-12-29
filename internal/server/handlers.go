@@ -1,11 +1,14 @@
 package server
 
 import (
+	"encoding/json"
 	"errors"
 	"log"
 
 	"lords-of-conquest/internal/database"
+	"lords-of-conquest/internal/game"
 	"lords-of-conquest/internal/protocol"
+	"lords-of-conquest/pkg/maps"
 )
 
 // Handlers processes incoming messages.
@@ -39,6 +42,10 @@ func (h *Handlers) Handle(client *Client, msg *protocol.Message) {
 		err = h.handlePlayerReady(client, msg)
 	case protocol.TypeStartGame:
 		err = h.handleStartGame(client, msg)
+	case protocol.TypeSelectTerritory:
+		err = h.handleSelectTerritory(client, msg)
+	case protocol.TypePlaceStockpile:
+		err = h.handlePlaceStockpile(client, msg)
 	case protocol.TypeListGames:
 		err = h.handleListGames(client, msg)
 	default:
@@ -404,12 +411,19 @@ func (h *Handlers) handleStartGame(client *Client, msg *protocol.Message) error 
 
 	log.Printf("Game started: %s", client.GameID)
 
-	// TODO: Initialize game state and save to database
+	// Initialize game state
+	if err := h.initializeGameState(client.GameID, game, players); err != nil {
+		log.Printf("Failed to initialize game state: %v", err)
+		return err
+	}
 
 	// Notify all players
 	h.hub.notifyGamePlayers(client.GameID, protocol.TypeGameStarted, protocol.GameStartedPayload{
 		GameID: client.GameID,
 	})
+
+	// Send initial game state
+	h.broadcastGameState(client.GameID)
 
 	return nil
 }
@@ -529,4 +543,312 @@ func (h *Handlers) pickColor(players []*database.GamePlayer, preferred string) s
 		}
 	}
 	return "orange" // Fallback
+}
+
+// initializeGameState creates the game state from the map and players.
+func (h *Handlers) initializeGameState(gameID string, dbGame *database.Game, dbPlayers []*database.GamePlayer) error {
+	// Get the map
+	mapData := maps.Get(dbGame.Settings.MapID)
+	if mapData == nil {
+		return errors.New("map not found: " + dbGame.Settings.MapID)
+	}
+
+	// Convert database players to game players
+	gamePlayers := make([]*game.Player, 0, len(dbPlayers))
+	for _, dbp := range dbPlayers {
+		player := game.NewPlayer(dbp.PlayerID, dbp.PlayerName, game.PlayerColor(dbp.Color))
+		if dbp.IsAI {
+			player.IsAI = true
+			player.AIPersonality = parseAIPersonality(dbp.AIPersonality)
+		}
+		gamePlayers = append(gamePlayers, player)
+	}
+
+	// Convert map data to game map data
+	gameMapData := convertMapToGameData(mapData)
+
+	// Convert database settings to game settings
+	gameSettings := game.Settings{
+		GameLevel:     parseGameLevel(dbGame.Settings.GameLevel),
+		ChanceLevel:   parseChanceLevel(dbGame.Settings.ChanceLevel),
+		VictoryCities: dbGame.Settings.VictoryCities,
+		MapID:         dbGame.Settings.MapID,
+		MaxPlayers:    dbGame.Settings.MaxPlayers,
+	}
+
+	// Initialize game state
+	state, err := game.InitializeGame(gameMapData, gamePlayers, gameSettings)
+	if err != nil {
+		return err
+	}
+
+	// Set the game ID to match the database game
+	state.ID = gameID
+
+	// Serialize state to JSON
+	stateJSON, err := json.Marshal(state)
+	if err != nil {
+		return err
+	}
+
+	// Save to database
+	return h.hub.server.db.SaveGameState(gameID, string(stateJSON), state.CurrentPlayerID, state.Round, state.Phase.String())
+}
+
+// convertMapToGameData converts a map to game initialization data.
+func convertMapToGameData(m *maps.Map) game.MapData {
+	territories := make(map[string]game.TerritoryData)
+	for id, t := range m.Territories {
+		adjacent := make([]string, len(t.AdjacentTerritories))
+		for i, adj := range t.AdjacentTerritories {
+			adjacent[i] = maps.TerritoryIDToString(adj)
+		}
+
+		waters := make([]string, len(t.AdjacentWaters))
+		for i, w := range t.AdjacentWaters {
+			waters[i] = maps.WaterIDToString(w)
+		}
+
+		territories[maps.TerritoryIDToString(id)] = game.TerritoryData{
+			Name:         t.Name,
+			Resource:     t.Resource,
+			Adjacent:     adjacent,
+			CoastalTiles: t.CoastalCells,
+			WaterBodies:  waters,
+		}
+	}
+
+	waterBodies := make(map[string]game.WaterBodyData)
+	for id, wb := range m.WaterBodies {
+		coastal := make([]string, len(wb.CoastalTerritories))
+		for i, t := range wb.CoastalTerritories {
+			coastal[i] = maps.TerritoryIDToString(t)
+		}
+
+		waterBodies[maps.WaterIDToString(id)] = game.WaterBodyData{
+			Territories: coastal,
+		}
+	}
+
+	return game.MapData{
+		ID:          m.ID,
+		Name:        m.Name,
+		Territories: territories,
+		WaterBodies: waterBodies,
+	}
+}
+
+// broadcastGameState sends the current game state to all players.
+func (h *Handlers) broadcastGameState(gameID string) {
+	// Load game state from database
+	stateJSON, err := h.hub.server.db.GetGameState(gameID)
+	if err != nil {
+		log.Printf("Failed to load game state: %v", err)
+		return
+	}
+
+	if stateJSON == "" {
+		log.Printf("No game state found for game %s", gameID)
+		return
+	}
+
+	var state game.GameState
+	if err := json.Unmarshal([]byte(stateJSON), &state); err != nil {
+		log.Printf("Failed to unmarshal game state: %v", err)
+		return
+	}
+
+	// Get the map for rendering info
+	mapData := maps.Get(state.Settings.MapID)
+	if mapData == nil {
+		log.Printf("Map not found: %s", state.Settings.MapID)
+		return
+	}
+
+	// Create payload with state and map rendering data
+	payload := protocol.GameStatePayload{
+		State: createStatePayload(&state, mapData),
+	}
+
+	h.hub.notifyGamePlayers(gameID, protocol.TypeGameState, payload)
+}
+
+// createStatePayload creates a simplified state payload for clients.
+func createStatePayload(state *game.GameState, mapData *maps.Map) map[string]interface{} {
+	// Convert territories
+	territories := make(map[string]interface{})
+	for id, t := range state.Territories {
+		territories[id] = map[string]interface{}{
+			"id":       id,
+			"name":     t.Name,
+			"owner":    t.Owner,
+			"resource": t.Resource.String(),
+			"hasCity":  t.HasCity,
+		}
+	}
+
+	// Convert players
+	players := make(map[string]interface{})
+	for id, p := range state.Players {
+		players[id] = map[string]interface{}{
+			"id":    id,
+			"name":  p.Name,
+			"color": string(p.Color),
+			"isAI":  p.IsAI,
+		}
+	}
+
+	// Add map rendering data
+	mapInfo := map[string]interface{}{
+		"id":     mapData.ID,
+		"name":   mapData.Name,
+		"width":  mapData.Width,
+		"height": mapData.Height,
+		"grid":   mapData.Grid,
+	}
+
+	return map[string]interface{}{
+		"gameId":          state.ID,
+		"round":           state.Round,
+		"phase":           state.Phase.String(),
+		"currentPlayerId": state.CurrentPlayerID,
+		"playerOrder":     state.PlayerOrder,
+		"territories":     territories,
+		"players":         players,
+		"map":             mapInfo,
+	}
+}
+
+// handleSelectTerritory handles territory selection during the initial phase.
+func (h *Handlers) handleSelectTerritory(client *Client, msg *protocol.Message) error {
+	if client.GameID == "" {
+		return errors.New("not in a game")
+	}
+
+	var payload protocol.SelectTerritoryPayload
+	if err := msg.ParsePayload(&payload); err != nil {
+		return err
+	}
+
+	// Load game state
+	stateJSON, err := h.hub.server.db.GetGameState(client.GameID)
+	if err != nil {
+		return err
+	}
+
+	var state game.GameState
+	if err := json.Unmarshal([]byte(stateJSON), &state); err != nil {
+		return err
+	}
+
+	// Execute selection
+	if err := state.SelectTerritory(client.PlayerID, payload.TerritoryID); err != nil {
+		return err
+	}
+
+	// Save updated state
+	stateJSON2, err := json.Marshal(state)
+	if err != nil {
+		return err
+	}
+
+	if err := h.hub.server.db.SaveGameState(client.GameID, string(stateJSON2),
+		state.CurrentPlayerID, state.Round, state.Phase.String()); err != nil {
+		return err
+	}
+
+	log.Printf("Player %s selected territory %s", client.Name, payload.TerritoryID)
+
+	// Broadcast updated state
+	h.broadcastGameState(client.GameID)
+
+	return nil
+}
+
+// handlePlaceStockpile handles placing the stockpile after territory selection.
+func (h *Handlers) handlePlaceStockpile(client *Client, msg *protocol.Message) error {
+	if client.GameID == "" {
+		return errors.New("not in a game")
+	}
+
+	var payload protocol.PlaceStockpilePayload
+	if err := msg.ParsePayload(&payload); err != nil {
+		return err
+	}
+
+	// Load game state
+	stateJSON, err := h.hub.server.db.GetGameState(client.GameID)
+	if err != nil {
+		return err
+	}
+
+	var state game.GameState
+	if err := json.Unmarshal([]byte(stateJSON), &state); err != nil {
+		return err
+	}
+
+	// Place stockpile
+	if err := state.PlaceStockpile(client.PlayerID, payload.TerritoryID); err != nil {
+		return err
+	}
+
+	// Save updated state
+	stateJSON2, err := json.Marshal(state)
+	if err != nil {
+		return err
+	}
+
+	if err := h.hub.server.db.SaveGameState(client.GameID, string(stateJSON2),
+		state.CurrentPlayerID, state.Round, state.Phase.String()); err != nil {
+		return err
+	}
+
+	log.Printf("Player %s placed stockpile at %s", client.Name, payload.TerritoryID)
+
+	// Broadcast updated state
+	h.broadcastGameState(client.GameID)
+
+	return nil
+}
+
+// Helper functions for parsing settings
+func parseGameLevel(s string) game.GameLevel {
+	switch s {
+	case "beginner":
+		return game.LevelBeginner
+	case "intermediate":
+		return game.LevelIntermediate
+	case "advanced":
+		return game.LevelAdvanced
+	case "expert":
+		return game.LevelExpert
+	default:
+		return game.LevelExpert
+	}
+}
+
+func parseChanceLevel(s string) game.ChanceLevel {
+	switch s {
+	case "low":
+		return game.ChanceLow
+	case "medium":
+		return game.ChanceMedium
+	case "high":
+		return game.ChanceHigh
+	default:
+		return game.ChanceMedium
+	}
+}
+
+func parseAIPersonality(s string) game.AIPersonality {
+	switch s {
+	case "aggressive":
+		return game.AIAggressive
+	case "defensive":
+		return game.AIDefensive
+	case "passive":
+		return game.AIPassive
+	default:
+		return game.AIAggressive
+	}
 }

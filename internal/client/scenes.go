@@ -358,6 +358,7 @@ func (s *LobbyScene) onCreateConfirm() {
 		GameLevel:     "expert",
 		ChanceLevel:   "medium",
 		VictoryCities: 3,
+		MapID:         "test", // Use the test map
 	}
 
 	s.game.CreateGame(name, s.createPublic, settings)
