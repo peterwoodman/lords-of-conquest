@@ -146,13 +146,17 @@ func (s *ConnectScene) onConnect() {
 type LobbyScene struct {
 	game *Game
 
-	gameList    *List
-	codeInput   *TextInput
-	createBtn   *Button
-	joinBtn     *Button
-	joinCodeBtn *Button
-	refreshBtn  *Button
-	games       []protocol.GameListItem
+	gameList     *List
+	yourGameList *List
+	codeInput    *TextInput
+	createBtn    *Button
+	joinBtn      *Button
+	joinCodeBtn  *Button
+	refreshBtn   *Button
+	deleteBtn    *Button
+	games        []protocol.GameListItem
+	yourGames    []protocol.GameListItem
+	selectedGame string
 
 	// Create game dialog
 	showCreate       bool
@@ -168,9 +172,17 @@ type LobbyScene struct {
 func NewLobbyScene(game *Game) *LobbyScene {
 	s := &LobbyScene{game: game}
 
-	// Game list
-	s.gameList = NewList(50, 100, 500, 400)
-	s.gameList.OnSelect = func(id string) {}
+	// Your games list (top half)
+	s.yourGameList = NewList(50, 100, 500, 180)
+	s.yourGameList.OnSelect = func(id string) {
+		s.selectedGame = id
+	}
+
+	// Public game list (bottom half)
+	s.gameList = NewList(50, 320, 500, 280)
+	s.gameList.OnSelect = func(id string) {
+		s.selectedGame = id
+	}
 
 	// Code input
 	s.codeInput = &TextInput{
@@ -188,9 +200,15 @@ func NewLobbyScene(game *Game) *LobbyScene {
 	}
 
 	s.joinBtn = &Button{
-		X: 600, Y: 520, W: 200, H: 40,
+		X: 600, Y: 250, W: 200, H: 40,
 		Text:    "Join Selected",
 		OnClick: s.onJoinSelected,
+	}
+
+	s.deleteBtn = &Button{
+		X: 600, Y: 300, W: 200, H: 40,
+		Text:    "Delete Selected",
+		OnClick: s.onDeleteGame,
 	}
 
 	s.joinCodeBtn = &Button{
@@ -200,9 +218,9 @@ func NewLobbyScene(game *Game) *LobbyScene {
 	}
 
 	s.refreshBtn = &Button{
-		X: 50, Y: 520, W: 150, H: 40,
+		X: 600, Y: 200, W: 200, H: 40,
 		Text:    "Refresh",
-		OnClick: func() { s.game.ListGames() },
+		OnClick: s.onRefresh,
 	}
 
 	// Create dialog
@@ -268,15 +286,27 @@ func (s *LobbyScene) Update() error {
 		return nil
 	}
 
+	s.yourGameList.Update()
 	s.gameList.Update()
 	s.codeInput.Update()
 	s.createBtn.Update()
 	s.joinBtn.Update()
+	s.deleteBtn.Update()
 	s.joinCodeBtn.Update()
 	s.refreshBtn.Update()
 
-	// Disable join if nothing selected
-	s.joinBtn.Disabled = s.gameList.GetSelectedID() == ""
+	// Update selected game from either list
+	if id := s.yourGameList.GetSelectedID(); id != "" {
+		s.selectedGame = id
+		s.gameList.ClearSelection()
+	} else if id := s.gameList.GetSelectedID(); id != "" {
+		s.selectedGame = id
+		s.yourGameList.ClearSelection()
+	}
+
+	// Disable join/delete if nothing selected
+	s.joinBtn.Disabled = s.selectedGame == ""
+	s.deleteBtn.Disabled = s.selectedGame == "" || !s.isCreator(s.selectedGame)
 
 	return nil
 }
@@ -286,8 +316,12 @@ func (s *LobbyScene) Draw(screen *ebiten.Image) {
 	DrawText(screen, "Game Lobby", 50, 50, ColorText)
 	DrawText(screen, fmt.Sprintf("Welcome, %s!", s.game.config.PlayerName), 50, 70, ColorTextMuted)
 
+	// Your games list
+	DrawText(screen, "Your Games:", 50, 85, ColorTextMuted)
+	s.yourGameList.Draw(screen)
+
 	// Public games list
-	DrawText(screen, "Public Games:", 50, 85, ColorTextMuted)
+	DrawText(screen, "Public Games:", 50, 290, ColorTextMuted)
 	s.gameList.Draw(screen)
 
 	// Right side
@@ -297,9 +331,10 @@ func (s *LobbyScene) Draw(screen *ebiten.Image) {
 	s.codeInput.Draw(screen)
 	s.joinCodeBtn.Draw(screen)
 
-	// Bottom buttons
+	// Action buttons
 	s.refreshBtn.Draw(screen)
 	s.joinBtn.Draw(screen)
+	s.deleteBtn.Draw(screen)
 
 	// Create dialog overlay
 	if s.showCreate {
@@ -333,10 +368,50 @@ func (s *LobbyScene) SetGameList(games []protocol.GameListItem) {
 	s.gameList.SetItems(items)
 }
 
+func (s *LobbyScene) SetYourGames(games []protocol.GameListItem) {
+	s.yourGames = games
+	items := make([]ListItem, len(games))
+	for i, g := range games {
+		status := g.Status
+		if g.IsYourTurn {
+			status += " - YOUR TURN!"
+		}
+		items[i] = ListItem{
+			ID:      g.ID,
+			Text:    g.Name,
+			Subtext: fmt.Sprintf("%s (%d/%d)", status, g.PlayerCount, g.MaxPlayers),
+		}
+	}
+	s.yourGameList.SetItems(items)
+}
+
+func (s *LobbyScene) isCreator(gameID string) bool {
+	// Check in your games list
+	for _, g := range s.yourGames {
+		if g.ID == gameID && g.HostName == s.game.config.PlayerName {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *LobbyScene) onRefresh() {
+	s.game.ListGames()
+	s.game.ListYourGames()
+}
+
 func (s *LobbyScene) onJoinSelected() {
-	id := s.gameList.GetSelectedID()
-	if id != "" {
-		s.game.JoinGame(id)
+	if s.selectedGame != "" {
+		s.game.JoinGame(s.selectedGame)
+	}
+}
+
+func (s *LobbyScene) onDeleteGame() {
+	if s.selectedGame != "" && s.isCreator(s.selectedGame) {
+		s.game.DeleteGame(s.selectedGame)
+		s.selectedGame = ""
+		// Refresh lists
+		s.onRefresh()
 	}
 }
 

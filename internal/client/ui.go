@@ -324,6 +324,11 @@ func (l *List) GetSelectedID() string {
 	return ""
 }
 
+// ClearSelection clears the current selection.
+func (l *List) ClearSelection() {
+	l.selectedIdx = -1
+}
+
 // Contains checks if a string contains a substring (case insensitive).
 func Contains(s, substr string) bool {
 	return strings.Contains(strings.ToLower(s), strings.ToLower(substr))

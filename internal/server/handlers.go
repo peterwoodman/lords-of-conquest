@@ -36,6 +36,8 @@ func (h *Handlers) Handle(client *Client, msg *protocol.Message) {
 		err = h.handleJoinByCode(client, msg)
 	case protocol.TypeLeaveGame:
 		err = h.handleLeaveGame(client, msg)
+	case protocol.TypeDeleteGame:
+		err = h.handleDeleteGame(client, msg)
 	case protocol.TypeAddAI:
 		err = h.handleAddAI(client, msg)
 	case protocol.TypePlayerReady:
@@ -48,6 +50,8 @@ func (h *Handlers) Handle(client *Client, msg *protocol.Message) {
 		err = h.handlePlaceStockpile(client, msg)
 	case protocol.TypeListGames:
 		err = h.handleListGames(client, msg)
+	case protocol.TypeYourGames:
+		err = h.handleYourGames(client, msg)
 	default:
 		err = errors.New("unknown message type")
 	}
@@ -432,6 +436,11 @@ func (h *Handlers) handleStartGame(client *Client, msg *protocol.Message) error 
 
 // handleListGames handles listing public games.
 func (h *Handlers) handleListGames(client *Client, msg *protocol.Message) error {
+	// Clean up abandoned lobbies before listing
+	if err := h.hub.server.db.CleanupAbandonedLobbies(); err != nil {
+		log.Printf("Warning: Failed to cleanup abandoned lobbies: %v", err)
+	}
+
 	games, err := h.hub.server.db.ListPublicGames()
 	if err != nil {
 		return err
@@ -692,12 +701,25 @@ func createStatePayload(state *game.GameState, mapData *maps.Map) map[string]int
 	// Convert players
 	players := make(map[string]interface{})
 	for id, p := range state.Players {
-		players[id] = map[string]interface{}{
+		playerData := map[string]interface{}{
 			"id":    id,
 			"name":  p.Name,
 			"color": string(p.Color),
 			"isAI":  p.IsAI,
 		}
+
+		// Include stockpile information if it exists
+		if p.StockpileTerritory != "" {
+			playerData["stockpileTerritory"] = p.StockpileTerritory
+			playerData["stockpile"] = map[string]interface{}{
+				"coal":   p.Stockpile.Coal,
+				"gold":   p.Stockpile.Gold,
+				"iron":   p.Stockpile.Iron,
+				"timber": p.Stockpile.Timber,
+			}
+		}
+
+		players[id] = playerData
 	}
 
 	// Add map rendering data
@@ -853,4 +875,110 @@ func parseAIPersonality(s string) game.AIPersonality {
 	default:
 		return game.AIAggressive
 	}
+}
+
+// handleYourGames returns games the player is participating in.
+func (h *Handlers) handleYourGames(client *Client, msg *protocol.Message) error {
+	if client.PlayerID == "" {
+		return errors.New("not authenticated")
+	}
+
+	games, err := h.hub.server.db.GetPlayerGames(client.PlayerID)
+	if err != nil {
+		return err
+	}
+
+	gameList := make([]protocol.GameListItem, len(games))
+	for i, g := range games {
+		// Check if it's this player's turn
+		isYourTurn := false
+		if g.Status == database.GameStatusStarted {
+			stateJSON, err := h.hub.server.db.GetGameState(g.ID)
+			if err == nil && stateJSON != "" {
+				var state game.GameState
+				if err := json.Unmarshal([]byte(stateJSON), &state); err == nil {
+					isYourTurn = state.CurrentPlayerID == client.PlayerID
+				}
+			}
+		}
+
+		// Get host player name
+		hostName := ""
+		if host, err := h.hub.server.db.GetPlayerByID(g.HostPlayerID); err == nil {
+			hostName = host.Name
+		}
+
+		gameList[i] = protocol.GameListItem{
+			ID:          g.ID,
+			Name:        g.Name,
+			JoinCode:    g.JoinCode,
+			Status:      string(g.Status),
+			PlayerCount: g.PlayerCount,
+			MaxPlayers:  g.MaxPlayers,
+			IsYourTurn:  isYourTurn,
+			HostName:    hostName,
+		}
+	}
+
+	response := protocol.YourGamesPayload{Games: gameList}
+	respMsg, _ := protocol.NewMessage(protocol.TypeYourGames, response)
+	respMsg.ID = msg.ID
+	client.Send(respMsg)
+
+	return nil
+}
+
+// handleDeleteGame allows the creator to delete a game.
+func (h *Handlers) handleDeleteGame(client *Client, msg *protocol.Message) error {
+	if client.PlayerID == "" {
+		return errors.New("not authenticated")
+	}
+
+	var payload protocol.DeleteGamePayload
+	if err := msg.ParsePayload(&payload); err != nil {
+		return err
+	}
+
+	// Get the game to check ownership
+	game, err := h.hub.server.db.GetGame(payload.GameID)
+	if err != nil {
+		return err
+	}
+
+	// Only the creator can delete the game
+	if game.HostPlayerID != client.PlayerID {
+		return errors.New("only the game creator can delete the game")
+	}
+
+	// Delete the game
+	if err := h.hub.server.db.DeleteGame(payload.GameID); err != nil {
+		return err
+	}
+
+	log.Printf("Game %s deleted by creator %s", payload.GameID, client.PlayerID)
+
+	// Notify all players in the game that it was deleted
+	h.hub.notifyGamePlayers(payload.GameID, protocol.TypeGameDeleted, protocol.GameDeletedPayload{
+		GameID: payload.GameID,
+		Reason: "Game deleted by creator",
+	})
+
+	// Remove all players from the game session
+	h.hub.mu.Lock()
+	if session, ok := h.hub.gameClients[payload.GameID]; ok {
+		for c := range session {
+			c.GameID = ""
+		}
+		delete(h.hub.gameClients, payload.GameID)
+	}
+	h.hub.mu.Unlock()
+
+	// Send confirmation to requester
+	respMsg, _ := protocol.NewMessage(protocol.TypeGameDeleted, protocol.GameDeletedPayload{
+		GameID: payload.GameID,
+	})
+	respMsg.ID = msg.ID
+	client.Send(respMsg)
+
+	return nil
 }

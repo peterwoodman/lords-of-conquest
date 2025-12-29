@@ -59,6 +59,22 @@ type JoinedGamePayload struct {
 	JoinCode string `json:"join_code"`
 }
 
+// LeaveGamePayload is sent to leave a game.
+type LeaveGamePayload struct {
+	// No additional fields needed - inferred from client context
+}
+
+// DeleteGamePayload is sent to delete a game (creator only).
+type DeleteGamePayload struct {
+	GameID string `json:"game_id"`
+}
+
+// GameDeletedPayload is sent when a game is deleted.
+type GameDeletedPayload struct {
+	GameID string `json:"game_id"`
+	Reason string `json:"reason,omitempty"`
+}
+
 // AddAIPayload is sent to add an AI player.
 type AddAIPayload struct {
 	Personality string `json:"personality"` // aggressive, defensive, passive

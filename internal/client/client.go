@@ -159,6 +159,17 @@ func (g *Game) ListGames() error {
 	return g.network.SendPayload(protocol.TypeListGames, struct{}{})
 }
 
+func (g *Game) ListYourGames() error {
+	return g.network.SendPayload(protocol.TypeYourGames, struct{}{})
+}
+
+func (g *Game) DeleteGame(gameID string) error {
+	payload := protocol.DeleteGamePayload{
+		GameID: gameID,
+	}
+	return g.network.SendPayload(protocol.TypeDeleteGame, payload)
+}
+
 // SetReady sets the player's ready status.
 func (g *Game) SetReady(ready bool) error {
 	payload := protocol.PlayerReadyPayload{
@@ -223,6 +234,10 @@ func (g *Game) handleMessage(msg *protocol.Message) {
 
 			// Move to lobby scene
 			g.SetScene(g.lobbyScene)
+			
+			// Request game lists
+			g.ListGames()
+			g.ListYourGames()
 		}
 
 	case protocol.TypeGameCreated:
@@ -261,6 +276,29 @@ func (g *Game) handleMessage(msg *protocol.Message) {
 		}
 		if lobby, ok := g.currentScene.(*LobbyScene); ok {
 			lobby.SetGameList(payload.Games)
+		}
+
+	case protocol.TypeYourGames:
+		var payload protocol.YourGamesPayload
+		if err := msg.ParsePayload(&payload); err != nil {
+			return
+		}
+		if lobby, ok := g.currentScene.(*LobbyScene); ok {
+			lobby.SetYourGames(payload.Games)
+		}
+
+	case protocol.TypeGameDeleted:
+		var payload protocol.GameDeletedPayload
+		if err := msg.ParsePayload(&payload); err != nil {
+			return
+		}
+		log.Printf("Game %s was deleted: %s", payload.GameID, payload.Reason)
+		// If we were in that game, go back to lobby
+		if g.currentGameID == payload.GameID {
+			g.currentGameID = ""
+			g.inGame = false
+			g.lobbyState = nil
+			g.SetScene(g.lobbyScene)
 		}
 
 	case protocol.TypeGameStarted:

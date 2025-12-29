@@ -396,6 +396,97 @@ func (db *DB) LogAction(gameID, playerID, actionType, actionJSON, resultJSON str
 	return err
 }
 
+// DeleteGame permanently deletes a game and all associated data.
+func (db *DB) DeleteGame(gameID string) error {
+	tx, err := db.conn.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	// Delete in order of dependencies
+	_, err = tx.Exec(`DELETE FROM game_actions WHERE game_id = ?`, gameID)
+	if err != nil {
+		return err
+	}
+
+	_, err = tx.Exec(`DELETE FROM game_state WHERE game_id = ?`, gameID)
+	if err != nil {
+		return err
+	}
+
+	_, err = tx.Exec(`DELETE FROM game_players WHERE game_id = ?`, gameID)
+	if err != nil {
+		return err
+	}
+
+	_, err = tx.Exec(`DELETE FROM games WHERE id = ?`, gameID)
+	if err != nil {
+		return err
+	}
+
+	return tx.Commit()
+}
+
+// CleanupAbandonedLobbies removes lobby games where the host is offline.
+func (db *DB) CleanupAbandonedLobbies() error {
+	// Delete games that are in waiting status and have no connected players
+	_, err := db.conn.Exec(`
+		DELETE FROM games 
+		WHERE id IN (
+			SELECT g.id FROM games g
+			WHERE g.status = ?
+			AND NOT EXISTS (
+				SELECT 1 FROM game_players gp
+				WHERE gp.game_id = g.id
+				AND gp.is_connected = 1
+			)
+		)
+	`, GameStatusWaiting)
+	return err
+}
+
+// GetPlayerGames retrieves all games a player is participating in.
+func (db *DB) GetPlayerGames(playerID string) ([]*GameInfo, error) {
+	rows, err := db.conn.Query(`
+		SELECT DISTINCT
+			g.id, g.name, g.join_code, g.is_public, g.status,
+			g.host_player_id, g.max_players, g.created_at,
+			(SELECT COUNT(*) FROM game_players WHERE game_id = g.id) as player_count
+		FROM games g
+		INNER JOIN game_players gp ON gp.game_id = g.id
+		WHERE gp.player_id = ?
+		AND g.status != ?
+		ORDER BY g.created_at DESC
+	`, playerID, GameStatusFinished)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var games []*GameInfo
+	for rows.Next() {
+		game := &GameInfo{}
+		err := rows.Scan(
+			&game.ID,
+			&game.Name,
+			&game.JoinCode,
+			&game.IsPublic,
+			&game.Status,
+			&game.HostPlayerID,
+			&game.MaxPlayers,
+			&game.CreatedAt,
+			&game.PlayerCount,
+		)
+		if err != nil {
+			return nil, err
+		}
+		games = append(games, game)
+	}
+
+	return games, rows.Err()
+}
+
 // generateJoinCode creates a human-readable join code.
 func generateJoinCode() string {
 	const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789" // Removed ambiguous chars (0,O,1,I)

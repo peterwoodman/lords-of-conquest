@@ -110,37 +110,6 @@ func (db *DB) UpdatePlayerLastSeen(id string) error {
 }
 
 // GetPlayerGames returns all games a player is in.
-func (db *DB) GetPlayerGames(playerID string) ([]*GameInfo, error) {
-	rows, err := db.conn.Query(`
-		SELECT g.id, g.name, g.join_code, g.is_public, g.status, 
-		       g.host_player_id, g.created_at,
-		       (SELECT COUNT(*) FROM game_players WHERE game_id = g.id) as player_count
-		FROM games g
-		JOIN game_players gp ON g.id = gp.game_id
-		WHERE gp.player_id = ?
-		ORDER BY g.created_at DESC
-	`, playerID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var games []*GameInfo
-	for rows.Next() {
-		var g GameInfo
-		var joinCode sql.NullString
-		if err := rows.Scan(&g.ID, &g.Name, &joinCode, &g.IsPublic, &g.Status,
-			&g.HostPlayerID, &g.CreatedAt, &g.PlayerCount); err != nil {
-			return nil, err
-		}
-		if joinCode.Valid {
-			g.JoinCode = joinCode.String
-		}
-		games = append(games, &g)
-	}
-	return games, rows.Err()
-}
-
 // generateToken creates a secure random token.
 func generateToken() (string, error) {
 	bytes := make([]byte, 32)
