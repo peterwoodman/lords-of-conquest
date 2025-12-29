@@ -76,7 +76,12 @@ func (s *Server) Start() error {
 		Handler: mux,
 	}
 
-	log.Printf("Server starting on %s", s.addr)
+	log.Printf("Lords of Conquest Server")
+	log.Printf("  Address: http://localhost%s", s.addr)
+	log.Printf("  Database: %s", "data/lords.db")
+	log.Printf("  WebSocket: ws://localhost%s/ws", s.addr)
+	log.Printf("")
+	log.Printf("Press Ctrl+C to stop")
 
 	// Start the hub
 	go s.hub.Run()

@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"flag"
+	"fmt"
 	"log"
 	"os"
 	"os/signal"
@@ -10,12 +11,30 @@ import (
 	"time"
 
 	"lords-of-conquest/internal/server"
+	"lords-of-conquest/pkg/maps"
 )
 
 func main() {
 	port := flag.String("port", "8080", "Server port")
 	dbPath := flag.String("db", "data/lords.db", "Database path")
 	flag.Parse()
+
+	// Load all maps
+	if err := maps.LoadAll(); err != nil {
+		log.Fatalf("Failed to load maps: %v", err)
+	}
+	log.Printf("Loaded %d maps", len(maps.Registry))
+	for _, info := range maps.List() {
+		m := maps.Get(info.ID)
+		log.Printf("  - %s: %dx%d, %d territories, %d water bodies",
+			info.Name, info.Width, info.Height, info.TerritoryCount, len(m.WaterBodies))
+
+		// Debug output in verbose mode
+		if *port == "debug" {
+			fmt.Println(m.Debug())
+			fmt.Println(m.PrintAdjacencyMatrix())
+		}
+	}
 
 	cfg := server.Config{
 		Addr:   ":" + *port,
