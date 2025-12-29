@@ -193,6 +193,14 @@ func (g *Game) SelectTerritory(territoryID string) error {
 	return g.network.SendPayload(protocol.TypeSelectTerritory, payload)
 }
 
+// PlaceStockpile sends a stockpile placement to the server.
+func (g *Game) PlaceStockpile(territoryID string) error {
+	payload := protocol.PlaceStockpilePayload{
+		TerritoryID: territoryID,
+	}
+	return g.network.SendPayload(protocol.TypePlaceStockpile, payload)
+}
+
 // handleMessage processes incoming server messages.
 func (g *Game) handleMessage(msg *protocol.Message) {
 	switch msg.Type {
@@ -261,15 +269,20 @@ func (g *Game) handleMessage(msg *protocol.Message) {
 		g.SetScene(g.gameplayScene)
 
 	case protocol.TypeGameState:
+		log.Println("Received game state update")
 		var payload protocol.GameStatePayload
 		if err := msg.ParsePayload(&payload); err != nil {
+			log.Printf("Failed to parse game state: %v", err)
 			return
 		}
 		// Update gameplay scene with new state
 		if stateMap, ok := payload.State.(map[string]interface{}); ok {
-			if g.currentScene == g.gameplayScene {
-				g.gameplayScene.SetGameState(stateMap)
-			}
+			// Update the gameplay scene regardless of current scene
+			// (it might be transitioning)
+			g.gameplayScene.SetGameState(stateMap)
+			log.Println("Game state set on gameplay scene")
+		} else {
+			log.Printf("Game state is not a map: %T", payload.State)
 		}
 
 	case protocol.TypeError:

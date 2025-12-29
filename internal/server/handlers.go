@@ -422,6 +422,8 @@ func (h *Handlers) handleStartGame(client *Client, msg *protocol.Message) error 
 		GameID: client.GameID,
 	})
 
+	log.Printf("Broadcasting initial game state for game %s", client.GameID)
+
 	// Send initial game state
 	h.broadcastGameState(client.GameID)
 

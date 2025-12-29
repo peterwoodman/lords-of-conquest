@@ -3,6 +3,7 @@ package client
 import (
 	"fmt"
 	"image/color"
+	"log"
 
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/inpututil"
@@ -56,7 +57,8 @@ func (s *GameplayScene) OnEnter() {
 func (s *GameplayScene) OnExit() {}
 
 func (s *GameplayScene) Update() error {
-	if s.gameState == nil {
+	// Only process input if we have map data
+	if s.mapData == nil {
 		return nil
 	}
 
@@ -75,7 +77,7 @@ func (s *GameplayScene) Update() error {
 }
 
 func (s *GameplayScene) Draw(screen *ebiten.Image) {
-	if s.gameState == nil {
+	if s.mapData == nil {
 		DrawTextCentered(screen, "Loading game...", ScreenWidth/2, ScreenHeight/2, ColorText)
 		return
 	}
@@ -154,7 +156,7 @@ func (s *GameplayScene) drawMap(screen *ebiten.Image) {
 func (s *GameplayScene) drawInfoPanel(screen *ebiten.Image) {
 	panelX := 20
 	panelY := 20
-	panelW := 400
+	panelW := 600
 	panelH := 50
 
 	DrawPanel(screen, panelX, panelY, panelW, panelH)
@@ -163,24 +165,36 @@ func (s *GameplayScene) drawInfoPanel(screen *ebiten.Image) {
 	phaseText := fmt.Sprintf("Round %d - %s", s.round, s.currentPhase)
 	DrawText(screen, phaseText, panelX+10, panelY+10, ColorText)
 
+	// Phase-specific instructions
+	instruction := ""
+	if s.currentPhase == "Territory Selection" {
+		instruction = "Click to claim territories"
+	} else if s.currentPhase == "Production" && s.round == 1 {
+		instruction = "Click one of YOUR territories to place stockpile"
+	}
+	
+	if instruction != "" {
+		DrawText(screen, instruction, panelX+250, panelY+10, ColorTextMuted)
+	}
+
 	// Current turn
 	if s.currentTurn != "" {
 		if player, ok := s.players[s.currentTurn].(map[string]interface{}); ok {
 			playerName := player["name"].(string)
 			playerColor := player["color"].(string)
 			
-			turnText := fmt.Sprintf("Current Turn: %s", playerName)
+			turnText := fmt.Sprintf("Turn: %s", playerName)
 			DrawText(screen, turnText, panelX+10, panelY+28, ColorText)
 
 			// Color indicator
 			if pc, ok := PlayerColors[playerColor]; ok {
-				vector.DrawFilledRect(screen, float32(panelX+120), float32(panelY+30), 
+				vector.DrawFilledRect(screen, float32(panelX+60), float32(panelY+30), 
 					12, 12, pc, false)
 			}
 
 			// Indicate if it's your turn
 			if s.currentTurn == s.game.config.PlayerID {
-				DrawText(screen, "(YOUR TURN)", panelX+240, panelY+28, ColorSuccess)
+				DrawText(screen, "YOUR TURN!", panelX+120, panelY+28, ColorSuccess)
 			}
 		}
 	}
@@ -241,12 +255,7 @@ func (s *GameplayScene) drawHoverInfo(screen *ebiten.Image) {
 }
 
 func (s *GameplayScene) handleCellClick(x, y int) {
-	if s.mapData == nil || s.currentPhase != "Territory Selection" {
-		return
-	}
-
-	// Check if it's our turn
-	if s.currentTurn != s.game.config.PlayerID {
+	if s.mapData == nil {
 		return
 	}
 
@@ -259,11 +268,41 @@ func (s *GameplayScene) handleCellClick(x, y int) {
 	}
 
 	tid := fmt.Sprintf("t%d", territoryID)
-	if terr, ok := s.territories[tid].(map[string]interface{}); ok {
+
+	// Handle based on current phase
+	switch s.currentPhase {
+	case "Territory Selection":
+		s.handleTerritorySelection(tid)
+	case "Production":
+		s.handleStockpilePlacement(tid)
+	default:
+		log.Printf("No handler for phase: %s", s.currentPhase)
+	}
+}
+
+func (s *GameplayScene) handleTerritorySelection(territoryID string) {
+	// Check if it's our turn
+	if s.currentTurn != s.game.config.PlayerID {
+		return
+	}
+
+	if terr, ok := s.territories[territoryID].(map[string]interface{}); ok {
 		owner := terr["owner"].(string)
 		if owner == "" {
 			// Unclaimed, we can select it
-			s.game.SelectTerritory(tid)
+			s.game.SelectTerritory(territoryID)
+		}
+	}
+}
+
+func (s *GameplayScene) handleStockpilePlacement(territoryID string) {
+	// Can only place on your own territories
+	if terr, ok := s.territories[territoryID].(map[string]interface{}); ok {
+		owner := terr["owner"].(string)
+		if owner == s.game.config.PlayerID {
+			// This is our territory, place stockpile here
+			s.game.PlaceStockpile(territoryID)
+			log.Printf("Placing stockpile at %s", territoryID)
 		}
 	}
 }
@@ -292,31 +331,52 @@ func (s *GameplayScene) screenToGrid(screenX, screenY int) [2]int {
 
 // SetGameState updates the game state from the server.
 func (s *GameplayScene) SetGameState(state map[string]interface{}) {
+	log.Println("GameplayScene.SetGameState called")
 	s.gameState = state
 	
 	if mapData, ok := state["map"].(map[string]interface{}); ok {
 		s.mapData = mapData
+		log.Printf("Map data loaded: %dx%d", int(mapData["width"].(float64)), int(mapData["height"].(float64)))
+	} else {
+		log.Printf("No map data in state, keys: %v", getKeys(state))
 	}
 	
 	if territories, ok := state["territories"].(map[string]interface{}); ok {
 		s.territories = territories
+		log.Printf("Loaded %d territories", len(territories))
+	} else {
+		log.Println("No territories in state")
 	}
 	
 	if players, ok := state["players"].(map[string]interface{}); ok {
 		s.players = players
+		log.Printf("Loaded %d players", len(players))
+	} else {
+		log.Println("No players in state")
 	}
 	
 	if phase, ok := state["phase"].(string); ok {
 		s.currentPhase = phase
+		log.Printf("Phase: %s", phase)
 	}
 	
 	if turn, ok := state["currentPlayerId"].(string); ok {
 		s.currentTurn = turn
+		log.Printf("Current turn: %s", turn)
 	}
 	
 	if round, ok := state["round"].(float64); ok {
 		s.round = int(round)
+		log.Printf("Round: %d", round)
 	}
+}
+
+func getKeys(m map[string]interface{}) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	return keys
 }
 
 func min(a, b uint8) uint8 {
