@@ -2,12 +2,13 @@ package client
 
 import (
 	"fmt"
+	"image/color"
 
 	"lords-of-conquest/internal/protocol"
 
 	"github.com/hajimehoshi/ebiten/v2"
-	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
 	"github.com/hajimehoshi/ebiten/v2/inpututil"
+	"github.com/hajimehoshi/ebiten/v2/vector"
 )
 
 // ==================== Connect Scene ====================
@@ -85,28 +86,60 @@ func (s *ConnectScene) Update() error {
 }
 
 func (s *ConnectScene) Draw(screen *ebiten.Image) {
-	// Title
-	DrawTextCentered(screen, "LORDS OF CONQUEST", ScreenWidth/2, 150, ColorText)
-	DrawTextCentered(screen, "A Modern Remake", ScreenWidth/2, 180, ColorTextMuted)
+	// Starfield background effect (simple dots)
+	for i := 0; i < 50; i++ {
+		x := float32((i * 137) % ScreenWidth)
+		y := float32((i * 97) % ScreenHeight)
+		size := float32(1 + (i%3))
+		alpha := uint8(100 + (i % 155))
+		starColor := color.RGBA{100, 150, 255, alpha}
+		vector.DrawFilledCircle(screen, x, y, size, starColor, false)
+	}
+	
+	// Main panel
+	panelW := 600
+	panelH := 450
+	panelX := ScreenWidth/2 - panelW/2
+	panelY := ScreenHeight/2 - panelH/2
+	DrawFancyPanel(screen, panelX, panelY, panelW, panelH, "")
+	
+	// Huge title - centered
+	titleY := panelY + 50
+	DrawHugeTitleCentered(screen, "LORDS OF CONQUEST", ScreenWidth/2, titleY)
+	
+	// Subtitle - larger
+	DrawLargeTextCentered(screen, "A Modern Remake", ScreenWidth/2, titleY+45, ColorTextMuted)
 
 	// Server input
-	DrawText(screen, "Server:", ScreenWidth/2-150, 258, ColorTextMuted)
+	inputY := panelY + 180
+	DrawLargeText(screen, "Server:", panelX+30, inputY-30, ColorTextMuted)
+	s.serverInput.Y = inputY
+	s.serverInput.H = 45
 	s.serverInput.Draw(screen)
 
 	// Name input
-	DrawText(screen, "Your Name:", ScreenWidth/2-150, 318, ColorTextMuted)
+	inputY += 90
+	DrawLargeText(screen, "Your Name:", panelX+30, inputY-30, ColorTextMuted)
+	s.nameInput.Y = inputY
+	s.nameInput.H = 45
 	s.nameInput.Draw(screen)
 
-	// Connect button
+	// Connect button - bigger
+	s.connectBtn.Y = panelY + panelH - 80
+	s.connectBtn.H = 50
 	s.connectBtn.Draw(screen)
 
 	// Status text
 	if s.statusText != "" {
-		DrawTextCentered(screen, s.statusText, ScreenWidth/2, 480, ColorTextMuted)
+		statusColor := ColorText
+		if s.connecting {
+			statusColor = ColorWarning
+		}
+		DrawLargeTextCentered(screen, s.statusText, ScreenWidth/2, panelY+panelH-25, statusColor)
 	}
 
 	// Version
-	ebitenutil.DebugPrintAt(screen, "v0.1.0", 10, ScreenHeight-20)
+	DrawText(screen, "v0.1.0", 10, ScreenHeight-30, ColorTextMuted)
 }
 
 func (s *ConnectScene) onConnect() {
@@ -312,44 +345,128 @@ func (s *LobbyScene) Update() error {
 }
 
 func (s *LobbyScene) Draw(screen *ebiten.Image) {
-	// Title
-	DrawText(screen, "Game Lobby", 50, 50, ColorText)
-	DrawText(screen, fmt.Sprintf("Welcome, %s!", s.game.config.PlayerName), 50, 70, ColorTextMuted)
+	// Background stars
+	for i := 0; i < 30; i++ {
+		x := float32((i * 173) % ScreenWidth)
+		y := float32((i * 127) % ScreenHeight)
+		alpha := uint8(50 + (i % 100))
+		starColor := color.RGBA{100, 150, 255, alpha}
+		vector.DrawFilledCircle(screen, x, y, 1, starColor, false)
+	}
+	
+	// Title panel
+	titlePanel := DrawFancyPanel
+	titlePanel(screen, 20, 20, ScreenWidth-40, 80, "")
+	
+	// Large title
+	DrawLargeText(screen, "GAME LOBBY", 45, 38, ColorText)
+	
+	DrawLargeText(screen, fmt.Sprintf("Welcome, %s!", s.game.config.PlayerName), 45, 58, ColorTextMuted)
 
-	// Your games list
-	DrawText(screen, "Your Games:", 50, 85, ColorTextMuted)
-	s.yourGameList.Draw(screen)
+	listY := 120
+	hasYourGames := len(s.yourGames) > 0
+	
+	// Your games list (only if there are games)
+	if hasYourGames {
+		DrawFancyPanel(screen, 20, listY, 600, 220, "Your Active Games")
+		s.yourGameList.Y = listY + 40
+		s.yourGameList.H = 170
+		s.yourGameList.Draw(screen)
+		listY += 240
+	}
 
 	// Public games list
-	DrawText(screen, "Public Games:", 50, 290, ColorTextMuted)
+	publicGamesH := ScreenHeight - listY - 20
+	if !hasYourGames {
+		publicGamesH = ScreenHeight - listY - 20
+	}
+	
+	DrawFancyPanel(screen, 20, listY, 600, publicGamesH, "Public Games")
+	s.gameList.Y = listY + 40
+	s.gameList.H = publicGamesH - 50
 	s.gameList.Draw(screen)
 
-	// Right side
+	// Right side panel
+	rightX := 640
+	rightY := 120
+	DrawFancyPanel(screen, rightX, rightY, 340, ScreenHeight-rightY-20, "Actions")
+	
+	// Buttons inside right panel
+	buttonX := rightX + 20
+	buttonY := rightY + 50
+	
+	s.createBtn.X = buttonX
+	s.createBtn.Y = buttonY
+	s.createBtn.W = 300
+	s.createBtn.H = 50
 	s.createBtn.Draw(screen)
-
-	DrawText(screen, "Join by code:", 600, 130, ColorTextMuted)
+	
+	buttonY += 80
+	DrawLargeText(screen, "Join by code:", buttonX, buttonY, ColorTextMuted)
+	s.codeInput.X = buttonX
+	s.codeInput.Y = buttonY + 25
+	s.codeInput.W = 200
+	s.codeInput.H = 45
 	s.codeInput.Draw(screen)
+	
+	s.joinCodeBtn.X = buttonX + 210
+	s.joinCodeBtn.Y = buttonY + 25
+	s.joinCodeBtn.W = 90
+	s.joinCodeBtn.H = 45
 	s.joinCodeBtn.Draw(screen)
-
-	// Action buttons
+	
+	buttonY += 100
+	s.refreshBtn.X = buttonX
+	s.refreshBtn.Y = buttonY
+	s.refreshBtn.W = 300
+	s.refreshBtn.H = 50
 	s.refreshBtn.Draw(screen)
+	
+	buttonY += 70
+	s.joinBtn.X = buttonX
+	s.joinBtn.Y = buttonY
+	s.joinBtn.W = 300
+	s.joinBtn.H = 50
 	s.joinBtn.Draw(screen)
+	
+	buttonY += 70
+	s.deleteBtn.X = buttonX
+	s.deleteBtn.Y = buttonY
+	s.deleteBtn.W = 300
+	s.deleteBtn.H = 50
 	s.deleteBtn.Draw(screen)
 
 	// Create dialog overlay
 	if s.showCreate {
-		// Dim background
-		DrawPanel(screen, ScreenWidth/2-200, 200, 400, 300)
+		// Semi-transparent overlay
+		vector.DrawFilledRect(screen, 0, 0, float32(ScreenWidth), float32(ScreenHeight), 
+			color.RGBA{0, 0, 0, 180}, false)
+		
+		// Dialog panel
+		DrawFancyPanel(screen, ScreenWidth/2-300, 180, 600, 360, "Create New Game")
 
-		DrawTextCentered(screen, "Create Game", ScreenWidth/2, 230, ColorText)
-
-		DrawText(screen, "Game Name:", ScreenWidth/2-150, 258, ColorTextMuted)
+		dialogX := ScreenWidth/2 - 250
+		dialogY := 250
+		
+		DrawLargeText(screen, "Game Name:", dialogX, dialogY, ColorTextMuted)
+		s.createNameInput.X = dialogX
+		s.createNameInput.Y = dialogY + 25
+		s.createNameInput.H = 45
 		s.createNameInput.Draw(screen)
 
-		DrawText(screen, "Visibility:", ScreenWidth/2-150, 320, ColorTextMuted)
+		dialogY += 100
+		DrawLargeText(screen, "Visibility:", dialogX, dialogY, ColorTextMuted)
+		s.createPublicBtn.Y = dialogY + 25
+		s.createPublicBtn.H = 50
+		s.createPrivateBtn.Y = dialogY + 25
+		s.createPrivateBtn.H = 50
 		s.createPublicBtn.Draw(screen)
 		s.createPrivateBtn.Draw(screen)
 
+		s.createConfirmBtn.Y = dialogY + 110
+		s.createConfirmBtn.H = 50
+		s.createCancelBtn.Y = dialogY + 110
+		s.createCancelBtn.H = 50
 		s.createConfirmBtn.Draw(screen)
 		s.createCancelBtn.Draw(screen)
 	}

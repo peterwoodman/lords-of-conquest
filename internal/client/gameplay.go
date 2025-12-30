@@ -44,9 +44,9 @@ type Panel struct {
 func NewGameplayScene(game *Game) *GameplayScene {
 	return &GameplayScene{
 		game:        game,
-		cellSize:    32,
-		offsetX:     20,
-		offsetY:     80,
+		cellSize:    28, // Slightly smaller to fit better
+		offsetX:     260, // Leave room for left sidebar
+		offsetY:     30,  // Top margin
 		hoveredCell: [2]int{-1, -1},
 	}
 }
@@ -79,24 +79,30 @@ func (s *GameplayScene) Update() error {
 
 func (s *GameplayScene) Draw(screen *ebiten.Image) {
 	if s.mapData == nil {
-		DrawTextCentered(screen, "Loading game...", ScreenWidth/2, ScreenHeight/2, ColorText)
+		DrawLargeTextCentered(screen, "Loading game...", ScreenWidth/2, ScreenHeight/2, ColorText)
 		return
 	}
 
-	// Draw map
-	s.drawMap(screen)
+	// Background stars
+	for i := 0; i < 40; i++ {
+		x := float32((i * 167) % ScreenWidth)
+		y := float32((i * 113) % ScreenHeight)
+		alpha := uint8(30 + (i % 80))
+		starColor := color.RGBA{100, 150, 255, alpha}
+		vector.DrawFilledCircle(screen, x, y, 1, starColor, false)
+	}
 
-	// Draw player identity panel
-	s.drawPlayerIdentityPanel(screen)
-
-	// Draw info panel
-	s.drawInfoPanel(screen)
-
-	// Draw resource panel
-	s.drawResourcePanel(screen)
-
-	// Draw players list panel
-	s.drawPlayersPanel(screen)
+	// Left sidebar
+	s.drawLeftSidebar(screen)
+	
+	// Map area with frame
+	s.drawMapArea(screen)
+	
+	// Right sidebar
+	s.drawRightSidebar(screen)
+	
+	// Bottom info bar
+	s.drawBottomBar(screen)
 
 	// Draw hover info
 	if s.hoveredCell[0] >= 0 {
@@ -291,56 +297,182 @@ func (s *GameplayScene) findTerritoryCenter(territoryID string, grid []interface
 }
 
 func (s *GameplayScene) drawPlayerIdentityPanel(screen *ebiten.Image) {
-	// Only show if we have player data
-	myPlayer, ok := s.players[s.game.config.PlayerID]
-	if !ok {
-		return
-	}
-
-	player := myPlayer.(map[string]interface{})
-	playerName := player["name"].(string)
-	playerColor := player["color"].(string)
-
-	// Panel in top-left corner
-	panelX := 20
-	panelY := 20
-	panelW := 200
-	panelH := 60
-
-	DrawPanel(screen, panelX, panelY, panelW, panelH)
-
-	// "You" label
-	DrawText(screen, "You:", panelX+10, panelY+8, ColorTextMuted)
-
-	// Player name
-	DrawText(screen, playerName, panelX+10, panelY+26, ColorText)
-
-	// Color indicator (large square)
-	if pc, ok := PlayerColors[playerColor]; ok {
-		colorSize := float32(30)
-		colorX := float32(panelX + panelW - 40)
-		colorY := float32(panelY + 15)
-		vector.DrawFilledRect(screen, colorX, colorY, colorSize, colorSize, pc, false)
-		vector.StrokeRect(screen, colorX, colorY, colorSize, colorSize, 2, 
-			color.RGBA{0, 0, 0, 120}, false)
-	}
-
-	// Color name
-	DrawText(screen, playerColor, panelX+10, panelY+44, ColorTextMuted)
+	// Deprecated - now part of drawLeftSidebar
 }
 
 func (s *GameplayScene) drawInfoPanel(screen *ebiten.Image) {
-	panelX := 240
-	panelY := 20
-	panelW := 800
-	panelH := 50
+	// Deprecated - now part of drawBottomBar
+}
 
-	DrawPanel(screen, panelX, panelY, panelW, panelH)
+// drawLeftSidebar draws player identity and players list.
+func (s *GameplayScene) drawLeftSidebar(screen *ebiten.Image) {
+	sidebarX := 10
+	sidebarY := 10
+	sidebarW := 240
+	
+	// Player identity panel
+	myPlayer, ok := s.players[s.game.config.PlayerID]
+	if ok {
+		player := myPlayer.(map[string]interface{})
+		playerName := player["name"].(string)
+		playerColor := player["color"].(string)
+		
+		DrawFancyPanel(screen, sidebarX, sidebarY, sidebarW, 90, "You")
+		
+		DrawLargeText(screen, playerName, sidebarX+15, sidebarY+40, ColorText)
+		
+		// Color indicator
+		if pc, ok := PlayerColors[playerColor]; ok {
+			colorSize := float32(40)
+			colorX := float32(sidebarX + sidebarW - 55)
+			colorY := float32(sidebarY + 35)
+			vector.DrawFilledRect(screen, colorX, colorY, colorSize, colorSize, pc, false)
+			vector.StrokeRect(screen, colorX, colorY, colorSize, colorSize, 3, ColorBorder, false)
+		}
+		
+		DrawText(screen, playerColor, sidebarX+15, sidebarY+65, ColorTextMuted)
+	}
+	
+	// Players list
+	if len(s.playerOrder) > 0 {
+		listY := sidebarY + 110
+		listH := ScreenHeight - listY - 100
+		DrawFancyPanel(screen, sidebarX, listY, sidebarW, listH, "Players")
+		
+		y := listY + 40
+		for _, playerIDInterface := range s.playerOrder {
+			playerID := playerIDInterface.(string)
+			if playerData, ok := s.players[playerID]; ok {
+				player := playerData.(map[string]interface{})
+				playerName := player["name"].(string)
+				playerColor := player["color"].(string)
+				isAI := player["isAI"].(bool)
+				
+				// Color indicator
+				if pc, ok := PlayerColors[playerColor]; ok {
+					vector.DrawFilledRect(screen, float32(sidebarX+15), float32(y+3), 16, 16, pc, false)
+					vector.StrokeRect(screen, float32(sidebarX+15), float32(y+3), 16, 16, 2, ColorBorder, false)
+				}
+				
+				// Player name
+				nameText := playerName
+				if isAI {
+					nameText += " (AI)"
+				}
+				if playerID == s.game.config.PlayerID {
+					nameText += " *"
+				}
+				
+				DrawText(screen, nameText, sidebarX+38, y, ColorText)
+				y += 28
+				
+				if y > listY + listH - 40 {
+					break // Don't overflow
+				}
+			}
+		}
+	}
+}
 
-	// Phase and round
+// drawMapArea draws the map with a decorative frame.
+func (s *GameplayScene) drawMapArea(screen *ebiten.Image) {
+	if s.mapData == nil {
+		return
+	}
+	
+	width := int(s.mapData["width"].(float64))
+	height := int(s.mapData["height"].(float64))
+	
+	// Map dimensions
+	mapW := width * s.cellSize
+	mapH := height * s.cellSize
+	
+	// Frame around map
+	frameX := s.offsetX - 10
+	frameY := s.offsetY - 10
+	frameW := mapW + 20
+	frameH := mapH + 20
+	
+	// Draw fancy frame
+	DrawFancyPanel(screen, frameX, frameY, frameW, frameH, "")
+	
+	// Draw the map
+	s.drawMap(screen)
+}
+
+// drawRightSidebar draws resources and game info.
+func (s *GameplayScene) drawRightSidebar(screen *ebiten.Image) {
+	sidebarX := ScreenWidth - 250
+	sidebarY := 10
+	sidebarW := 240
+	
+	// Resources panel
+	myPlayer, ok := s.players[s.game.config.PlayerID]
+	if ok {
+		player := myPlayer.(map[string]interface{})
+		
+		DrawFancyPanel(screen, sidebarX, sidebarY, sidebarW, 180, "Resources")
+		
+		// Get stockpile data
+		stockpile, hasStockpile := player["stockpile"]
+		if hasStockpile {
+			stockpileData := stockpile.(map[string]interface{})
+			
+			y := sidebarY + 45
+			resources := []struct {
+				name  string
+				key   string
+				color color.RGBA
+			}{
+				{"Coal", "coal", color.RGBA{60, 60, 60, 255}},
+				{"Gold", "gold", color.RGBA{255, 215, 0, 255}},
+				{"Iron", "iron", color.RGBA{160, 160, 180, 255}},
+				{"Wood", "timber", color.RGBA{139, 90, 43, 255}},
+			}
+			
+			for _, res := range resources {
+				count := 0
+				if val, ok := stockpileData[res.key]; ok {
+					count = int(val.(float64))
+				}
+				
+				// Resource icon (colored square)
+				vector.DrawFilledRect(screen, float32(sidebarX+15), float32(y+2), 16, 16, res.color, false)
+				vector.StrokeRect(screen, float32(sidebarX+15), float32(y+2), 16, 16, 2, ColorBorder, false)
+				
+				text := fmt.Sprintf("%s: %d", res.name, count)
+				DrawText(screen, text, sidebarX+40, y, ColorText)
+				y += 28
+			}
+			
+			// Stockpile location
+			if stockpileTerr, ok := player["stockpileTerritory"]; ok && stockpileTerr != nil && stockpileTerr != "" {
+				terrID := stockpileTerr.(string)
+				if terr, ok := s.territories[terrID]; ok {
+					terrData := terr.(map[string]interface{})
+					terrName := terrData["name"].(string)
+					DrawText(screen, "At: "+terrName, sidebarX+15, y+10, ColorTextMuted)
+				}
+			}
+		} else {
+			DrawText(screen, "No stockpile yet", sidebarX+15, sidebarY+45, ColorTextMuted)
+		}
+	}
+}
+
+// drawBottomBar draws phase/turn information.
+func (s *GameplayScene) drawBottomBar(screen *ebiten.Image) {
+	barX := 10
+	barY := ScreenHeight - 90
+	barW := ScreenWidth - 20
+	barH := 80
+	
+	DrawFancyPanel(screen, barX, barY, barW, barH, "")
+	
+	// Phase and round - larger text
 	phaseText := fmt.Sprintf("Round %d - %s", s.round, s.currentPhase)
-	DrawText(screen, phaseText, panelX+10, panelY+10, ColorText)
-
+	DrawLargeText(screen, phaseText, barX+15, barY+15, ColorText)
+	
 	// Phase-specific instructions
 	instruction := ""
 	showTurnIndicator := true
@@ -349,37 +481,46 @@ func (s *GameplayScene) drawInfoPanel(screen *ebiten.Image) {
 		instruction = "Click to claim territories"
 	} else if s.currentPhase == "Production" && s.round == 1 {
 		instruction = "Click YOUR territory to place stockpile"
-		showTurnIndicator = false // Stockpile placement is async, everyone does it
+		showTurnIndicator = false
 	} else if s.currentPhase == "Shipment" {
 		instruction = "Move units between territories"
-		// Shipment is turn-based
 	}
 	
 	if instruction != "" {
-		DrawText(screen, instruction, panelX+250, panelY+10, ColorTextMuted)
+		DrawText(screen, instruction, barX+15, barY+40, ColorTextMuted)
 	}
-
-	// Current turn (only for turn-based phases)
+	
+	// Current turn
 	if showTurnIndicator && s.currentTurn != "" {
 		if player, ok := s.players[s.currentTurn].(map[string]interface{}); ok {
 			playerName := player["name"].(string)
 			playerColor := player["color"].(string)
 			
 			turnText := fmt.Sprintf("Turn: %s", playerName)
-			DrawText(screen, turnText, panelX+10, panelY+28, ColorText)
-
+			DrawText(screen, turnText, barX+15, barY+58, ColorText)
+			
 			// Color indicator
 			if pc, ok := PlayerColors[playerColor]; ok {
-				vector.DrawFilledRect(screen, float32(panelX+60), float32(panelY+30), 
-					12, 12, pc, false)
+				vector.DrawFilledRect(screen, float32(barX+75), float32(barY+60), 
+					16, 16, pc, false)
+				vector.StrokeRect(screen, float32(barX+75), float32(barY+60), 
+					16, 16, 2, ColorBorder, false)
 			}
-
+			
 			// Indicate if it's your turn
 			if s.currentTurn == s.game.config.PlayerID {
-				DrawText(screen, "YOUR TURN!", panelX+120, panelY+28, ColorSuccess)
+				DrawLargeText(screen, "YOUR TURN!", barX+110, barY+56, ColorSuccess)
 			}
 		}
 	}
+}
+
+func (s *GameplayScene) drawPlayersPanel(screen *ebiten.Image) {
+	// Deprecated - now part of drawLeftSidebar
+}
+
+func (s *GameplayScene) drawResourcePanel(screen *ebiten.Image) {
+	// Deprecated - now part of drawRightSidebar
 }
 
 func (s *GameplayScene) drawHoverInfo(screen *ebiten.Image) {
@@ -581,117 +722,5 @@ func min(a, b uint8) uint8 {
 		return a
 	}
 	return b
-}
-
-// drawResourcePanel shows the player's current resources
-func (s *GameplayScene) drawResourcePanel(screen *ebiten.Image) {
-	// Only show for current player
-	myPlayer, ok := s.players[s.game.config.PlayerID]
-	if !ok {
-		return
-	}
-
-	player := myPlayer.(map[string]interface{})
-	
-	// Panel position (top right)
-	panelX := ScreenWidth - 220
-	panelY := 20
-	panelW := 200
-	panelH := 130
-
-	DrawPanel(screen, panelX, panelY, panelW, panelH)
-
-	// Title
-	DrawText(screen, "Your Resources", panelX+10, panelY+8, ColorText)
-
-	// Get stockpile data
-	stockpile, hasStockpile := player["stockpile"]
-	if !hasStockpile {
-		DrawText(screen, "No stockpile yet", panelX+10, panelY+28, ColorTextMuted)
-		return
-	}
-
-	stockpileData := stockpile.(map[string]interface{})
-	
-	// Draw resources
-	y := panelY + 28
-	resources := []struct {
-		name  string
-		key   string
-		icon  string
-	}{
-		{"Coal", "coal", "C"},
-		{"Gold", "gold", "G"},
-		{"Iron", "iron", "I"},
-		{"Wood", "timber", "W"},
-	}
-
-	for _, res := range resources {
-		count := 0
-		if val, ok := stockpileData[res.key]; ok {
-			count = int(val.(float64))
-		}
-		
-		text := fmt.Sprintf("%s: %d", res.name, count)
-		DrawText(screen, text, panelX+10, y, ColorText)
-		y += 20
-	}
-
-	// Show stockpile location
-	if stockpileTerr, ok := player["stockpileTerritory"]; ok && stockpileTerr != nil && stockpileTerr != "" {
-		terrID := stockpileTerr.(string)
-		if terr, ok := s.territories[terrID]; ok {
-			terrData := terr.(map[string]interface{})
-			terrName := terrData["name"].(string)
-			DrawText(screen, fmt.Sprintf("At: %s", terrName), panelX+10, y, ColorTextMuted)
-		}
-	}
-}
-
-// drawPlayersPanel shows all players in the game
-func (s *GameplayScene) drawPlayersPanel(screen *ebiten.Image) {
-	if s.players == nil || len(s.players) == 0 {
-		return
-	}
-
-	// Panel position (below identity panel)
-	panelX := 20
-	panelY := 90
-	panelW := 200
-	panelH := 40 + len(s.players)*24
-
-	DrawPanel(screen, panelX, panelY, panelW, panelH)
-
-	// Title
-	DrawText(screen, "Players", panelX+10, panelY+8, ColorText)
-
-	// List players in turn order
-	y := panelY + 28
-	for _, playerIDInterface := range s.playerOrder {
-		playerID := playerIDInterface.(string)
-		if playerData, ok := s.players[playerID]; ok {
-			player := playerData.(map[string]interface{})
-			playerName := player["name"].(string)
-			playerColor := player["color"].(string)
-			isAI := player["isAI"].(bool)
-
-			// Color indicator
-			if pc, ok := PlayerColors[playerColor]; ok {
-				vector.DrawFilledRect(screen, float32(panelX+10), float32(y+2), 12, 12, pc, false)
-			}
-
-			// Player name
-			nameText := playerName
-			if isAI {
-				nameText += " (AI)"
-			}
-			if playerID == s.game.config.PlayerID {
-				nameText += " ★"
-			}
-			
-			DrawText(screen, nameText, panelX+28, y, ColorText)
-			y += 24
-		}
-	}
 }
 

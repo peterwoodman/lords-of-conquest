@@ -10,22 +10,37 @@ import (
 	"github.com/hajimehoshi/ebiten/v2/vector"
 )
 
-// Colors used in the UI
+// Colors used in the UI - Retro 8-bit inspired palette
 var (
-	ColorBackground    = color.RGBA{20, 20, 30, 255}
-	ColorPanel         = color.RGBA{30, 35, 50, 255}
-	ColorPanelLight    = color.RGBA{45, 50, 70, 255}
-	ColorPrimary       = color.RGBA{70, 130, 180, 255}  // Steel blue
-	ColorPrimaryHover  = color.RGBA{100, 160, 210, 255}
-	ColorSecondary     = color.RGBA{60, 60, 80, 255}
-	ColorSecondaryHover= color.RGBA{80, 80, 100, 255}
-	ColorSuccess       = color.RGBA{50, 150, 80, 255}
-	ColorDanger        = color.RGBA{180, 60, 60, 255}
-	ColorText          = color.RGBA{220, 220, 230, 255}
-	ColorTextMuted     = color.RGBA{140, 140, 160, 255}
-	ColorBorder        = color.RGBA{60, 65, 80, 255}
-	ColorInputBg       = color.RGBA{25, 28, 40, 255}
-	ColorInputFocus    = color.RGBA{70, 130, 180, 255}
+	// Dark blues and purples for backgrounds
+	ColorBackground    = color.RGBA{15, 15, 35, 255}      // Deep space blue
+	ColorPanel         = color.RGBA{25, 25, 60, 255}      // Rich navy
+	ColorPanelLight    = color.RGBA{40, 40, 80, 255}      // Lighter navy
+	
+	// Vibrant accent colors
+	ColorPrimary       = color.RGBA{100, 200, 255, 255}   // Bright cyan
+	ColorPrimaryHover  = color.RGBA{140, 220, 255, 255}   // Lighter cyan
+	ColorSecondary     = color.RGBA{80, 60, 120, 255}     // Purple
+	ColorSecondaryHover= color.RGBA{110, 90, 150, 255}    // Lighter purple
+	ColorSuccess       = color.RGBA{100, 255, 100, 255}   // Bright green
+	ColorDanger        = color.RGBA{255, 80, 120, 255}    // Hot pink
+	ColorWarning       = color.RGBA{255, 200, 50, 255}    // Bright yellow
+	
+	// Text colors
+	ColorText          = color.RGBA{255, 255, 255, 255}   // Pure white
+	ColorTextMuted     = color.RGBA{160, 180, 220, 255}   // Light blue-grey
+	ColorTextShadow    = color.RGBA{0, 0, 0, 180}         // Text shadow
+	
+	// UI elements
+	ColorBorder        = color.RGBA{100, 200, 255, 255}   // Bright cyan border
+	ColorBorderDark    = color.RGBA{50, 100, 150, 255}    // Darker border
+	ColorInputBg       = color.RGBA{20, 20, 45, 255}      // Input background
+	ColorInputFocus    = color.RGBA{100, 200, 255, 255}   // Focus highlight
+	
+	// Accent colors for variety
+	ColorAccent1       = color.RGBA{255, 100, 200, 255}   // Pink
+	ColorAccent2       = color.RGBA{100, 255, 200, 255}   // Mint
+	ColorAccent3       = color.RGBA{255, 200, 100, 255}   // Orange
 )
 
 // Player colors
@@ -184,26 +199,126 @@ func (t *TextInput) IsFocused() bool {
 }
 
 // Panel draws a panel background.
+// DrawPanel draws a retro-style panel with decorative borders.
 func DrawPanel(screen *ebiten.Image, x, y, w, h int) {
+	// Main panel background
 	vector.DrawFilledRect(screen, float32(x), float32(y), float32(w), float32(h), ColorPanel, false)
-	vector.StrokeRect(screen, float32(x), float32(y), float32(w), float32(h), 1, ColorBorder, false)
+	
+	// Outer border (bright)
+	vector.StrokeRect(screen, float32(x), float32(y), float32(w), float32(h), 2, ColorBorder, false)
+	
+	// Inner border (darker) for depth
+	vector.StrokeRect(screen, float32(x+2), float32(y+2), float32(w-4), float32(h-4), 1, ColorBorderDark, false)
+	
+	// Corner decorations
+	cornerSize := float32(6)
+	// Top-left
+	vector.DrawFilledRect(screen, float32(x+4), float32(y+4), cornerSize, 2, ColorBorder, false)
+	vector.DrawFilledRect(screen, float32(x+4), float32(y+4), 2, cornerSize, ColorBorder, false)
+	// Top-right
+	vector.DrawFilledRect(screen, float32(x+w-10), float32(y+4), cornerSize, 2, ColorBorder, false)
+	vector.DrawFilledRect(screen, float32(x+w-6), float32(y+4), 2, cornerSize, ColorBorder, false)
+	// Bottom-left
+	vector.DrawFilledRect(screen, float32(x+4), float32(y+h-6), cornerSize, 2, ColorBorder, false)
+	vector.DrawFilledRect(screen, float32(x+4), float32(y+h-10), 2, cornerSize, ColorBorder, false)
+	// Bottom-right
+	vector.DrawFilledRect(screen, float32(x+w-10), float32(y+h-6), cornerSize, 2, ColorBorder, false)
+	vector.DrawFilledRect(screen, float32(x+w-6), float32(y+h-10), 2, cornerSize, ColorBorder, false)
+}
+
+// DrawFancyPanel draws a panel with animated border effect.
+func DrawFancyPanel(screen *ebiten.Image, x, y, w, h int, title string) {
+	DrawPanel(screen, x, y, w, h)
+	
+	// Title bar
+	if title != "" {
+		titleBarH := 30
+		vector.DrawFilledRect(screen, float32(x+2), float32(y+2), float32(w-4), float32(titleBarH), ColorPanelLight, false)
+		vector.StrokeLine(screen, float32(x+2), float32(y+titleBarH+2), float32(x+w-2), float32(y+titleBarH+2), 2, ColorBorder, false)
+		
+		// Title text
+		DrawText(screen, title, x+10, y+10, ColorText)
+	}
 }
 
 // DrawText draws text at a position.
+// DrawText draws text with a dark shadow for contrast.
 func DrawText(screen *ebiten.Image, text string, x, y int, clr color.Color) {
+	// Simple shadow
+	ebitenutil.DebugPrintAt(screen, text, x+1, y+1)
+	// Main text
 	ebitenutil.DebugPrintAt(screen, text, x, y)
 }
 
 // DrawTextCentered draws text centered at a position.
 func DrawTextCentered(screen *ebiten.Image, text string, x, y int, clr color.Color) {
 	w := len(text) * 6
-	ebitenutil.DebugPrintAt(screen, text, x-w/2, y)
+	DrawText(screen, text, x-w/2, y, clr)
 }
 
-// DrawTitle draws a large title (using multiple prints for now).
+// DrawLargeText draws scaled-up text (2x).
+func DrawLargeText(screen *ebiten.Image, text string, x, y int, clr color.Color) {
+	// Create a temporary image to render the text
+	textW := len(text) * 6
+	textH := 16 // Increased height to capture full text
+	tmpImg := ebiten.NewImage(textW, textH)
+	
+	// Render text to temp image with some vertical padding
+	ebitenutil.DebugPrintAt(tmpImg, text, 0, 2)
+	
+	// Draw scaled up 2x with shadow
+	opts := &ebiten.DrawImageOptions{}
+	opts.GeoM.Scale(2.0, 2.0)
+	opts.GeoM.Translate(float64(x+2), float64(y+2))
+	opts.ColorScale.ScaleAlpha(0.5) // Dark shadow
+	screen.DrawImage(tmpImg, opts)
+	
+	// Draw main scaled text
+	opts = &ebiten.DrawImageOptions{}
+	opts.GeoM.Scale(2.0, 2.0)
+	opts.GeoM.Translate(float64(x), float64(y))
+	screen.DrawImage(tmpImg, opts)
+}
+
+// DrawLargeTextCentered draws large text centered.
+func DrawLargeTextCentered(screen *ebiten.Image, text string, x, y int, clr color.Color) {
+	w := len(text) * 6 * 2 // 2x scale
+	DrawLargeText(screen, text, x-w/2, y, clr)
+}
+
+// DrawHugeTitle draws a massive title (3x scale).
+func DrawHugeTitle(screen *ebiten.Image, text string, x, y int) {
+	// Create a temporary image to render the text
+	textW := len(text) * 6
+	textH := 20 // Even more height for 3x scaling
+	tmpImg := ebiten.NewImage(textW, textH)
+	
+	// Render text to temp image with vertical padding
+	ebitenutil.DebugPrintAt(tmpImg, text, 0, 4)
+	
+	// Draw scaled up 3x with shadow
+	opts := &ebiten.DrawImageOptions{}
+	opts.GeoM.Scale(3.0, 3.0)
+	opts.GeoM.Translate(float64(x+3), float64(y+3))
+	opts.ColorScale.ScaleAlpha(0.6) // Dark shadow
+	screen.DrawImage(tmpImg, opts)
+	
+	// Draw main scaled text
+	opts = &ebiten.DrawImageOptions{}
+	opts.GeoM.Scale(3.0, 3.0)
+	opts.GeoM.Translate(float64(x), float64(y))
+	screen.DrawImage(tmpImg, opts)
+}
+
+// DrawHugeTitleCentered draws a huge title centered.
+func DrawHugeTitleCentered(screen *ebiten.Image, text string, x, y int) {
+	w := len(text) * 6 * 3 // 3x scale
+	DrawHugeTitle(screen, text, x-w/2, y)
+}
+
+// DrawTitle draws a title (alias for DrawLargeText).
 func DrawTitle(screen *ebiten.Image, text string, x, y int) {
-	// Simple centered text for now
-	DrawTextCentered(screen, text, x, y, ColorText)
+	DrawLargeText(screen, text, x, y, ColorText)
 }
 
 // ListItem represents an item in a list.
@@ -245,13 +360,15 @@ func (l *List) Update() {
 		return
 	}
 
+	itemHeight := 60 // Match the Draw method
+	
 	// Handle scroll
 	_, dy := ebiten.Wheel()
 	l.scrollOffset -= int(dy * 30)
 	if l.scrollOffset < 0 {
 		l.scrollOffset = 0
 	}
-	maxScroll := len(l.Items)*l.itemHeight - l.H
+	maxScroll := len(l.Items)*itemHeight - l.H
 	if maxScroll < 0 {
 		maxScroll = 0
 	}
@@ -262,7 +379,7 @@ func (l *List) Update() {
 	// Handle click
 	if inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) {
 		relY := my - l.Y + l.scrollOffset
-		idx := relY / l.itemHeight
+		idx := relY / itemHeight
 		if idx >= 0 && idx < len(l.Items) {
 			l.selectedIdx = idx
 			if l.OnSelect != nil {
@@ -277,37 +394,43 @@ func (l *List) Draw(screen *ebiten.Image) {
 	// Draw background
 	DrawPanel(screen, l.X, l.Y, l.W, l.H)
 
+	// Larger item height for bigger text
+	itemHeight := 60
+	
 	// Draw items
-	visibleStart := l.scrollOffset / l.itemHeight
-	visibleEnd := (l.scrollOffset + l.H) / l.itemHeight + 1
+	visibleStart := l.scrollOffset / itemHeight
+	visibleEnd := (l.scrollOffset + l.H) / itemHeight + 1
 
 	for i := visibleStart; i < visibleEnd && i < len(l.Items); i++ {
 		item := l.Items[i]
-		itemY := l.Y + i*l.itemHeight - l.scrollOffset
+		itemY := l.Y + i*itemHeight - l.scrollOffset
 
-		if itemY < l.Y-l.itemHeight || itemY > l.Y+l.H {
+		if itemY < l.Y-itemHeight || itemY > l.Y+l.H {
 			continue
 		}
 
 		// Draw selection highlight
 		if i == l.selectedIdx {
-			vector.DrawFilledRect(screen, float32(l.X+2), float32(itemY+2),
-				float32(l.W-4), float32(l.itemHeight-4), ColorPanelLight, false)
+			vector.DrawFilledRect(screen, float32(l.X+4), float32(itemY+4),
+				float32(l.W-8), float32(itemHeight-8), ColorPanelLight, false)
+			// Bright border for selected item
+			vector.StrokeRect(screen, float32(l.X+4), float32(itemY+4),
+				float32(l.W-8), float32(itemHeight-8), 2, ColorBorder, false)
 		}
 
-		// Draw text
-		DrawText(screen, item.Text, l.X+10, itemY+10, ColorText)
+		// Draw text - larger
+		DrawLargeText(screen, item.Text, l.X+15, itemY+8, ColorText)
 		if item.Subtext != "" {
-			DrawText(screen, item.Subtext, l.X+10, itemY+28, ColorTextMuted)
+			DrawText(screen, item.Subtext, l.X+15, itemY+32, ColorTextMuted)
 		}
 	}
 
 	// Draw scrollbar if needed
-	if len(l.Items)*l.itemHeight > l.H {
-		totalHeight := len(l.Items) * l.itemHeight
+	totalHeight := len(l.Items) * itemHeight
+	if totalHeight > l.H {
 		scrollbarHeight := float32(l.H) * float32(l.H) / float32(totalHeight)
 		scrollbarY := float32(l.Y) + float32(l.scrollOffset)*float32(l.H)/float32(totalHeight)
-		vector.DrawFilledRect(screen, float32(l.X+l.W-8), scrollbarY, 6, scrollbarHeight, ColorBorder, false)
+		vector.DrawFilledRect(screen, float32(l.X+l.W-10), scrollbarY, 8, scrollbarHeight, ColorBorder, false)
 	}
 }
 
