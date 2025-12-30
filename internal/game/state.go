@@ -4,24 +4,24 @@ package game
 
 // GameState represents the complete state of a game.
 type GameState struct {
-	ID              string
-	Settings        Settings
-	Round           int
-	Phase           Phase
-	CurrentPlayerID string
-	PlayerOrder     []string
-	Players         map[string]*Player
-	Territories     map[string]*Territory
-	WaterBodies     map[string]*WaterBody
+	ID              string                 `json:"id"`
+	Settings        Settings               `json:"settings"`
+	Round           int                    `json:"round"`
+	Phase           Phase                  `json:"phase"`
+	CurrentPlayerID string                 `json:"currentPlayerId"`
+	PlayerOrder     []string               `json:"playerOrder"`
+	Players         map[string]*Player     `json:"players"`
+	Territories     map[string]*Territory  `json:"territories"`
+	WaterBodies     map[string]*WaterBody  `json:"waterBodies"`
 }
 
 // Settings contains the configurable game parameters.
 type Settings struct {
-	GameLevel      GameLevel
-	ChanceLevel    ChanceLevel
-	VictoryCities  int
-	MapID          string
-	MaxPlayers     int
+	GameLevel      GameLevel   `json:"gameLevel"`
+	ChanceLevel    ChanceLevel `json:"chanceLevel"`
+	VictoryCities  int         `json:"victoryCities"`
+	MapID          string      `json:"mapId"`
+	MaxPlayers     int         `json:"maxPlayers"`
 }
 
 // GameLevel determines which features are available.

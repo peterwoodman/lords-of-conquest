@@ -1,5 +1,7 @@
 package game
 
+import "log"
+
 // BuildType represents what can be built.
 type BuildType string
 
@@ -148,6 +150,8 @@ func (g *GameState) EndDevelopment(playerID string) error {
 
 // advanceDevelopmentTurn moves to the next player or next round.
 func (g *GameState) advanceDevelopmentTurn() {
+	log.Printf("advanceDevelopmentTurn: Current player %s in round %d", g.CurrentPlayerID, g.Round)
+	
 	currentIdx := -1
 	for i, pid := range g.PlayerOrder {
 		if pid == g.CurrentPlayerID {
@@ -157,10 +161,12 @@ func (g *GameState) advanceDevelopmentTurn() {
 	}
 
 	if currentIdx == -1 || len(g.PlayerOrder) == 0 {
+		log.Printf("advanceDevelopmentTurn: Invalid state - currentIdx=%d, playerOrder len=%d", currentIdx, len(g.PlayerOrder))
 		return
 	}
 
 	nextIdx := (currentIdx + 1) % len(g.PlayerOrder)
+	log.Printf("advanceDevelopmentTurn: currentIdx=%d, initial nextIdx=%d, playerOrder=%v", currentIdx, nextIdx, g.PlayerOrder)
 
 	// Skip eliminated players (with safety counter to prevent infinite loop)
 	iterations := 0
@@ -169,15 +175,20 @@ func (g *GameState) advanceDevelopmentTurn() {
 		iterations++
 		if nextIdx == currentIdx || iterations >= len(g.PlayerOrder) {
 			// All other players eliminated - game should be over
+			log.Printf("advanceDevelopmentTurn: All other players eliminated")
 			return
 		}
 	}
 
+	log.Printf("advanceDevelopmentTurn: After skipping eliminated, nextIdx=%d", nextIdx)
+
 	// Check if we've completed all players (wrapped around to start)
 	if nextIdx <= currentIdx {
 		// End of round - start new round
+		log.Printf("advanceDevelopmentTurn: Wrapped around (nextIdx %d <= currentIdx %d), starting new round", nextIdx, currentIdx)
 		g.startNewRound()
 	} else {
+		log.Printf("advanceDevelopmentTurn: Moving to next player %s", g.PlayerOrder[nextIdx])
 		g.CurrentPlayerID = g.PlayerOrder[nextIdx]
 	}
 }
@@ -185,6 +196,7 @@ func (g *GameState) advanceDevelopmentTurn() {
 // startNewRound begins a new round with production phase.
 func (g *GameState) startNewRound() {
 	g.Round++
+	log.Printf("startNewRound: Beginning round %d", g.Round)
 
 	// Shuffle player order
 	shufflePlayerOrder(g)
@@ -198,6 +210,7 @@ func (g *GameState) startNewRound() {
 	pm := NewPhaseManager(g)
 
 	if ShouldSkipPhase(PhaseProduction, g.Settings.ChanceLevel) {
+		log.Printf("startNewRound: Skipping production phase")
 		if len(g.Players) >= 3 {
 			g.Phase = PhaseTrade
 		} else {

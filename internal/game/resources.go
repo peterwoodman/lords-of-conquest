@@ -38,10 +38,10 @@ func (r ResourceType) IsStockpilable() bool {
 
 // Stockpile represents a player's collected resources.
 type Stockpile struct {
-	Coal   int
-	Gold   int
-	Iron   int
-	Timber int
+	Coal   int `json:"coal"`
+	Gold   int `json:"gold"`
+	Iron   int `json:"iron"`
+	Timber int `json:"timber"`
 }
 
 // NewStockpile creates an empty stockpile.

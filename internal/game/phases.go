@@ -1,6 +1,7 @@
 package game
 
 import (
+	"log"
 	"math/rand"
 )
 
@@ -156,11 +157,25 @@ func (pm *PhaseManager) resetPlayerTurns() {
 
 // ProcessProduction generates resources for all players.
 func (pm *PhaseManager) ProcessProduction() {
+	log.Printf("ProcessProduction: Starting production for round %d", pm.State.Round)
+	
+	// Debug: Log territory resources
+	resourceCount := 0
+	for id, t := range pm.State.Territories {
+		if t.Resource != ResourceNone {
+			resourceCount++
+			log.Printf("ProcessProduction: Territory %s (%s) has resource %s, owner=%s", 
+				id, t.Name, t.Resource.String(), t.Owner)
+		}
+	}
+	log.Printf("ProcessProduction: Found %d territories with resources", resourceCount)
+	
 	for _, player := range pm.State.Players {
 		if player.Eliminated {
 			continue
 		}
 
+		produced := 0
 		for _, territory := range pm.State.Territories {
 			if territory.Owner != player.ID {
 				continue
@@ -182,7 +197,14 @@ func (pm *PhaseManager) ProcessProduction() {
 			}
 
 			player.Stockpile.Add(territory.Resource, amount)
+			produced += amount
+			log.Printf("ProcessProduction: Player %s produced %d %s from %s", 
+				player.Name, amount, territory.Resource.String(), territory.Name)
 		}
+		
+		log.Printf("ProcessProduction: Player %s total stockpile - Coal:%d Gold:%d Iron:%d Timber:%d",
+			player.Name, player.Stockpile.Coal, player.Stockpile.Gold, 
+			player.Stockpile.Iron, player.Stockpile.Timber)
 	}
 }
 

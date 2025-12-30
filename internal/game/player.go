@@ -28,15 +28,15 @@ func AllColors() []PlayerColor {
 
 // Player represents a player in the game.
 type Player struct {
-	ID                 string
-	Name               string
-	Color              PlayerColor
-	IsAI               bool
-	AIPersonality      AIPersonality
-	Stockpile          *Stockpile
-	StockpileTerritory string // Territory ID where stockpile is located
-	AttacksRemaining   int
-	Eliminated         bool
+	ID                 string        `json:"id"`
+	Name               string        `json:"name"`
+	Color              PlayerColor   `json:"color"`
+	IsAI               bool          `json:"isAI"`
+	AIPersonality      AIPersonality `json:"aiPersonality"`
+	Stockpile          *Stockpile    `json:"stockpile"`
+	StockpileTerritory string        `json:"stockpileTerritory"` // Territory ID where stockpile is located
+	AttacksRemaining   int           `json:"attacksRemaining"`
+	Eliminated         bool          `json:"eliminated"`
 }
 
 // AIPersonality defines AI behavior type.

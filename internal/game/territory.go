@@ -2,23 +2,23 @@ package game
 
 // Territory represents a single territory on the map.
 type Territory struct {
-	ID           string
-	Name         string
-	Owner        string // Player ID, empty if unclaimed
-	Resource     ResourceType
-	HasCity      bool
-	HasWeapon    bool
-	HasHorse     bool
-	Boats        int      // Number of boats (limited by coastal tiles)
-	Adjacent     []string // IDs of adjacent territories
-	CoastalTiles int      // Number of coastal tiles (limits boats)
-	WaterBodies  []string // IDs of connected water bodies
+	ID           string       `json:"id"`
+	Name         string       `json:"name"`
+	Owner        string       `json:"owner"` // Player ID, empty if unclaimed
+	Resource     ResourceType `json:"resource"`
+	HasCity      bool         `json:"hasCity"`
+	HasWeapon    bool         `json:"hasWeapon"`
+	HasHorse     bool         `json:"hasHorse"`
+	Boats        int          `json:"boats"`      // Number of boats (limited by coastal tiles)
+	Adjacent     []string     `json:"adjacent"`   // IDs of adjacent territories
+	CoastalTiles int          `json:"coastalTiles"` // Number of coastal tiles (limits boats)
+	WaterBodies  []string     `json:"waterBodies"`  // IDs of connected water bodies
 }
 
 // WaterBody represents a connected body of water.
 type WaterBody struct {
-	ID          string
-	Territories []string // IDs of territories bordering this water
+	ID          string   `json:"id"`
+	Territories []string `json:"territories"` // IDs of territories bordering this water
 }
 
 // IsCoastal returns true if the territory has any coastal tiles.
