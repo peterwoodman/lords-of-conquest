@@ -1244,11 +1244,18 @@ func (h *Handlers) aiPlaceStockpile(gameID string, state *game.GameState) {
 
 // aiSkipTrade skips the trade phase (AI doesn't trade for now).
 func (h *Handlers) aiSkipTrade(gameID string, state *game.GameState) {
-	log.Printf("AI: Skipping trade phase")
+	log.Printf("AI: Skipping trade phase for player %s", state.CurrentPlayerID)
 
-	// Move to next phase - trade phase doesn't have per-player turns
-	// The phase manager should handle this when all players are done
-	// For now we just wait
+	if err := state.SkipTrade(state.CurrentPlayerID); err != nil {
+		log.Printf("AI: Failed to skip trade: %v", err)
+		return
+	}
+
+	// Save state
+	h.saveAndBroadcastAIState(gameID, state)
+
+	// Check if next player is also AI
+	go h.checkAndTriggerAI(gameID)
 }
 
 // aiShipment handles the AI's shipment phase.
@@ -1567,6 +1574,10 @@ func (h *Handlers) handleEndPhase(client *Client, msg *protocol.Message) error {
 
 	// Handle based on current phase
 	switch state.Phase {
+	case game.PhaseTrade:
+		if err := state.SkipTrade(client.PlayerID); err != nil {
+			return err
+		}
 	case game.PhaseShipment:
 		if err := state.SkipShipment(client.PlayerID); err != nil {
 			return err

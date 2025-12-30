@@ -237,6 +237,18 @@ func (s *GameplayScene) drawMap(screen *ebiten.Image) {
 	height := int(s.mapData["height"].(float64))
 	grid := s.mapData["grid"].([]interface{})
 
+	// Border inset - half the border width to keep color inside borders
+	borderInset := float32(2)
+
+	// Helper to get territory ID at position (returns -1 for out of bounds)
+	getTerritoryAt := func(gx, gy int) int {
+		if gx < 0 || gx >= width || gy < 0 || gy >= height {
+			return -1
+		}
+		r := grid[gy].([]interface{})
+		return int(r[gx].(float64))
+	}
+
 	// Draw territories
 	for y := 0; y < height; y++ {
 		row := grid[y].([]interface{})
@@ -290,8 +302,33 @@ func (s *GameplayScene) drawMap(screen *ebiten.Image) {
 				cellColor.B = min(cellColor.B+40, 255)
 			}
 
-			vector.DrawFilledRect(screen, float32(sx), float32(sy),
-				float32(s.cellSize), float32(s.cellSize), cellColor, false)
+			// Calculate insets based on borders with different territories
+			leftInset := float32(0)
+			topInset := float32(0)
+			rightInset := float32(0)
+			bottomInset := float32(0)
+
+			// Check each neighbor - inset where there's a border
+			if getTerritoryAt(x-1, y) != territoryID {
+				leftInset = borderInset
+			}
+			if getTerritoryAt(x+1, y) != territoryID {
+				rightInset = borderInset
+			}
+			if getTerritoryAt(x, y-1) != territoryID {
+				topInset = borderInset
+			}
+			if getTerritoryAt(x, y+1) != territoryID {
+				bottomInset = borderInset
+			}
+
+			// Draw the cell with insets
+			cellX := float32(sx) + leftInset
+			cellY := float32(sy) + topInset
+			cellW := float32(s.cellSize) - leftInset - rightInset
+			cellH := float32(s.cellSize) - topInset - bottomInset
+
+			vector.DrawFilledRect(screen, cellX, cellY, cellW, cellH, cellColor, false)
 		}
 	}
 
@@ -304,9 +341,9 @@ func (s *GameplayScene) drawMap(screen *ebiten.Image) {
 
 // drawTerritoryBoundaries draws lines between different territories with rounded corners
 func (s *GameplayScene) drawTerritoryBoundaries(screen *ebiten.Image, width, height int, grid []interface{}) {
-	borderColor := color.RGBA{0, 0, 0, 180}
-	cornerRadius := float32(4) // Radius for rounded corners
-	lineWidth := float32(2)
+	borderColor := color.RGBA{0, 0, 0, 220}
+	cornerRadius := float32(6) // Radius for rounded corners
+	lineWidth := float32(4)    // Thicker borders like the original game
 
 	// Helper to get territory ID at position (returns -1 for out of bounds)
 	getTerritoryAt := func(x, y int) int {
@@ -965,7 +1002,7 @@ func (s *GameplayScene) drawResourcesPanel(screen *ebiten.Image, x, y, w int) {
 	}
 
 	player := myPlayer.(map[string]interface{})
-	panelH := 150
+	panelH := 170
 
 	DrawFancyPanel(screen, x, y, w, panelH, "Resources")
 

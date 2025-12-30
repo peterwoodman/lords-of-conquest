@@ -301,3 +301,44 @@ func (pm *PhaseManager) validateDevelopment(action interface{}) error {
 	return nil
 }
 
+// SkipTrade allows a player to pass the trade phase without trading.
+func (g *GameState) SkipTrade(playerID string) error {
+	if g.Phase != PhaseTrade {
+		return ErrInvalidAction
+	}
+
+	if g.CurrentPlayerID != playerID {
+		return ErrNotYourTurn
+	}
+
+	g.advanceTradeTurn()
+	return nil
+}
+
+// advanceTradeTurn moves to the next player or next phase.
+func (g *GameState) advanceTradeTurn() {
+	currentIdx := -1
+	for i, pid := range g.PlayerOrder {
+		if pid == g.CurrentPlayerID {
+			currentIdx = i
+			break
+		}
+	}
+
+	if currentIdx == -1 || len(g.PlayerOrder) == 0 {
+		return
+	}
+
+	nextIdx := (currentIdx + 1) % len(g.PlayerOrder)
+
+	// If we've completed all players, move to shipment phase
+	if nextIdx == 0 {
+		g.Phase = PhaseShipment
+		g.CurrentPlayerID = g.PlayerOrder[0]
+		log.Printf("Trade phase complete, moving to Shipment phase")
+	} else {
+		g.CurrentPlayerID = g.PlayerOrder[nextIdx]
+		log.Printf("Trade turn advancing to player %s", g.CurrentPlayerID)
+	}
+}
+
