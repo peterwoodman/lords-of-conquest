@@ -7,7 +7,6 @@ import (
 	"path"
 )
 
-//go:embed data/*.json
 var mapFiles embed.FS
 
 // Registry holds all loaded maps.
