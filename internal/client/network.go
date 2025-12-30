@@ -42,12 +42,17 @@ func (c *NetworkClient) Connect(serverAddr string) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
+	log.Printf("Attempting to connect to: %s", serverAddr)
 	url := "ws://" + serverAddr + "/ws"
+	log.Printf("Full WebSocket URL: %s", url)
+	
 	conn, _, err := websocket.DefaultDialer.Dial(url, nil)
 	if err != nil {
+		log.Printf("WebSocket dial failed: %v", err)
 		return err
 	}
 
+	log.Printf("WebSocket connection established")
 	c.conn = conn
 	c.connected = true
 	c.done = make(chan struct{})

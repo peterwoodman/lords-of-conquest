@@ -195,7 +195,8 @@ func (h *Hub) Run() {
 			h.handleDisconnect(client)
 
 		case msg := <-h.broadcast:
-			h.handleMessage(msg)
+			// Handle messages in a goroutine to avoid blocking the hub
+			go h.handleMessage(msg)
 		}
 	}
 }

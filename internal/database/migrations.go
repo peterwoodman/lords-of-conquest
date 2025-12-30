@@ -82,5 +82,13 @@ var migrations = []migration{
 			CREATE INDEX idx_game_actions_game ON game_actions(game_id);
 		`,
 	},
+	{
+		id:   2,
+		name: "add_max_players_column",
+		sql: `
+			-- Add max_players column to games table for easier querying
+			ALTER TABLE games ADD COLUMN max_players INTEGER DEFAULT 2;
+		`,
+	},
 }
 

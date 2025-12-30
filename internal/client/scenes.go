@@ -63,6 +63,7 @@ func (s *ConnectScene) OnEnter() {
 		s.nameInput.Text = s.game.config.PlayerName
 	}
 	s.connecting = false
+	s.connectBtn.Disabled = false
 	s.statusText = ""
 }
 

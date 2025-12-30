@@ -276,12 +276,19 @@ func (h *Handlers) joinGame(client *Client, msgID string, gameID string, preferr
 	respMsg.ID = msgID
 	client.Send(respMsg)
 
-	// Send lobby state to this client and notify others
-	h.sendLobbyState(client, gameID)
-	h.hub.notifyGamePlayers(gameID, protocol.TypePlayerJoined, protocol.PlayerJoinedPayload{
-		PlayerID: client.PlayerID,
-		Name:     client.Name,
-	})
+	// Check if game has started - send appropriate state
+	if game.Status == database.GameStatusStarted {
+		// Game is in progress - send game state
+		log.Printf("Player %s reconnecting to started game %s", client.Name, gameID)
+		h.broadcastGameState(gameID)
+	} else {
+		// Game is in lobby - send lobby state
+		h.sendLobbyState(client, gameID)
+		h.hub.notifyGamePlayers(gameID, protocol.TypePlayerJoined, protocol.PlayerJoinedPayload{
+			PlayerID: client.PlayerID,
+			Name:     client.Name,
+		})
+	}
 
 	return nil
 }

@@ -1,6 +1,7 @@
 package client
 
 import (
+	"fmt"
 	"image/color"
 	"log"
 
@@ -232,12 +233,22 @@ func (g *Game) handleMessage(msg *protocol.Message) {
 			g.config.Save()
 			log.Printf("Authenticated as %s", payload.Name)
 
+			// Reset connect scene state
+			g.connectScene.connecting = false
+			g.connectScene.connectBtn.Disabled = false
+
 			// Move to lobby scene
 			g.SetScene(g.lobbyScene)
 			
 			// Request game lists
 			g.ListGames()
 			g.ListYourGames()
+		} else {
+			log.Printf("Authentication failed: %s", payload.Error)
+			// Reset connect scene state on failure
+			g.connectScene.statusText = fmt.Sprintf("Auth failed: %s", payload.Error)
+			g.connectScene.connecting = false
+			g.connectScene.connectBtn.Disabled = false
 		}
 
 	case protocol.TypeGameCreated:

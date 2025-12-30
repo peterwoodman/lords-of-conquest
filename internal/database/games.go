@@ -89,9 +89,9 @@ func (db *DB) CreateGame(name string, hostPlayerID string, settings GameSettings
 
 	now := time.Now()
 	_, err = db.conn.Exec(`
-		INSERT INTO games (id, name, join_code, is_public, status, host_player_id, settings_json, created_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-	`, id, name, joinCode, isPublic, GameStatusWaiting, hostPlayerID, string(settingsJSON), now)
+		INSERT INTO games (id, name, join_code, is_public, status, host_player_id, settings_json, max_players, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, id, name, joinCode, isPublic, GameStatusWaiting, hostPlayerID, string(settingsJSON), settings.MaxPlayers, now)
 	if err != nil {
 		return nil, err
 	}
@@ -121,10 +121,10 @@ func (db *DB) GetGame(id string) (*Game, error) {
 
 	err := db.conn.QueryRow(`
 		SELECT id, name, join_code, is_public, status, host_player_id, settings_json, 
-		       created_at, started_at, ended_at
+		       max_players, created_at, started_at, ended_at
 		FROM games WHERE id = ?
 	`, id).Scan(&g.ID, &g.Name, &joinCode, &g.IsPublic, &g.Status, &g.HostPlayerID,
-		&settingsJSON, &g.CreatedAt, &startedAt, &endedAt)
+		&settingsJSON, &g.MaxPlayers, &g.CreatedAt, &startedAt, &endedAt)
 
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrGameNotFound
@@ -146,8 +146,6 @@ func (db *DB) GetGame(id string) (*Game, error) {
 	if err := json.Unmarshal([]byte(settingsJSON), &g.Settings); err != nil {
 		return nil, err
 	}
-
-	g.MaxPlayers = g.Settings.MaxPlayers
 
 	// Get player count
 	db.conn.QueryRow(`SELECT COUNT(*) FROM game_players WHERE game_id = ?`, id).Scan(&g.PlayerCount)
@@ -172,7 +170,7 @@ func (db *DB) GetGameByJoinCode(code string) (*Game, error) {
 func (db *DB) ListPublicGames() ([]*GameInfo, error) {
 	rows, err := db.conn.Query(`
 		SELECT g.id, g.name, g.join_code, g.is_public, g.status, 
-		       g.host_player_id, g.created_at, g.settings_json,
+		       g.host_player_id, g.max_players, g.created_at,
 		       (SELECT COUNT(*) FROM game_players WHERE game_id = g.id) as player_count
 		FROM games g
 		WHERE g.is_public = TRUE AND g.status = ?
@@ -187,18 +185,12 @@ func (db *DB) ListPublicGames() ([]*GameInfo, error) {
 	for rows.Next() {
 		var g GameInfo
 		var joinCode sql.NullString
-		var settingsJSON string
 		if err := rows.Scan(&g.ID, &g.Name, &joinCode, &g.IsPublic, &g.Status,
-			&g.HostPlayerID, &g.CreatedAt, &settingsJSON, &g.PlayerCount); err != nil {
+			&g.HostPlayerID, &g.MaxPlayers, &g.CreatedAt, &g.PlayerCount); err != nil {
 			return nil, err
 		}
 		if joinCode.Valid {
 			g.JoinCode = joinCode.String
-		}
-
-		var settings GameSettings
-		if err := json.Unmarshal([]byte(settingsJSON), &settings); err == nil {
-			g.MaxPlayers = settings.MaxPlayers
 		}
 
 		games = append(games, &g)
