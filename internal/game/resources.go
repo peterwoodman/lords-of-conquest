@@ -9,7 +9,7 @@ const (
 	ResourceGold
 	ResourceIron
 	ResourceTimber
-	ResourceHorses
+	ResourceGrassland // Produces horses
 )
 
 // String returns the resource name.
@@ -23,17 +23,17 @@ func (r ResourceType) String() string {
 		return "Iron"
 	case ResourceTimber:
 		return "Timber"
-	case ResourceHorses:
-		return "Horses"
+	case ResourceGrassland:
+		return "Grassland"
 	default:
 		return "None"
 	}
 }
 
 // IsStockpilable returns true if this resource goes to the stockpile.
-// Horses are special and spread on the map instead.
+// Grassland is special - it produces horses that spread on the map instead.
 func (r ResourceType) IsStockpilable() bool {
-	return r != ResourceNone && r != ResourceHorses
+	return r != ResourceNone && r != ResourceGrassland
 }
 
 // Stockpile represents a player's collected resources.

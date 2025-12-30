@@ -16,7 +16,7 @@ type RawMap struct {
 // RawTerritory is territory data from the JSON file.
 type RawTerritory struct {
 	Name     string `json:"name"`
-	Resource string `json:"resource,omitempty"` // coal, gold, iron, timber, horses, or empty
+	Resource string `json:"resource,omitempty"` // coal, gold, iron, timber, grassland, or empty
 }
 
 // Map is the processed, runtime map data.

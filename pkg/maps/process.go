@@ -219,8 +219,8 @@ func parseResource(s string) game.ResourceType {
 		return game.ResourceIron
 	case "timber", "wood":
 		return game.ResourceTimber
-	case "horses":
-		return game.ResourceHorses
+	case "grassland":
+		return game.ResourceGrassland
 	default:
 		return game.ResourceNone
 	}

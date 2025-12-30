@@ -52,6 +52,13 @@ func NewGame() (*Game, error) {
 		log.Printf("Failed to load config: %v", err)
 	}
 
+	// Load icons (will use fallbacks if PNGs not found)
+	LoadIcons()
+	if len(Icons) == 0 {
+		log.Printf("No PNG icons found, creating placeholder icons")
+		CreatePlaceholderIcons()
+	}
+
 	g := &Game{
 		config:  config,
 		network: NewNetworkClient(),

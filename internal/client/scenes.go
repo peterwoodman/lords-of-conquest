@@ -110,7 +110,7 @@ func (s *ConnectScene) Draw(screen *ebiten.Image) {
 	DrawHugeTitleCentered(screen, "LORDS OF CONQUEST", ScreenWidth/2, titleY)
 	
 	// Subtitle
-	DrawTextCentered(screen, "A Modern Remake", ScreenWidth/2, titleY+55, ColorTextMuted)
+	DrawTextCentered(screen, "Again", ScreenWidth/2, titleY+55, ColorTextMuted)
 
 	// Server input
 	inputY := panelY + 170

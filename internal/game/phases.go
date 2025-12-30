@@ -184,8 +184,8 @@ func (pm *PhaseManager) ProcessProduction() {
 				continue
 			}
 
-			// Horses don't go to stockpile
-			if territory.Resource == ResourceHorses {
+			// Grassland produces horses that spread on the map
+			if territory.Resource == ResourceGrassland {
 				pm.spreadHorses(player.ID, territory)
 				continue
 			}

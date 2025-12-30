@@ -90,5 +90,13 @@ var migrations = []migration{
 			ALTER TABLE games ADD COLUMN max_players INTEGER DEFAULT 2;
 		`,
 	},
+	{
+		id:   3,
+		name: "add_map_json_column",
+		sql: `
+			-- Add map_json column to store generated map data for persistence across restarts
+			ALTER TABLE games ADD COLUMN map_json TEXT;
+		`,
+	},
 }
 

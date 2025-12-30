@@ -3,6 +3,7 @@ package server
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log"
 	"math/rand"
 	"time"
@@ -164,7 +165,8 @@ func (h *Handlers) handleCreateGame(client *Client, msg *protocol.Message) error
 		return err
 	}
 
-	// If map data is provided, register it
+	// Serialize map data for persistence
+	var mapJSON string
 	if payload.MapData != nil {
 		rawMap := &maps.RawMap{
 			ID:          payload.MapData.ID,
@@ -180,7 +182,15 @@ func (h *Handlers) handleCreateGame(client *Client, msg *protocol.Message) error
 				Resource: t.Resource,
 			}
 		}
-		// Process and register the map
+
+		// Serialize to JSON for database storage
+		mapBytes, err := json.Marshal(rawMap)
+		if err != nil {
+			return fmt.Errorf("failed to serialize map: %w", err)
+		}
+		mapJSON = string(mapBytes)
+
+		// Process and register the map in memory
 		processedMap := maps.Process(rawMap)
 		maps.Register(processedMap)
 		log.Printf("Registered generated map: %s (%dx%d, %d territories)",
@@ -208,7 +218,7 @@ func (h *Handlers) handleCreateGame(client *Client, msg *protocol.Message) error
 		settings.ChanceLevel = "medium"
 	}
 
-	game, err := h.hub.server.db.CreateGame(payload.Name, client.PlayerID, settings, payload.IsPublic)
+	game, err := h.hub.server.db.CreateGame(payload.Name, client.PlayerID, settings, payload.IsPublic, mapJSON)
 	if err != nil {
 		return err
 	}
@@ -727,8 +737,12 @@ func (h *Handlers) broadcastGameState(gameID string) {
 	// Get the map for rendering info
 	mapData := maps.Get(state.Settings.MapID)
 	if mapData == nil {
-		log.Printf("Map not found: %s", state.Settings.MapID)
-		return
+		// Map not in registry - try to load from database
+		mapData = h.loadMapFromDatabase(gameID, state.Settings.MapID)
+		if mapData == nil {
+			log.Printf("Map not found in registry or database: %s", state.Settings.MapID)
+			return
+		}
 	}
 
 	// Create payload with state and map rendering data
@@ -739,6 +753,32 @@ func (h *Handlers) broadcastGameState(gameID string) {
 	log.Printf("Broadcasting game state for game %s", gameID)
 	h.hub.notifyGamePlayers(gameID, protocol.TypeGameState, payload)
 	log.Printf("Game state broadcast complete")
+}
+
+// loadMapFromDatabase loads a map from the database and registers it.
+func (h *Handlers) loadMapFromDatabase(gameID, mapID string) *maps.Map {
+	mapJSON, err := h.hub.server.db.GetGameMapJSON(gameID)
+	if err != nil {
+		log.Printf("Failed to load map JSON from database: %v", err)
+		return nil
+	}
+	if mapJSON == "" {
+		log.Printf("No map JSON stored for game %s", gameID)
+		return nil
+	}
+
+	// Parse and process the map
+	mapData, err := maps.LoadFromJSON([]byte(mapJSON))
+	if err != nil {
+		log.Printf("Failed to parse stored map JSON: %v", err)
+		return nil
+	}
+
+	// Register it for future lookups
+	maps.Register(mapData)
+	log.Printf("Loaded and registered map %s from database", mapID)
+
+	return mapData
 }
 
 // createStatePayload creates a simplified state payload for clients.
@@ -1052,7 +1092,50 @@ func (h *Handlers) handleDeleteGame(client *Client, msg *protocol.Message) error
 	respMsg.ID = msg.ID
 	client.Send(respMsg)
 
+	// Send updated game list to the client
+	h.sendUpdatedGameList(client)
+
 	return nil
+}
+
+// sendUpdatedGameList sends the player's updated game list.
+func (h *Handlers) sendUpdatedGameList(client *Client) {
+	if client.PlayerID == "" {
+		return
+	}
+
+	games, err := h.hub.server.db.GetPlayerGames(client.PlayerID)
+	if err != nil {
+		log.Printf("Failed to get player games: %v", err)
+		return
+	}
+
+	gameList := make([]protocol.GameListItem, len(games))
+	for i, g := range games {
+		isYourTurn := false
+		if g.Status == database.GameStatusStarted {
+			stateJSON, err := h.hub.server.db.GetGameState(g.ID)
+			if err == nil && stateJSON != "" {
+				var state game.GameState
+				if err := json.Unmarshal([]byte(stateJSON), &state); err == nil {
+					isYourTurn = state.CurrentPlayerID == client.PlayerID
+				}
+			}
+		}
+
+		gameList[i] = protocol.GameListItem{
+			ID:          g.ID,
+			Name:        g.Name,
+			JoinCode:    g.JoinCode,
+			Status:      string(g.Status),
+			PlayerCount: g.PlayerCount,
+			MaxPlayers:  g.MaxPlayers,
+			IsYourTurn:  isYourTurn,
+		}
+	}
+
+	listMsg, _ := protocol.NewMessage(protocol.TypeYourGames, protocol.YourGamesPayload{Games: gameList})
+	client.Send(listMsg)
 }
 
 // ==================== AI Logic ====================
@@ -1148,6 +1231,8 @@ func (h *Handlers) aiSelectTerritory(gameID string, state *game.GameState) {
 
 	if len(availableTerritories) == 0 {
 		log.Printf("AI: No territories available to select")
+		// Still trigger next AI check in case phase changed
+		go h.checkAndTriggerAI(gameID)
 		return
 	}
 
@@ -1159,26 +1244,15 @@ func (h *Handlers) aiSelectTerritory(gameID string, state *game.GameState) {
 	// Execute selection
 	if err := state.SelectTerritory(state.CurrentPlayerID, selectedID); err != nil {
 		log.Printf("AI: Failed to select territory: %v", err)
+		// Try again after a delay
+		go h.checkAndTriggerAI(gameID)
 		return
 	}
 
-	// Save updated state
-	stateJSON, err := json.Marshal(state)
-	if err != nil {
-		log.Printf("AI: Failed to marshal state: %v", err)
-		return
-	}
-
-	if err := h.hub.server.db.SaveGameState(gameID, string(stateJSON),
-		state.CurrentPlayerID, state.Round, state.Phase.String()); err != nil {
-		log.Printf("AI: Failed to save state: %v", err)
-		return
-	}
+	// Save and broadcast
+	h.saveAndBroadcastAIState(gameID, state)
 
 	log.Printf("AI: Successfully selected territory %s", selectedID)
-
-	// Broadcast updated state
-	h.broadcastGameState(gameID)
 
 	// Check if next player is also AI
 	go h.checkAndTriggerAI(gameID)
@@ -1248,7 +1322,7 @@ func (h *Handlers) aiSkipTrade(gameID string, state *game.GameState) {
 
 	if err := state.SkipTrade(state.CurrentPlayerID); err != nil {
 		log.Printf("AI: Failed to skip trade: %v", err)
-		return
+		// Still save and continue to prevent hang
 	}
 
 	// Save state
@@ -1266,13 +1340,8 @@ func (h *Handlers) aiShipment(gameID string, state *game.GameState) {
 	}
 
 	// Simple AI: 50% chance to skip, 50% chance to move stockpile somewhere random
-	if rand.Float32() < 0.5 {
-		log.Printf("AI: Skipping shipment")
-		if err := state.SkipShipment(state.CurrentPlayerID); err != nil {
-			log.Printf("AI: Failed to skip shipment: %v", err)
-			return
-		}
-	} else {
+	moved := false
+	if rand.Float32() >= 0.5 {
 		// Try to move stockpile
 		destinations := state.GetValidStockpileDestinations(state.CurrentPlayerID)
 		if len(destinations) > 0 {
@@ -1280,12 +1349,17 @@ func (h *Handlers) aiShipment(gameID string, state *game.GameState) {
 			log.Printf("AI: Moving stockpile to %s", dest)
 			if err := state.MoveStockpile(state.CurrentPlayerID, dest); err != nil {
 				log.Printf("AI: Failed to move stockpile: %v", err)
-				// Fall back to skip
-				state.SkipShipment(state.CurrentPlayerID)
+			} else {
+				moved = true
 			}
-		} else {
-			log.Printf("AI: No valid destinations, skipping shipment")
-			state.SkipShipment(state.CurrentPlayerID)
+		}
+	}
+
+	// Skip if we didn't move
+	if !moved {
+		log.Printf("AI: Skipping shipment")
+		if err := state.SkipShipment(state.CurrentPlayerID); err != nil {
+			log.Printf("AI: Failed to skip shipment: %v", err)
 		}
 	}
 
@@ -1299,7 +1373,16 @@ func (h *Handlers) aiShipment(gameID string, state *game.GameState) {
 // aiConquest handles the AI's conquest phase.
 func (h *Handlers) aiConquest(gameID string, state *game.GameState) {
 	player := state.Players[state.CurrentPlayerID]
-	if player == nil || player.AttacksRemaining <= 0 {
+	if player == nil {
+		return
+	}
+
+	// If no attacks remaining, end conquest phase
+	if player.AttacksRemaining <= 0 {
+		log.Printf("AI: No attacks remaining, ending conquest")
+		state.EndConquest(state.CurrentPlayerID)
+		h.saveAndBroadcastAIState(gameID, state)
+		go h.checkAndTriggerAI(gameID)
 		return
 	}
 

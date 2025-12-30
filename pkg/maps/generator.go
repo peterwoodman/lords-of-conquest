@@ -644,7 +644,7 @@ func (g *Generator) assignResources(raw *RawMap) {
 	g.rng.Shuffle(len(ids), func(i, j int) { ids[i], ids[j] = ids[j], ids[i] })
 
 	numWithRes := int(float64(len(ids)) * ratio)
-	resources := []string{"coal", "gold", "iron", "timber", "horses"}
+	resources := []string{"coal", "gold", "iron", "timber", "grassland"}
 
 	for i, tid := range ids {
 		res := ""

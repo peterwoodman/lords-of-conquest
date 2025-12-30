@@ -528,163 +528,205 @@ func (s *GameplayScene) drawTerritoryIcons(screen *ebiten.Image) {
 	for terrID, terrData := range s.territories {
 		terr := terrData.(map[string]interface{})
 
-		// Find the center of this territory
-		centerX, centerY := s.findTerritoryCenter(terrID, grid)
-		if centerX < 0 {
+		// Find all cells of this territory
+		cells := s.findTerritoryCells(terrID, grid)
+		if len(cells) == 0 {
 			continue
 		}
 
-		sx, sy := s.gridToScreen(centerX, centerY)
-		cellCenterX := float32(sx) + float32(s.cellSize)/2
-		cellCenterY := float32(sy) + float32(s.cellSize)/2
+		// Collect what needs to be drawn with priority ordering
+		// Priority: stockpile > city > weapon > horse > resource > boats
+		type iconInfo struct {
+			iconType string
+			param    string
+		}
+		var icons []iconInfo
 
-		// Collect what needs to be drawn
-		var icons []string
-
-		// Resource (always show if territory has one)
-		if resource, ok := terr["resource"].(string); ok && resource != "None" && resource != "" {
-			icons = append(icons, "resource:"+resource)
+		// Stockpile (highest priority - most important to see)
+		if playerID, hasStockpile := stockpileTerritories[terrID]; hasStockpile {
+			icons = append(icons, iconInfo{"stockpile", playerID})
 		}
 
 		// City
 		if hasCity, ok := terr["hasCity"].(bool); ok && hasCity {
-			icons = append(icons, "city")
+			icons = append(icons, iconInfo{"city", ""})
 		}
 
 		// Weapon
 		if hasWeapon, ok := terr["hasWeapon"].(bool); ok && hasWeapon {
-			icons = append(icons, "weapon")
+			icons = append(icons, iconInfo{"weapon", ""})
 		}
 
 		// Horse
 		if hasHorse, ok := terr["hasHorse"].(bool); ok && hasHorse {
-			icons = append(icons, "horse")
+			icons = append(icons, iconInfo{"horse", ""})
 		}
 
-		// Boats
+		// Resource
+		if resource, ok := terr["resource"].(string); ok && resource != "None" && resource != "" {
+			icons = append(icons, iconInfo{"resource", resource})
+		}
+
+		// Boats (can have multiple)
 		if boats, ok := terr["boats"].(float64); ok && int(boats) > 0 {
-			icons = append(icons, fmt.Sprintf("boats:%d", int(boats)))
+			icons = append(icons, iconInfo{"boat", fmt.Sprintf("%d", int(boats))})
 		}
 
-		// Stockpile
-		if playerID, hasStockpile := stockpileTerritories[terrID]; hasStockpile {
-			icons = append(icons, "stockpile:"+playerID)
+		// Draw each icon on a different cell
+		for i, icon := range icons {
+			if i >= len(cells) {
+				break // More icons than cells, skip extras
+			}
+			cell := cells[i]
+			sx, sy := s.gridToScreen(cell[0], cell[1])
+			s.drawIconOnCell(screen, icon.iconType, icon.param, float32(sx), float32(sy))
 		}
-
-		// Draw icons in a grid around the center
-		s.drawIconsAtPosition(screen, icons, cellCenterX, cellCenterY)
 	}
 }
 
-// drawIconsAtPosition draws a set of icons arranged around a center point
-func (s *GameplayScene) drawIconsAtPosition(screen *ebiten.Image, icons []string, cx, cy float32) {
-	if len(icons) == 0 {
-		return
+// findTerritoryCells returns all cells belonging to a territory, sorted for consistent icon placement
+func (s *GameplayScene) findTerritoryCells(territoryID string, grid []interface{}) [][2]int {
+	// Extract numeric ID from "t1", "t2", etc.
+	if len(territoryID) < 2 || territoryID[0] != 't' {
+		return nil
 	}
 
-	iconSize := float32(8) // Base icon size
-	spacing := float32(10) // Space between icons
+	var numID int
+	fmt.Sscanf(territoryID[1:], "%d", &numID)
 
-	// Calculate positions based on icon count
-	// For 1-2 icons: horizontal layout
-	// For 3-4 icons: 2x2 grid
-	// For 5-6 icons: 2x3 grid
-	positions := s.calculateIconPositions(len(icons), cx, cy, iconSize, spacing)
+	width := int(s.mapData["width"].(float64))
+	height := int(s.mapData["height"].(float64))
 
-	for i, icon := range icons {
-		if i >= len(positions) {
-			break
-		}
-		px, py := positions[i][0], positions[i][1]
-		s.drawIcon(screen, icon, px, py, iconSize)
-	}
-}
-
-// calculateIconPositions returns screen positions for arranging icons
-func (s *GameplayScene) calculateIconPositions(count int, cx, cy, iconSize, spacing float32) [][2]float32 {
-	positions := make([][2]float32, count)
-	halfIcon := iconSize / 2
-
-	switch count {
-	case 1:
-		// Center
-		positions[0] = [2]float32{cx - halfIcon, cy - halfIcon}
-	case 2:
-		// Side by side
-		positions[0] = [2]float32{cx - spacing/2 - halfIcon, cy - halfIcon}
-		positions[1] = [2]float32{cx + spacing/2 - halfIcon, cy - halfIcon}
-	case 3:
-		// Triangle: 2 on top, 1 below
-		positions[0] = [2]float32{cx - spacing/2 - halfIcon, cy - spacing/2 - halfIcon}
-		positions[1] = [2]float32{cx + spacing/2 - halfIcon, cy - spacing/2 - halfIcon}
-		positions[2] = [2]float32{cx - halfIcon, cy + spacing/2 - halfIcon}
-	case 4:
-		// 2x2 grid
-		positions[0] = [2]float32{cx - spacing/2 - halfIcon, cy - spacing/2 - halfIcon}
-		positions[1] = [2]float32{cx + spacing/2 - halfIcon, cy - spacing/2 - halfIcon}
-		positions[2] = [2]float32{cx - spacing/2 - halfIcon, cy + spacing/2 - halfIcon}
-		positions[3] = [2]float32{cx + spacing/2 - halfIcon, cy + spacing/2 - halfIcon}
-	case 5:
-		// 2 on top, 3 on bottom
-		positions[0] = [2]float32{cx - spacing/2 - halfIcon, cy - spacing/2 - halfIcon}
-		positions[1] = [2]float32{cx + spacing/2 - halfIcon, cy - spacing/2 - halfIcon}
-		positions[2] = [2]float32{cx - spacing - halfIcon, cy + spacing/2 - halfIcon}
-		positions[3] = [2]float32{cx - halfIcon, cy + spacing/2 - halfIcon}
-		positions[4] = [2]float32{cx + spacing - halfIcon, cy + spacing/2 - halfIcon}
-	default:
-		// 3x2 grid for 6+
-		for i := 0; i < count && i < 6; i++ {
-			row := i / 3
-			col := i % 3
-			offsetX := (float32(col) - 1) * spacing
-			offsetY := (float32(row) - 0.5) * spacing
-			positions[i] = [2]float32{cx + offsetX - halfIcon, cy + offsetY - halfIcon}
+	// Find all cells
+	var cells [][2]int
+	for y := 0; y < height; y++ {
+		row := grid[y].([]interface{})
+		for x := 0; x < width; x++ {
+			if int(row[x].(float64)) == numID {
+				cells = append(cells, [2]int{x, y})
+			}
 		}
 	}
 
-	return positions
-}
-
-// drawIcon draws a single icon at the specified position
-func (s *GameplayScene) drawIcon(screen *ebiten.Image, iconType string, x, y, size float32) {
-	// Parse icon type
-	parts := splitIconType(iconType)
-	baseType := parts[0]
-	param := ""
-	if len(parts) > 1 {
-		param = parts[1]
+	// Sort cells to prioritize interior cells (cells with more neighbors of same territory)
+	// This helps place icons on cells that are clearly part of the territory
+	if len(cells) > 1 {
+		s.sortCellsByInteriorness(cells, numID, grid, width, height)
 	}
 
-	switch baseType {
+	return cells
+}
+
+// sortCellsByInteriorness sorts cells so interior cells come first
+func (s *GameplayScene) sortCellsByInteriorness(cells [][2]int, terrID int, grid []interface{}, width, height int) {
+	// Calculate "interiorness" score for each cell (count of same-territory neighbors)
+	scores := make([]int, len(cells))
+	for i, cell := range cells {
+		x, y := cell[0], cell[1]
+		score := 0
+		// Check 4 cardinal directions
+		dirs := [][2]int{{0, -1}, {0, 1}, {-1, 0}, {1, 0}}
+		for _, d := range dirs {
+			nx, ny := x+d[0], y+d[1]
+			if nx >= 0 && nx < width && ny >= 0 && ny < height {
+				row := grid[ny].([]interface{})
+				if int(row[nx].(float64)) == terrID {
+					score++
+				}
+			}
+		}
+		scores[i] = score
+	}
+
+	// Simple bubble sort (territories typically have few cells)
+	for i := 0; i < len(cells)-1; i++ {
+		for j := i + 1; j < len(cells); j++ {
+			if scores[j] > scores[i] {
+				cells[i], cells[j] = cells[j], cells[i]
+				scores[i], scores[j] = scores[j], scores[i]
+			}
+		}
+	}
+}
+
+// drawIconOnCell draws an icon centered on a grid cell
+func (s *GameplayScene) drawIconOnCell(screen *ebiten.Image, iconType, param string, cellX, cellY float32) {
+	cellSize := float32(s.cellSize)
+	iconSize := cellSize * 0.7 // Icon takes up 70% of cell
+
+	// Center the icon in the cell
+	offsetX := (cellSize - iconSize) / 2
+	offsetY := (cellSize - iconSize) / 2
+	x := cellX + offsetX
+	y := cellY + offsetY
+
+	// Try to use PNG icon first
+	var iconImg *ebiten.Image
+	switch iconType {
 	case "resource":
-		s.drawResourceIcon(screen, param, x, y, size)
+		// Map resource name to icon name
+		switch param {
+		case "Coal":
+			iconImg = GetIcon("coal")
+		case "Gold":
+			iconImg = GetIcon("gold")
+		case "Iron":
+			iconImg = GetIcon("iron")
+		case "Timber":
+			iconImg = GetIcon("timber")
+		case "Grassland":
+			iconImg = GetIcon("grassland")
+		}
+	case "stockpile":
+		iconImg = GetIcon("stockpile")
 	case "city":
-		s.drawCityIcon(screen, x, y, size)
+		iconImg = GetIcon("city")
 	case "weapon":
-		s.drawWeaponIcon(screen, x, y, size)
+		iconImg = GetIcon("weapon")
 	case "horse":
-		s.drawHorseIcon(screen, x, y, size)
-	case "boats":
+		iconImg = GetIcon("horse")
+	case "boat":
+		iconImg = GetIcon("boat")
+	}
+
+	if iconImg != nil {
+		// Draw the PNG icon scaled to fit
+		op := &ebiten.DrawImageOptions{}
+		imgW := float32(iconImg.Bounds().Dx())
+		imgH := float32(iconImg.Bounds().Dy())
+		scaleX := iconSize / imgW
+		scaleY := iconSize / imgH
+		op.GeoM.Scale(float64(scaleX), float64(scaleY))
+		op.GeoM.Translate(float64(x), float64(y))
+		screen.DrawImage(iconImg, op)
+	} else {
+		// Fallback to drawing shapes
+		s.drawIconFallback(screen, iconType, param, x, y, iconSize)
+	}
+}
+
+// drawIconFallback draws a fallback shape when PNG icon isn't available
+func (s *GameplayScene) drawIconFallback(screen *ebiten.Image, iconType, param string, x, y, size float32) {
+	switch iconType {
+	case "resource":
+		s.drawResourceIconFallback(screen, param, x, y, size)
+	case "city":
+		s.drawCityIconFallback(screen, x, y, size)
+	case "weapon":
+		s.drawWeaponIconFallback(screen, x, y, size)
+	case "horse":
+		s.drawHorseIconFallback(screen, x, y, size)
+	case "boat":
 		count := 1
 		fmt.Sscanf(param, "%d", &count)
-		s.drawBoatIcon(screen, x, y, size, count)
+		s.drawBoatIconFallback(screen, x, y, size, count)
 	case "stockpile":
-		s.drawStockpileIcon(screen, param, x, y, size)
+		s.drawStockpileIconFallback(screen, param, x, y, size)
 	}
 }
 
-// splitIconType splits "type:param" into ["type", "param"]
-func splitIconType(s string) []string {
-	for i, c := range s {
-		if c == ':' {
-			return []string{s[:i], s[i+1:]}
-		}
-	}
-	return []string{s}
-}
-
-// drawResourceIcon draws a resource indicator
-func (s *GameplayScene) drawResourceIcon(screen *ebiten.Image, resource string, x, y, size float32) {
+// drawResourceIconFallback draws a resource indicator
+func (s *GameplayScene) drawResourceIconFallback(screen *ebiten.Image, resource string, x, y, size float32) {
 	var iconColor color.RGBA
 	var symbol string
 
@@ -701,9 +743,9 @@ func (s *GameplayScene) drawResourceIcon(screen *ebiten.Image, resource string, 
 	case "Timber":
 		iconColor = color.RGBA{100, 70, 40, 255}
 		symbol = "W"
-	case "Horses":
-		iconColor = color.RGBA{160, 100, 60, 255}
-		symbol = "H"
+	case "Grassland":
+		iconColor = color.RGBA{120, 180, 80, 255}
+		symbol = "G"
 	default:
 		return
 	}
@@ -739,8 +781,8 @@ func (s *GameplayScene) drawResourceIcon(screen *ebiten.Image, resource string, 
 	_ = symbol // Could draw letter if needed
 }
 
-// drawCityIcon draws a city building icon
-func (s *GameplayScene) drawCityIcon(screen *ebiten.Image, x, y, size float32) {
+// drawCityIconFallback draws a city building icon
+func (s *GameplayScene) drawCityIconFallback(screen *ebiten.Image, x, y, size float32) {
 	// Draw a small house/castle shape
 	buildingColor := color.RGBA{220, 200, 180, 255}
 	roofColor := color.RGBA{150, 80, 60, 255}
@@ -769,8 +811,8 @@ func (s *GameplayScene) drawCityIcon(screen *ebiten.Image, x, y, size float32) {
 	screen.DrawTriangles(vs, is, emptyImage, nil)
 }
 
-// drawWeaponIcon draws a sword/weapon icon
-func (s *GameplayScene) drawWeaponIcon(screen *ebiten.Image, x, y, size float32) {
+// drawWeaponIconFallback draws a sword/weapon icon
+func (s *GameplayScene) drawWeaponIconFallback(screen *ebiten.Image, x, y, size float32) {
 	bladeColor := color.RGBA{180, 180, 200, 255}
 	hiltColor := color.RGBA{120, 80, 40, 255}
 
@@ -790,8 +832,8 @@ func (s *GameplayScene) drawWeaponIcon(screen *ebiten.Image, x, y, size float32)
 	vector.StrokeLine(screen, cx, guardY, cx, cy+bladeLen/2, 2, hiltColor, false)
 }
 
-// drawHorseIcon draws a horse icon
-func (s *GameplayScene) drawHorseIcon(screen *ebiten.Image, x, y, size float32) {
+// drawHorseIconFallback draws a horse icon
+func (s *GameplayScene) drawHorseIconFallback(screen *ebiten.Image, x, y, size float32) {
 	horseColor := color.RGBA{140, 100, 60, 255}
 
 	// Simplified horse shape: body oval + head + legs
@@ -815,8 +857,8 @@ func (s *GameplayScene) drawHorseIcon(screen *ebiten.Image, x, y, size float32) 
 	vector.StrokeLine(screen, cx+bodyW/4, cy, cx+bodyW/4, legY+size*0.2, 1.5, legColor, false)
 }
 
-// drawBoatIcon draws a boat icon with count
-func (s *GameplayScene) drawBoatIcon(screen *ebiten.Image, x, y, size float32, count int) {
+// drawBoatIconFallback draws a boat icon with count
+func (s *GameplayScene) drawBoatIconFallback(screen *ebiten.Image, x, y, size float32, count int) {
 	boatColor := color.RGBA{100, 80, 60, 255}
 	sailColor := color.RGBA{240, 240, 230, 255}
 
@@ -859,8 +901,8 @@ func (s *GameplayScene) drawBoatIcon(screen *ebiten.Image, x, y, size float32, c
 	}
 }
 
-// drawStockpileIcon draws a stockpile crate icon
-func (s *GameplayScene) drawStockpileIcon(screen *ebiten.Image, playerID string, x, y, size float32) {
+// drawStockpileIconFallback draws a stockpile crate icon
+func (s *GameplayScene) drawStockpileIconFallback(screen *ebiten.Image, playerID string, x, y, size float32) {
 	// Stockpile color (golden brown)
 	stockpileColor := color.RGBA{200, 160, 80, 255}
 	borderColor := color.RGBA{150, 100, 30, 255}
@@ -1965,3 +2007,4 @@ func min(a, b uint8) uint8 {
 	}
 	return b
 }
+

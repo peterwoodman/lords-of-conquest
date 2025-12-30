@@ -78,7 +78,7 @@ var ErrGameFull = errors.New("game is full")
 var ErrAlreadyInGame = errors.New("already in game")
 
 // CreateGame creates a new game.
-func (db *DB) CreateGame(name string, hostPlayerID string, settings GameSettings, isPublic bool) (*Game, error) {
+func (db *DB) CreateGame(name string, hostPlayerID string, settings GameSettings, isPublic bool, mapJSON string) (*Game, error) {
 	id := uuid.New().String()
 	joinCode := generateJoinCode()
 
@@ -89,9 +89,9 @@ func (db *DB) CreateGame(name string, hostPlayerID string, settings GameSettings
 
 	now := time.Now()
 	_, err = db.conn.Exec(`
-		INSERT INTO games (id, name, join_code, is_public, status, host_player_id, settings_json, max_players, created_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-	`, id, name, joinCode, isPublic, GameStatusWaiting, hostPlayerID, string(settingsJSON), settings.MaxPlayers, now)
+		INSERT INTO games (id, name, join_code, is_public, status, host_player_id, settings_json, max_players, map_json, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, id, name, joinCode, isPublic, GameStatusWaiting, hostPlayerID, string(settingsJSON), settings.MaxPlayers, mapJSON, now)
 	if err != nil {
 		return nil, err
 	}
@@ -390,6 +390,24 @@ func (db *DB) GetGameState(gameID string) (string, error) {
 		return "", nil
 	}
 	return stateJSON, err
+}
+
+// GetGameMapJSON retrieves the stored map JSON for a game.
+func (db *DB) GetGameMapJSON(gameID string) (string, error) {
+	var mapJSON sql.NullString
+	err := db.conn.QueryRow(`
+		SELECT map_json FROM games WHERE id = ?
+	`, gameID).Scan(&mapJSON)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", ErrGameNotFound
+	}
+	if err != nil {
+		return "", err
+	}
+	if mapJSON.Valid {
+		return mapJSON.String, nil
+	}
+	return "", nil
 }
 
 // LogAction logs a game action.
