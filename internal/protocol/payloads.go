@@ -295,6 +295,28 @@ type BuildPayload struct {
 	UseGold   bool   `json:"use_gold"`
 }
 
+// ExecuteAttackPayload executes a planned attack.
+type ExecuteAttackPayload struct {
+	TargetTerritory string `json:"target_territory"`
+	BringUnit       string `json:"bring_unit,omitempty"`     // "horse", "weapon", or "boat"
+	BringFrom       string `json:"bring_from,omitempty"`     // Territory ID
+	CarryWeapon     bool   `json:"carry_weapon,omitempty"`   // For horse/boat
+	WeaponFrom      string `json:"weapon_from,omitempty"`    // Territory ID
+	CarryHorse      bool   `json:"carry_horse,omitempty"`    // For boat
+	HorseFrom       string `json:"horse_from,omitempty"`     // Territory ID
+}
+
+// CombatResultPayload reports the result of combat.
+type CombatResultPayload struct {
+	Success         bool     `json:"success"`
+	AttackerWins    bool     `json:"attacker_wins"`
+	AttackStrength  int      `json:"attack_strength"`
+	DefenseStrength int      `json:"defense_strength"`
+	TargetTerritory string   `json:"target_territory"`
+	UnitsDestroyed  []string `json:"units_destroyed,omitempty"`
+	UnitsCaptured   []string `json:"units_captured,omitempty"`
+}
+
 // ==================== System Payloads ====================
 
 // WelcomePayload is sent on connection.

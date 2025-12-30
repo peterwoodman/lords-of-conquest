@@ -169,3 +169,19 @@ func (s *Stockpile) Spend(cost BuildCost) bool {
 	return true
 }
 
+// CanAffordStockpile checks if this stockpile can afford another stockpile's worth.
+func (s *Stockpile) CanAffordStockpile(cost *Stockpile) bool {
+	return s.Coal >= cost.Coal &&
+		s.Gold >= cost.Gold &&
+		s.Iron >= cost.Iron &&
+		s.Timber >= cost.Timber
+}
+
+// Subtract removes resources based on another stockpile.
+func (s *Stockpile) Subtract(cost *Stockpile) {
+	s.Coal -= cost.Coal
+	s.Gold -= cost.Gold
+	s.Iron -= cost.Iron
+	s.Timber -= cost.Timber
+}
+

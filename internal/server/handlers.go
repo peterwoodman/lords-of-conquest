@@ -50,6 +50,18 @@ func (h *Handlers) Handle(client *Client, msg *protocol.Message) {
 		err = h.handleSelectTerritory(client, msg)
 	case protocol.TypePlaceStockpile:
 		err = h.handlePlaceStockpile(client, msg)
+	case protocol.TypeMoveStockpile:
+		err = h.handleMoveStockpile(client, msg)
+	case protocol.TypeMoveUnit:
+		err = h.handleMoveUnit(client, msg)
+	case protocol.TypeEndPhase:
+		err = h.handleEndPhase(client, msg)
+	case protocol.TypePlanAttack:
+		err = h.handlePlanAttack(client, msg)
+	case protocol.TypeExecuteAttack:
+		err = h.handleExecuteAttack(client, msg)
+	case protocol.TypeBuild:
+		err = h.handleBuild(client, msg)
 	case protocol.TypeListGames:
 		err = h.handleListGames(client, msg)
 	case protocol.TypeYourGames:
@@ -280,8 +292,16 @@ func (h *Handlers) joinGame(client *Client, msgID string, gameID string, preferr
 
 	// Check if game has started - send appropriate state
 	if game.Status == database.GameStatusStarted {
-		// Game is in progress - send game state
+		// Game is in progress - tell client to switch to game scene, then send game state
 		log.Printf("Player %s reconnecting to started game %s", client.Name, gameID)
+
+		// Send game_started so client switches to gameplay scene
+		startedMsg, _ := protocol.NewMessage(protocol.TypeGameStarted, protocol.GameStartedPayload{
+			GameID: gameID,
+		})
+		client.Send(startedMsg)
+
+		// Then send the current game state
 		h.broadcastGameState(gameID)
 	} else {
 		// Game is in lobby - send lobby state
@@ -439,6 +459,9 @@ func (h *Handlers) handleStartGame(client *Client, msg *protocol.Message) error 
 
 	// Send initial game state
 	h.broadcastGameState(client.GameID)
+
+	// Trigger AI if first player is AI
+	go h.checkAndTriggerAI(client.GameID)
 
 	return nil
 }
@@ -846,6 +869,14 @@ func (h *Handlers) handlePlaceStockpile(client *Client, msg *protocol.Message) e
 	// Broadcast updated state
 	h.broadcastGameState(client.GameID)
 
+	// Trigger AI stockpile placement if still in production phase
+	if state.Phase == game.PhaseProduction && state.Round == 1 {
+		go h.checkAndTriggerAI(client.GameID)
+	} else {
+		// Phase changed, check for AI turn in new phase
+		go h.checkAndTriggerAI(client.GameID)
+	}
+
 	return nil
 }
 
@@ -1017,6 +1048,12 @@ func (h *Handlers) checkAndTriggerAI(gameID string) {
 		return
 	}
 
+	// Check if game is over
+	if state.IsGameOver() {
+		log.Printf("AI: Game is over")
+		return
+	}
+
 	// Check if current player is AI
 	currentPlayer := state.Players[state.CurrentPlayerID]
 	if currentPlayer == nil {
@@ -1041,15 +1078,31 @@ func (h *Handlers) checkAndTriggerAI(gameID string) {
 		return
 	}
 
-	log.Printf("AI: It's AI player %s's turn", state.CurrentPlayerID)
+	// Special case: Production phase round 1 is stockpile placement (all players at once)
+	if state.Phase == game.PhaseProduction && state.Round == 1 {
+		log.Printf("AI: Production phase round 1 - checking for stockpile placement")
+		h.aiPlaceStockpile(gameID, &state)
+		return
+	}
+
+	log.Printf("AI: It's AI player %s's turn in phase %s", state.CurrentPlayerID, state.Phase)
 
 	// Trigger AI action based on phase
 	switch state.Phase {
 	case game.PhaseTerritorySelection:
 		h.aiSelectTerritory(gameID, &state)
 	case game.PhaseProduction:
-		// TODO: Implement AI production logic
-		log.Printf("AI: Production phase not yet implemented")
+		// After round 1, production is automatic - just advance
+		log.Printf("AI: Production is automatic, skipping")
+	case game.PhaseTrade:
+		// AI doesn't trade for now, just skip
+		h.aiSkipTrade(gameID, &state)
+	case game.PhaseShipment:
+		h.aiShipment(gameID, &state)
+	case game.PhaseConquest:
+		h.aiConquest(gameID, &state)
+	case game.PhaseDevelopment:
+		h.aiDevelopment(gameID, &state)
 	default:
 		log.Printf("AI: No handler for phase: %s", state.Phase)
 	}
@@ -1101,4 +1154,658 @@ func (h *Handlers) aiSelectTerritory(gameID string, state *game.GameState) {
 
 	// Check if next player is also AI
 	go h.checkAndTriggerAI(gameID)
+}
+
+// aiPlaceStockpile places all AI players' stockpiles on the first production phase.
+func (h *Handlers) aiPlaceStockpile(gameID string, state *game.GameState) {
+	// Get AI player info from database
+	dbPlayers, err := h.hub.server.db.GetGamePlayers(gameID)
+	if err != nil {
+		log.Printf("AI: Failed to get players: %v", err)
+		return
+	}
+
+	// Create a map of AI players
+	aiPlayers := make(map[string]bool)
+	for _, p := range dbPlayers {
+		if p.IsAI {
+			aiPlayers[p.PlayerID] = true
+		}
+	}
+
+	// Place stockpiles for all AI players that haven't placed yet
+	anyPlaced := false
+	for playerID, player := range state.Players {
+		if !aiPlayers[playerID] {
+			continue // Not an AI
+		}
+		if player.Eliminated || player.StockpileTerritory != "" {
+			continue // Already placed or eliminated
+		}
+
+		// Find player's territories
+		territories := state.GetPlayerTerritories(playerID)
+		if len(territories) == 0 {
+			log.Printf("AI: Player %s has no territories", playerID)
+			continue
+		}
+
+		// Pick a random territory
+		selectedID := territories[rand.Intn(len(territories))]
+
+		log.Printf("AI: Player %s placing stockpile at %s", playerID, selectedID)
+
+		// Place stockpile
+		if err := state.PlaceStockpile(playerID, selectedID); err != nil {
+			log.Printf("AI: Failed to place stockpile: %v", err)
+			continue
+		}
+		anyPlaced = true
+	}
+
+	if anyPlaced {
+		// Save state
+		h.saveAndBroadcastAIState(gameID, state)
+
+		// If phase changed (all stockpiles placed), check for next AI turn
+		if state.Phase != game.PhaseProduction || state.Round > 1 {
+			go h.checkAndTriggerAI(gameID)
+		}
+	}
+}
+
+// aiSkipTrade skips the trade phase (AI doesn't trade for now).
+func (h *Handlers) aiSkipTrade(gameID string, state *game.GameState) {
+	log.Printf("AI: Skipping trade phase")
+
+	// Move to next phase - trade phase doesn't have per-player turns
+	// The phase manager should handle this when all players are done
+	// For now we just wait
+}
+
+// aiShipment handles the AI's shipment phase.
+func (h *Handlers) aiShipment(gameID string, state *game.GameState) {
+	player := state.Players[state.CurrentPlayerID]
+	if player == nil {
+		return
+	}
+
+	// Simple AI: 50% chance to skip, 50% chance to move stockpile somewhere random
+	if rand.Float32() < 0.5 {
+		log.Printf("AI: Skipping shipment")
+		if err := state.SkipShipment(state.CurrentPlayerID); err != nil {
+			log.Printf("AI: Failed to skip shipment: %v", err)
+			return
+		}
+	} else {
+		// Try to move stockpile
+		destinations := state.GetValidStockpileDestinations(state.CurrentPlayerID)
+		if len(destinations) > 0 {
+			dest := destinations[rand.Intn(len(destinations))]
+			log.Printf("AI: Moving stockpile to %s", dest)
+			if err := state.MoveStockpile(state.CurrentPlayerID, dest); err != nil {
+				log.Printf("AI: Failed to move stockpile: %v", err)
+				// Fall back to skip
+				state.SkipShipment(state.CurrentPlayerID)
+			}
+		} else {
+			log.Printf("AI: No valid destinations, skipping shipment")
+			state.SkipShipment(state.CurrentPlayerID)
+		}
+	}
+
+	// Save state
+	h.saveAndBroadcastAIState(gameID, state)
+
+	// Check if next player is also AI
+	go h.checkAndTriggerAI(gameID)
+}
+
+// aiConquest handles the AI's conquest phase.
+func (h *Handlers) aiConquest(gameID string, state *game.GameState) {
+	player := state.Players[state.CurrentPlayerID]
+	if player == nil || player.AttacksRemaining <= 0 {
+		return
+	}
+
+	// Get attackable targets
+	targets := state.GetAttackableTargets(state.CurrentPlayerID)
+
+	if len(targets) == 0 {
+		log.Printf("AI: No attackable targets, ending conquest")
+		state.EndConquest(state.CurrentPlayerID)
+		h.saveAndBroadcastAIState(gameID, state)
+		go h.checkAndTriggerAI(gameID)
+		return
+	}
+
+	// Simple AI: Try to attack if we have a strength advantage
+	var bestTarget string
+	var bestOdds float64 = 0
+
+	for _, targetID := range targets {
+		plan := state.GetAttackPlan(state.CurrentPlayerID, targetID)
+		if plan == nil || !plan.CanAttack {
+			continue
+		}
+
+		// Calculate odds
+		if plan.DefenseStrength == 0 {
+			bestTarget = targetID
+			bestOdds = 999
+			break
+		}
+		odds := float64(plan.AttackStrength) / float64(plan.DefenseStrength)
+		if odds > bestOdds {
+			bestOdds = odds
+			bestTarget = targetID
+		}
+	}
+
+	// Only attack if we have at least 1:1 odds (simple AI)
+	if bestTarget != "" && bestOdds >= 1.0 {
+		log.Printf("AI: Attacking %s (odds: %.2f)", bestTarget, bestOdds)
+		result, err := state.Attack(state.CurrentPlayerID, bestTarget, nil)
+		if err != nil {
+			log.Printf("AI: Attack failed: %v", err)
+			state.EndConquest(state.CurrentPlayerID)
+		} else if result.AttackerWins {
+			log.Printf("AI: Attack successful!")
+		} else {
+			log.Printf("AI: Attack failed, lost the battle")
+		}
+	} else {
+		log.Printf("AI: No favorable attacks (best odds: %.2f), ending conquest", bestOdds)
+		state.EndConquest(state.CurrentPlayerID)
+	}
+
+	// Save state
+	h.saveAndBroadcastAIState(gameID, state)
+
+	// Check if next player is also AI (or if AI has more attacks)
+	go h.checkAndTriggerAI(gameID)
+}
+
+// aiDevelopment handles the AI's development phase.
+func (h *Handlers) aiDevelopment(gameID string, state *game.GameState) {
+	player := state.Players[state.CurrentPlayerID]
+	if player == nil {
+		return
+	}
+
+	// Simple AI: Try to build things in order of priority: cities > weapons > boats
+	built := false
+
+	// Try to build a city if we can afford it
+	if player.Stockpile.CanAffordStockpile(game.GetBuildCost(game.BuildCity)) || player.Stockpile.Gold >= game.GoldCost(game.BuildCity) {
+		// Find a territory without a city
+		for id, t := range state.Territories {
+			if t.Owner == state.CurrentPlayerID && !t.HasCity {
+				useGold := !player.Stockpile.CanAffordStockpile(game.GetBuildCost(game.BuildCity))
+				if err := state.Build(state.CurrentPlayerID, game.BuildCity, id, useGold); err == nil {
+					log.Printf("AI: Built city at %s", id)
+					built = true
+					break
+				}
+			}
+		}
+	}
+
+	// Try to build a weapon if we can afford it and didn't build a city
+	if !built && (player.Stockpile.CanAffordStockpile(game.GetBuildCost(game.BuildWeapon)) || player.Stockpile.Gold >= game.GoldCost(game.BuildWeapon)) {
+		// Find a territory without a weapon
+		for id, t := range state.Territories {
+			if t.Owner == state.CurrentPlayerID && !t.HasWeapon {
+				useGold := !player.Stockpile.CanAffordStockpile(game.GetBuildCost(game.BuildWeapon))
+				if err := state.Build(state.CurrentPlayerID, game.BuildWeapon, id, useGold); err == nil {
+					log.Printf("AI: Built weapon at %s", id)
+					built = true
+					break
+				}
+			}
+		}
+	}
+
+	// Try to build a boat if at advanced level and can afford it
+	if !built && state.Settings.GameLevel >= game.LevelAdvanced {
+		if player.Stockpile.CanAffordStockpile(game.GetBuildCost(game.BuildBoat)) || player.Stockpile.Gold >= game.GoldCost(game.BuildBoat) {
+			// Find a coastal territory that can have more boats
+			for id, t := range state.Territories {
+				if t.Owner == state.CurrentPlayerID && t.IsCoastal() && t.CanAddBoat() {
+					useGold := !player.Stockpile.CanAffordStockpile(game.GetBuildCost(game.BuildBoat))
+					if err := state.Build(state.CurrentPlayerID, game.BuildBoat, id, useGold); err == nil {
+						log.Printf("AI: Built boat at %s", id)
+						built = true
+						break
+					}
+				}
+			}
+		}
+	}
+
+	if !built {
+		log.Printf("AI: Nothing to build, ending development")
+	}
+
+	// End development phase
+	state.EndDevelopment(state.CurrentPlayerID)
+
+	// Save state
+	h.saveAndBroadcastAIState(gameID, state)
+
+	// Check if next player is also AI
+	go h.checkAndTriggerAI(gameID)
+}
+
+// saveAndBroadcastAIState saves the AI's state changes and broadcasts to clients.
+func (h *Handlers) saveAndBroadcastAIState(gameID string, state *game.GameState) {
+	stateJSON, err := json.Marshal(state)
+	if err != nil {
+		log.Printf("AI: Failed to marshal state: %v", err)
+		return
+	}
+
+	if err := h.hub.server.db.SaveGameState(gameID, string(stateJSON),
+		state.CurrentPlayerID, state.Round, state.Phase.String()); err != nil {
+		log.Printf("AI: Failed to save state: %v", err)
+		return
+	}
+
+	h.broadcastGameState(gameID)
+}
+
+// handleMoveStockpile handles moving a player's stockpile during shipment phase.
+func (h *Handlers) handleMoveStockpile(client *Client, msg *protocol.Message) error {
+	if client.GameID == "" {
+		return errors.New("not in a game")
+	}
+
+	var payload protocol.MoveStockpilePayload
+	if err := msg.ParsePayload(&payload); err != nil {
+		return err
+	}
+
+	// Load game state
+	stateJSON, err := h.hub.server.db.GetGameState(client.GameID)
+	if err != nil {
+		return err
+	}
+
+	var state game.GameState
+	if err := json.Unmarshal([]byte(stateJSON), &state); err != nil {
+		return err
+	}
+
+	// Execute move
+	if err := state.MoveStockpile(client.PlayerID, payload.Destination); err != nil {
+		return err
+	}
+
+	// Save updated state
+	stateJSON2, err := json.Marshal(state)
+	if err != nil {
+		return err
+	}
+
+	if err := h.hub.server.db.SaveGameState(client.GameID, string(stateJSON2),
+		state.CurrentPlayerID, state.Round, state.Phase.String()); err != nil {
+		return err
+	}
+
+	log.Printf("Player %s moved stockpile to %s", client.Name, payload.Destination)
+
+	// Broadcast updated state
+	h.broadcastGameState(client.GameID)
+
+	// Check if next player is AI
+	go h.checkAndTriggerAI(client.GameID)
+
+	return nil
+}
+
+// handleMoveUnit handles moving a unit during shipment phase (Expert level only).
+func (h *Handlers) handleMoveUnit(client *Client, msg *protocol.Message) error {
+	if client.GameID == "" {
+		return errors.New("not in a game")
+	}
+
+	var payload protocol.MoveUnitPayload
+	if err := msg.ParsePayload(&payload); err != nil {
+		return err
+	}
+
+	// Load game state
+	stateJSON, err := h.hub.server.db.GetGameState(client.GameID)
+	if err != nil {
+		return err
+	}
+
+	var state game.GameState
+	if err := json.Unmarshal([]byte(stateJSON), &state); err != nil {
+		return err
+	}
+
+	// Execute move
+	if err := state.MoveUnit(client.PlayerID, payload.UnitType, payload.From, payload.To, payload.CarryWeapon); err != nil {
+		return err
+	}
+
+	// Save updated state
+	stateJSON2, err := json.Marshal(state)
+	if err != nil {
+		return err
+	}
+
+	if err := h.hub.server.db.SaveGameState(client.GameID, string(stateJSON2),
+		state.CurrentPlayerID, state.Round, state.Phase.String()); err != nil {
+		return err
+	}
+
+	log.Printf("Player %s moved %s from %s to %s", client.Name, payload.UnitType, payload.From, payload.To)
+
+	// Broadcast updated state
+	h.broadcastGameState(client.GameID)
+
+	// Check if next player is AI
+	go h.checkAndTriggerAI(client.GameID)
+
+	return nil
+}
+
+// handleEndPhase handles a player ending their turn in the current phase.
+func (h *Handlers) handleEndPhase(client *Client, msg *protocol.Message) error {
+	if client.GameID == "" {
+		return errors.New("not in a game")
+	}
+
+	// Load game state
+	stateJSON, err := h.hub.server.db.GetGameState(client.GameID)
+	if err != nil {
+		return err
+	}
+
+	var state game.GameState
+	if err := json.Unmarshal([]byte(stateJSON), &state); err != nil {
+		return err
+	}
+
+	// Check it's the player's turn
+	if state.CurrentPlayerID != client.PlayerID {
+		return game.ErrNotYourTurn
+	}
+
+	// Handle based on current phase
+	switch state.Phase {
+	case game.PhaseShipment:
+		if err := state.SkipShipment(client.PlayerID); err != nil {
+			return err
+		}
+	case game.PhaseConquest:
+		// End conquest phase for this player
+		state.EndConquest(client.PlayerID)
+	case game.PhaseDevelopment:
+		// End development phase for this player
+		state.EndDevelopment(client.PlayerID)
+	default:
+		return errors.New("cannot end phase in current state")
+	}
+
+	// Save updated state
+	stateJSON2, err := json.Marshal(state)
+	if err != nil {
+		return err
+	}
+
+	if err := h.hub.server.db.SaveGameState(client.GameID, string(stateJSON2),
+		state.CurrentPlayerID, state.Round, state.Phase.String()); err != nil {
+		return err
+	}
+
+	log.Printf("Player %s ended their %s phase", client.Name, state.Phase)
+
+	// Broadcast updated state
+	h.broadcastGameState(client.GameID)
+
+	// Check if next player is AI
+	go h.checkAndTriggerAI(client.GameID)
+
+	return nil
+}
+
+// handlePlanAttack handles getting a preview of an attack.
+func (h *Handlers) handlePlanAttack(client *Client, msg *protocol.Message) error {
+	if client.GameID == "" {
+		return errors.New("not in a game")
+	}
+
+	var payload protocol.PlanAttackPayload
+	if err := msg.ParsePayload(&payload); err != nil {
+		return err
+	}
+
+	// Load game state
+	stateJSON, err := h.hub.server.db.GetGameState(client.GameID)
+	if err != nil {
+		return err
+	}
+
+	var state game.GameState
+	if err := json.Unmarshal([]byte(stateJSON), &state); err != nil {
+		return err
+	}
+
+	// Get attack plan/preview
+	plan := state.GetAttackPlan(client.PlayerID, payload.TargetTerritory)
+	if plan == nil {
+		return game.ErrInvalidTarget
+	}
+
+	// Convert to protocol format
+	reinforcements := make([]protocol.ReinforcementOption, 0, len(plan.Reinforcements))
+	for _, r := range plan.Reinforcements {
+		opt := protocol.ReinforcementOption{
+			UnitType:      r.UnitType,
+			From:          r.FromTerritory,
+			StrengthBonus: r.Strength,
+		}
+		for _, carry := range r.CanCarry {
+			if carry == "weapon" {
+				opt.CanCarryWeapon = true
+			}
+			if carry == "horse" {
+				opt.CanCarryHorse = true
+			}
+		}
+		reinforcements = append(reinforcements, opt)
+	}
+
+	// Send preview
+	preview := protocol.AttackPreviewPayload{
+		TargetTerritory:         plan.TargetID,
+		AttackStrength:          plan.AttackStrength,
+		DefenseStrength:         plan.DefenseStrength,
+		CanAttack:               plan.CanAttack,
+		AvailableReinforcements: reinforcements,
+	}
+
+	respMsg, _ := protocol.NewMessage(protocol.TypeAttackPreview, preview)
+	respMsg.ID = msg.ID
+	client.Send(respMsg)
+
+	return nil
+}
+
+// handleExecuteAttack handles executing an attack.
+func (h *Handlers) handleExecuteAttack(client *Client, msg *protocol.Message) error {
+	if client.GameID == "" {
+		return errors.New("not in a game")
+	}
+
+	var payload protocol.ExecuteAttackPayload
+	if err := msg.ParsePayload(&payload); err != nil {
+		return err
+	}
+
+	// Load game state
+	stateJSON, err := h.hub.server.db.GetGameState(client.GameID)
+	if err != nil {
+		return err
+	}
+
+	var state game.GameState
+	if err := json.Unmarshal([]byte(stateJSON), &state); err != nil {
+		return err
+	}
+
+	// Build brought unit if specified
+	var brought *game.BroughtUnit
+	if payload.BringUnit != "" && payload.BringFrom != "" {
+		brought = &game.BroughtUnit{
+			FromTerritory: payload.BringFrom,
+		}
+		switch payload.BringUnit {
+		case "horse":
+			brought.UnitType = game.UnitHorse
+			if payload.CarryWeapon {
+				brought.CarryingWeapon = true
+				brought.WeaponFromTerritory = payload.WeaponFrom
+				if brought.WeaponFromTerritory == "" {
+					brought.WeaponFromTerritory = payload.BringFrom
+				}
+			}
+		case "weapon":
+			brought.UnitType = game.UnitWeapon
+		case "boat":
+			brought.UnitType = game.UnitBoat
+			if payload.CarryWeapon {
+				brought.CarryingWeapon = true
+				brought.WeaponFromTerritory = payload.WeaponFrom
+				if brought.WeaponFromTerritory == "" {
+					brought.WeaponFromTerritory = payload.BringFrom
+				}
+			}
+			if payload.CarryHorse {
+				brought.CarryingHorse = true
+				brought.HorseFromTerritory = payload.HorseFrom
+				if brought.HorseFromTerritory == "" {
+					brought.HorseFromTerritory = payload.BringFrom
+				}
+			}
+		}
+	}
+
+	// Execute attack
+	result, err := state.Attack(client.PlayerID, payload.TargetTerritory, brought)
+	if err != nil {
+		return err
+	}
+
+	// Save updated state
+	stateJSON2, err := json.Marshal(state)
+	if err != nil {
+		return err
+	}
+
+	if err := h.hub.server.db.SaveGameState(client.GameID, string(stateJSON2),
+		state.CurrentPlayerID, state.Round, state.Phase.String()); err != nil {
+		return err
+	}
+
+	// Convert result to protocol format
+	unitsDestroyed := make([]string, 0)
+	for _, u := range result.UnitsDestroyed {
+		unitsDestroyed = append(unitsDestroyed, u.TerritoryID)
+	}
+	unitsCaptured := make([]string, 0)
+	for _, u := range result.UnitsCaptured {
+		unitsCaptured = append(unitsCaptured, u.TerritoryID)
+	}
+
+	// Send result to attacker
+	combatResult := protocol.CombatResultPayload{
+		Success:         true,
+		AttackerWins:    result.AttackerWins,
+		AttackStrength:  result.AttackStrength,
+		DefenseStrength: result.DefenseStrength,
+		TargetTerritory: payload.TargetTerritory,
+		UnitsDestroyed:  unitsDestroyed,
+		UnitsCaptured:   unitsCaptured,
+	}
+
+	respMsg, _ := protocol.NewMessage(protocol.TypeActionResult, combatResult)
+	respMsg.ID = msg.ID
+	client.Send(respMsg)
+
+	if result.AttackerWins {
+		log.Printf("Player %s conquered %s", client.Name, payload.TargetTerritory)
+	} else {
+		log.Printf("Player %s failed to conquer %s", client.Name, payload.TargetTerritory)
+	}
+
+	// Broadcast updated state
+	h.broadcastGameState(client.GameID)
+
+	// Check if next player is AI
+	go h.checkAndTriggerAI(client.GameID)
+
+	return nil
+}
+
+// handleBuild handles building a unit or city.
+func (h *Handlers) handleBuild(client *Client, msg *protocol.Message) error {
+	if client.GameID == "" {
+		return errors.New("not in a game")
+	}
+
+	var payload protocol.BuildPayload
+	if err := msg.ParsePayload(&payload); err != nil {
+		return err
+	}
+
+	// Load game state
+	stateJSON, err := h.hub.server.db.GetGameState(client.GameID)
+	if err != nil {
+		return err
+	}
+
+	var state game.GameState
+	if err := json.Unmarshal([]byte(stateJSON), &state); err != nil {
+		return err
+	}
+
+	// Convert type string to BuildType
+	var buildType game.BuildType
+	switch payload.Type {
+	case "city":
+		buildType = game.BuildCity
+	case "weapon":
+		buildType = game.BuildWeapon
+	case "boat":
+		buildType = game.BuildBoat
+	default:
+		return game.ErrInvalidTarget
+	}
+
+	// Execute build
+	if err := state.Build(client.PlayerID, buildType, payload.Territory, payload.UseGold); err != nil {
+		return err
+	}
+
+	// Save updated state
+	stateJSON2, err := json.Marshal(state)
+	if err != nil {
+		return err
+	}
+
+	if err := h.hub.server.db.SaveGameState(client.GameID, string(stateJSON2),
+		state.CurrentPlayerID, state.Round, state.Phase.String()); err != nil {
+		return err
+	}
+
+	log.Printf("Player %s built %s at %s", client.Name, payload.Type, payload.Territory)
+
+	// Broadcast updated state
+	h.broadcastGameState(client.GameID)
+
+	return nil
 }

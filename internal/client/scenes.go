@@ -297,6 +297,7 @@ func NewLobbyScene(game *Game) *LobbyScene {
 func (s *LobbyScene) OnEnter() {
 	s.showCreate = false
 	s.game.ListGames()
+	s.game.ListYourGames()
 }
 
 func (s *LobbyScene) OnExit() {}
