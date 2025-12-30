@@ -241,8 +241,10 @@ func (g *Game) handleMessage(msg *protocol.Message) {
 			g.SetScene(g.lobbyScene)
 			
 			// Request game lists
+			log.Printf("Requesting game lists...")
 			g.ListGames()
 			g.ListYourGames()
+			log.Printf("Game list requests sent")
 		} else {
 			log.Printf("Authentication failed: %s", payload.Error)
 			// Reset connect scene state on failure

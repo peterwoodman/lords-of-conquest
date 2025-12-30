@@ -104,18 +104,24 @@ func (s *Server) Stop(ctx context.Context) error {
 
 // handleWebSocket upgrades HTTP connections to WebSocket.
 func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
+	log.Printf("WebSocket connection from %s", r.RemoteAddr)
 	conn, err := s.upgrader.Upgrade(w, r, nil)
 	if err != nil {
-		log.Printf("WebSocket upgrade failed: %v", err)
+		log.Printf("Upgrade failed: %v", err)
 		return
 	}
 
 	client := NewClient(s.hub, conn)
-	s.hub.Register(client)
+	log.Printf("Starting pumps for new client")
 
-	// Start client goroutines
+	// Start pumps immediately - they manage their own goroutines
 	go client.WritePump()
 	go client.ReadPump()
+
+	// Register with hub - this is async via buffered channel
+	log.Printf("Sending client to register channel (buffer: %d)", len(s.hub.register))
+	s.hub.Register(client)
+	log.Printf("Client sent to register channel")
 }
 
 // handleListGames returns a list of public games.
@@ -173,29 +179,36 @@ func NewHub(server *Server) *Hub {
 		clients:       make(map[*Client]bool),
 		playerClients: make(map[string]*Client),
 		gameClients:   make(map[string]map[*Client]bool),
-		register:      make(chan *Client),
-		unregister:    make(chan *Client),
+		register:      make(chan *Client, 100),
+		unregister:    make(chan *Client, 100),
 		broadcast:     make(chan *ClientMessage, 256),
 	}
 }
 
 // Run starts the hub's main loop.
 func (h *Hub) Run() {
+	log.Println("Hub event loop started")
 	for {
 		select {
 		case client := <-h.register:
+			log.Printf("Hub: Processing registration")
+			// Fast path: just add to map and send welcome
+			// No goroutine needed - this should be very quick
 			h.mu.Lock()
 			h.clients[client] = true
 			h.mu.Unlock()
 
-			// Send welcome message
+			// Send welcome - non-blocking because client.Send uses select with default
 			h.sendWelcome(client)
+			log.Printf("Hub: Registration complete")
 
 		case client := <-h.unregister:
-			h.handleDisconnect(client)
+			log.Printf("Hub: Processing unregistration")
+			// Handle disconnection in goroutine to avoid blocking
+			go h.handleDisconnect(client)
 
 		case msg := <-h.broadcast:
-			// Handle messages in a goroutine to avoid blocking the hub
+			// Handle messages in a goroutine to avoid blocking
 			go h.handleMessage(msg)
 		}
 	}
@@ -267,15 +280,22 @@ func (h *Hub) handleMessage(cm *ClientMessage) {
 // notifyGamePlayers sends a message to all players in a game.
 func (h *Hub) notifyGamePlayers(gameID string, msgType protocol.MessageType, payload interface{}) {
 	h.mu.RLock()
-	clients := h.gameClients[gameID]
+	gameClients := h.gameClients[gameID]
+	// Make a slice copy of clients to avoid race conditions during iteration
+	clients := make([]*Client, 0, len(gameClients))
+	for client := range gameClients {
+		clients = append(clients, client)
+	}
 	h.mu.RUnlock()
+
+	log.Printf("Notifying %d clients in game %s with message type %s", len(clients), gameID, msgType)
 
 	msg, err := protocol.NewMessage(msgType, payload)
 	if err != nil {
 		return
 	}
 
-	for client := range clients {
+	for _, client := range clients {
 		client.Send(msg)
 	}
 }
@@ -363,8 +383,10 @@ func NewClient(hub *Hub, conn *websocket.Conn) *Client {
 func (c *Client) Send(msg *protocol.Message) {
 	select {
 	case c.send <- msg:
+		// Message queued successfully
 	default:
-		// Channel full, client too slow
+		// Channel full, client too slow - disconnect
+		log.Printf("Client send channel full, disconnecting client")
 		c.hub.Unregister(c)
 	}
 }

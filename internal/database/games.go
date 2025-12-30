@@ -326,7 +326,20 @@ func (db *DB) AddAIPlayer(gameID, color, personality string) error {
 		slot = int(maxSlot.Int64) + 1
 	}
 
+	// Create a player entry for the AI (required for foreign key)
 	aiID := fmt.Sprintf("ai-%s", uuid.New().String()[:8])
+	aiName := fmt.Sprintf("AI (%s)", personality)
+	aiToken := uuid.New().String()
+	
+	_, err = db.conn.Exec(`
+		INSERT INTO players (id, token, name, created_at, last_seen_at)
+		VALUES (?, ?, ?, ?, ?)
+	`, aiID, aiToken, aiName, time.Now(), time.Now())
+	if err != nil {
+		return fmt.Errorf("failed to create AI player: %w", err)
+	}
+
+	// Add AI to game
 	_, err = db.conn.Exec(`
 		INSERT INTO game_players (game_id, player_id, slot, color, is_ai, ai_personality, is_ready, is_connected, joined_at)
 		VALUES (?, ?, ?, ?, TRUE, ?, TRUE, TRUE, ?)

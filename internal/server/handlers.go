@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"errors"
 	"log"
+	"math/rand"
+	"time"
 
 	"lords-of-conquest/internal/database"
 	"lords-of-conquest/internal/game"
@@ -688,7 +690,9 @@ func (h *Handlers) broadcastGameState(gameID string) {
 		State: createStatePayload(&state, mapData),
 	}
 
+	log.Printf("Broadcasting game state for game %s", gameID)
 	h.hub.notifyGamePlayers(gameID, protocol.TypeGameState, payload)
+	log.Printf("Game state broadcast complete")
 }
 
 // createStatePayload creates a simplified state payload for clients.
@@ -792,6 +796,9 @@ func (h *Handlers) handleSelectTerritory(client *Client, msg *protocol.Message) 
 
 	// Broadcast updated state
 	h.broadcastGameState(client.GameID)
+
+	// Check if next player is AI and trigger their move
+	go h.checkAndTriggerAI(client.GameID)
 
 	return nil
 }
@@ -988,4 +995,110 @@ func (h *Handlers) handleDeleteGame(client *Client, msg *protocol.Message) error
 	client.Send(respMsg)
 
 	return nil
+}
+
+// ==================== AI Logic ====================
+
+// checkAndTriggerAI checks if the current player is an AI and triggers their move.
+func (h *Handlers) checkAndTriggerAI(gameID string) {
+	// Small delay to ensure state is fully saved and broadcast
+	time.Sleep(500 * time.Millisecond)
+
+	// Load current game state
+	stateJSON, err := h.hub.server.db.GetGameState(gameID)
+	if err != nil {
+		log.Printf("AI: Failed to load game state: %v", err)
+		return
+	}
+
+	var state game.GameState
+	if err := json.Unmarshal([]byte(stateJSON), &state); err != nil {
+		log.Printf("AI: Failed to unmarshal game state: %v", err)
+		return
+	}
+
+	// Check if current player is AI
+	currentPlayer := state.Players[state.CurrentPlayerID]
+	if currentPlayer == nil {
+		return
+	}
+
+	// Get player info from database to check if AI
+	players, err := h.hub.server.db.GetGamePlayers(gameID)
+	if err != nil {
+		return
+	}
+
+	var isAI bool
+	for _, p := range players {
+		if p.PlayerID == state.CurrentPlayerID && p.IsAI {
+			isAI = true
+			break
+		}
+	}
+
+	if !isAI {
+		return
+	}
+
+	log.Printf("AI: It's AI player %s's turn", state.CurrentPlayerID)
+
+	// Trigger AI action based on phase
+	switch state.Phase {
+	case game.PhaseTerritorySelection:
+		h.aiSelectTerritory(gameID, &state)
+	case game.PhaseProduction:
+		// TODO: Implement AI production logic
+		log.Printf("AI: Production phase not yet implemented")
+	default:
+		log.Printf("AI: No handler for phase: %s", state.Phase)
+	}
+}
+
+// aiSelectTerritory makes the AI select a random available territory.
+func (h *Handlers) aiSelectTerritory(gameID string, state *game.GameState) {
+	// Find all unclaimed territories
+	var availableTerritories []string
+	for id, territory := range state.Territories {
+		if territory.Owner == "" {
+			availableTerritories = append(availableTerritories, id)
+		}
+	}
+
+	if len(availableTerritories) == 0 {
+		log.Printf("AI: No territories available to select")
+		return
+	}
+
+	// Select random territory
+	selectedID := availableTerritories[rand.Intn(len(availableTerritories))]
+
+	log.Printf("AI: Selecting territory %s from %d available", selectedID, len(availableTerritories))
+
+	// Execute selection
+	if err := state.SelectTerritory(state.CurrentPlayerID, selectedID); err != nil {
+		log.Printf("AI: Failed to select territory: %v", err)
+		return
+	}
+
+	// Save updated state
+	stateJSON, err := json.Marshal(state)
+	if err != nil {
+		log.Printf("AI: Failed to marshal state: %v", err)
+		return
+	}
+
+	if err := h.hub.server.db.SaveGameState(gameID, string(stateJSON),
+		state.CurrentPlayerID, state.Round, state.Phase.String()); err != nil {
+		log.Printf("AI: Failed to save state: %v", err)
+		return
+	}
+
+	log.Printf("AI: Successfully selected territory %s", selectedID)
+
+	// Broadcast updated state
+	h.broadcastGameState(gameID)
+
+	// Check if next player is also AI
+	go h.checkAndTriggerAI(gameID)
 }
