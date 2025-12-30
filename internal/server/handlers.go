@@ -724,11 +724,15 @@ func createStatePayload(state *game.GameState, mapData *maps.Map) map[string]int
 	territories := make(map[string]interface{})
 	for id, t := range state.Territories {
 		territories[id] = map[string]interface{}{
-			"id":       id,
-			"name":     t.Name,
-			"owner":    t.Owner,
-			"resource": t.Resource.String(),
-			"hasCity":  t.HasCity,
+			"id":           id,
+			"name":         t.Name,
+			"owner":        t.Owner,
+			"resource":     t.Resource.String(),
+			"hasCity":      t.HasCity,
+			"hasWeapon":    t.HasWeapon,
+			"hasHorse":     t.HasHorse,
+			"boats":        t.Boats,
+			"coastalTiles": t.CoastalTiles,
 		}
 	}
 

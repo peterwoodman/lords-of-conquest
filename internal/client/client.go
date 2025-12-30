@@ -213,6 +213,37 @@ func (g *Game) PlaceStockpile(territoryID string) error {
 	return g.network.SendPayload(protocol.TypePlaceStockpile, payload)
 }
 
+// MoveStockpile moves the stockpile to a new territory during shipment.
+func (g *Game) MoveStockpile(destinationID string) error {
+	payload := protocol.MoveStockpilePayload{
+		Destination: destinationID,
+	}
+	return g.network.SendPayload(protocol.TypeMoveStockpile, payload)
+}
+
+// EndPhase ends the current phase for this player.
+func (g *Game) EndPhase() error {
+	return g.network.SendPayload(protocol.TypeEndPhase, struct{}{})
+}
+
+// Build builds a unit or city during development phase.
+func (g *Game) Build(buildType, territoryID string, useGold bool) error {
+	payload := protocol.BuildPayload{
+		Type:      buildType,
+		Territory: territoryID,
+		UseGold:   useGold,
+	}
+	return g.network.SendPayload(protocol.TypeBuild, payload)
+}
+
+// ExecuteAttack executes an attack during conquest phase.
+func (g *Game) ExecuteAttack(targetTerritory string) error {
+	payload := protocol.ExecuteAttackPayload{
+		TargetTerritory: targetTerritory,
+	}
+	return g.network.SendPayload(protocol.TypeExecuteAttack, payload)
+}
+
 // handleMessage processes incoming server messages.
 func (g *Game) handleMessage(msg *protocol.Message) {
 	switch msg.Type {
@@ -336,6 +367,42 @@ func (g *Game) handleMessage(msg *protocol.Message) {
 			log.Printf("Game state is not a map: %T", payload.State)
 		}
 
+	case protocol.TypeActionResult:
+		// Handle combat results
+		var payload protocol.CombatResultPayload
+		if err := msg.ParsePayload(&payload); err != nil {
+			log.Printf("Failed to parse action result: %v", err)
+			return
+		}
+		
+		// Show combat result in gameplay scene
+		if payload.TargetTerritory != "" {
+			// Get territory name
+			targetName := payload.TargetTerritory
+			if g.gameplayScene.territories != nil {
+				if terr, ok := g.gameplayScene.territories[payload.TargetTerritory].(map[string]interface{}); ok {
+					if name, ok := terr["name"].(string); ok {
+						targetName = name
+					}
+				}
+			}
+			
+			result := &CombatResultData{
+				AttackerWins:    payload.AttackerWins,
+				AttackStrength:  payload.AttackStrength,
+				DefenseStrength: payload.DefenseStrength,
+				TargetTerritory: payload.TargetTerritory,
+				TargetName:      targetName,
+			}
+			g.gameplayScene.ShowCombatResult(result)
+			
+			if payload.AttackerWins {
+				log.Printf("Combat victory! Captured %s", targetName)
+			} else {
+				log.Printf("Combat defeat at %s", targetName)
+			}
+		}
+		
 	case protocol.TypeError:
 		var payload protocol.ErrorPayload
 		if err := msg.ParsePayload(&payload); err != nil {
