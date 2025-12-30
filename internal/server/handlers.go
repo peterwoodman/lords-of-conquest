@@ -164,6 +164,29 @@ func (h *Handlers) handleCreateGame(client *Client, msg *protocol.Message) error
 		return err
 	}
 
+	// If map data is provided, register it
+	if payload.MapData != nil {
+		rawMap := &maps.RawMap{
+			ID:          payload.MapData.ID,
+			Name:        payload.MapData.Name,
+			Width:       payload.MapData.Width,
+			Height:      payload.MapData.Height,
+			Grid:        payload.MapData.Grid,
+			Territories: make(map[string]maps.RawTerritory),
+		}
+		for id, t := range payload.MapData.Territories {
+			rawMap.Territories[id] = maps.RawTerritory{
+				Name:     t.Name,
+				Resource: t.Resource,
+			}
+		}
+		// Process and register the map
+		processedMap := maps.Process(rawMap)
+		maps.Register(processedMap)
+		log.Printf("Registered generated map: %s (%dx%d, %d territories)",
+			rawMap.ID, rawMap.Width, rawMap.Height, len(rawMap.Territories))
+	}
+
 	// Set defaults
 	settings := database.GameSettings{
 		MaxPlayers:    payload.Settings.MaxPlayers,
@@ -1058,15 +1081,23 @@ func (h *Handlers) checkAndTriggerAI(gameID string) {
 		return
 	}
 
-	// Check if current player is AI
-	currentPlayer := state.Players[state.CurrentPlayerID]
-	if currentPlayer == nil {
+	// Get player info from database
+	players, err := h.hub.server.db.GetGamePlayers(gameID)
+	if err != nil {
 		return
 	}
 
-	// Get player info from database to check if AI
-	players, err := h.hub.server.db.GetGamePlayers(gameID)
-	if err != nil {
+	// Special case: Production phase round 1 is stockpile placement (all players at once)
+	// This needs to happen regardless of whose turn it is
+	if state.Phase == game.PhaseProduction && state.Round == 1 {
+		log.Printf("AI: Production phase round 1 - checking for stockpile placement")
+		h.aiPlaceStockpile(gameID, &state)
+		return
+	}
+
+	// Check if current player is AI
+	currentPlayer := state.Players[state.CurrentPlayerID]
+	if currentPlayer == nil {
 		return
 	}
 
@@ -1079,13 +1110,6 @@ func (h *Handlers) checkAndTriggerAI(gameID string) {
 	}
 
 	if !isAI {
-		return
-	}
-
-	// Special case: Production phase round 1 is stockpile placement (all players at once)
-	if state.Phase == game.PhaseProduction && state.Round == 1 {
-		log.Printf("AI: Production phase round 1 - checking for stockpile placement")
-		h.aiPlaceStockpile(gameID, &state)
 		return
 	}
 

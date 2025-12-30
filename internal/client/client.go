@@ -130,11 +130,12 @@ func (g *Game) Authenticate(name string) error {
 }
 
 // CreateGame creates a new game on the server.
-func (g *Game) CreateGame(name string, isPublic bool, settings protocol.GameSettings) error {
+func (g *Game) CreateGame(name string, isPublic bool, settings protocol.GameSettings, mapData *protocol.MapData) error {
 	payload := protocol.CreateGamePayload{
 		Name:     name,
 		IsPublic: isPublic,
 		Settings: settings,
+		MapData:  mapData,
 	}
 	return g.network.SendPayload(protocol.TypeCreateGame, payload)
 }

@@ -203,14 +203,11 @@ func (s *GameplayScene) Draw(screen *ebiten.Image) {
 		vector.DrawFilledCircle(screen, x, y, 1, starColor, false)
 	}
 
-	// Left sidebar
+	// Left sidebar (You, Players, Resources)
 	s.drawLeftSidebar(screen)
 
-	// Map area with frame
+	// Map area with frame (fills remaining space)
 	s.drawMapArea(screen)
-
-	// Right sidebar
-	s.drawRightSidebar(screen)
 
 	// Bottom info bar
 	s.drawBottomBar(screen)
@@ -294,7 +291,7 @@ func (s *GameplayScene) drawMap(screen *ebiten.Image) {
 			}
 
 			vector.DrawFilledRect(screen, float32(sx), float32(sy),
-				float32(s.cellSize-1), float32(s.cellSize-1), cellColor, false)
+				float32(s.cellSize), float32(s.cellSize), cellColor, false)
 		}
 	}
 
@@ -305,43 +302,170 @@ func (s *GameplayScene) drawMap(screen *ebiten.Image) {
 	s.drawTerritoryIcons(screen)
 }
 
-// drawTerritoryBoundaries draws lines between different territories
+// drawTerritoryBoundaries draws lines between different territories with rounded corners
 func (s *GameplayScene) drawTerritoryBoundaries(screen *ebiten.Image, width, height int, grid []interface{}) {
 	borderColor := color.RGBA{0, 0, 0, 180}
+	cornerRadius := float32(4) // Radius for rounded corners
+	lineWidth := float32(2)
 
-	for y := 0; y < height; y++ {
+	// Helper to get territory ID at position (returns -1 for out of bounds)
+	getTerritoryAt := func(x, y int) int {
+		if x < 0 || x >= width || y < 0 || y >= height {
+			return -1
+		}
 		row := grid[y].([]interface{})
+		return int(row[x].(float64))
+	}
+
+	// First pass: draw the main border lines (shortened to leave room for corners)
+	for y := 0; y < height; y++ {
 		for x := 0; x < width; x++ {
-			territoryID := int(row[x].(float64))
+			territoryID := getTerritoryAt(x, y)
 			sx, sy := s.gridToScreen(x, y)
 
-			// Check right neighbor
-			if x < width-1 {
-				rightRow := grid[y].([]interface{})
-				rightID := int(rightRow[x+1].(float64))
-				if rightID != territoryID {
-					// Draw vertical line
-					x1 := float32(sx + s.cellSize - 1)
-					y1 := float32(sy)
-					y2 := float32(sy + s.cellSize)
-					vector.StrokeLine(screen, x1, y1, x1, y2, 2, borderColor, false)
+			// Check right neighbor - vertical line
+			rightID := getTerritoryAt(x+1, y)
+			if rightID != territoryID {
+				lineX := float32(sx + s.cellSize)
+				topY := float32(sy)
+				bottomY := float32(sy + s.cellSize)
+
+				// Check if we need to shorten for corners
+				// Top corner: check if there's also a horizontal border above
+				topID := getTerritoryAt(x, y-1)
+				topRightID := getTerritoryAt(x+1, y-1)
+				if (topID != territoryID || topRightID != rightID) && y > 0 {
+					topY += cornerRadius
+				}
+
+				// Bottom corner: check if there's also a horizontal border below
+				bottomID := getTerritoryAt(x, y+1)
+				bottomRightID := getTerritoryAt(x+1, y+1)
+				if (bottomID != territoryID || bottomRightID != rightID) && y < height-1 {
+					bottomY -= cornerRadius
+				}
+
+				if topY < bottomY {
+					vector.StrokeLine(screen, lineX, topY, lineX, bottomY, lineWidth, borderColor, false)
 				}
 			}
 
-			// Check bottom neighbor
-			if y < height-1 {
-				bottomRow := grid[y+1].([]interface{})
-				bottomID := int(bottomRow[x].(float64))
-				if bottomID != territoryID {
-					// Draw horizontal line
-					x1 := float32(sx)
-					x2 := float32(sx + s.cellSize)
-					y1 := float32(sy + s.cellSize - 1)
-					vector.StrokeLine(screen, x1, y1, x2, y1, 2, borderColor, false)
+			// Check bottom neighbor - horizontal line
+			bottomID := getTerritoryAt(x, y+1)
+			if bottomID != territoryID {
+				lineY := float32(sy + s.cellSize)
+				leftX := float32(sx)
+				rightX := float32(sx + s.cellSize)
+
+				// Check if we need to shorten for corners
+				// Left corner: check if there's also a vertical border to the left
+				leftID := getTerritoryAt(x-1, y)
+				bottomLeftID := getTerritoryAt(x-1, y+1)
+				if (leftID != territoryID || bottomLeftID != bottomID) && x > 0 {
+					leftX += cornerRadius
+				}
+
+				// Right corner: check if there's also a vertical border to the right
+				rightTID := getTerritoryAt(x+1, y)
+				bottomRightID := getTerritoryAt(x+1, y+1)
+				if (rightTID != territoryID || bottomRightID != bottomID) && x < width-1 {
+					rightX -= cornerRadius
+				}
+
+				if leftX < rightX {
+					vector.StrokeLine(screen, leftX, lineY, rightX, lineY, lineWidth, borderColor, false)
 				}
 			}
 		}
 	}
+
+	// Second pass: draw rounded corners
+	for y := 0; y < height; y++ {
+		for x := 0; x < width; x++ {
+			// Check each corner of this cell for rounded corners
+			// We check the bottom-right corner of each cell
+			sx, sy := s.gridToScreen(x, y)
+			cornerX := float32(sx + s.cellSize)
+			cornerY := float32(sy + s.cellSize)
+
+			// Get the four territories meeting at this corner
+			tl := getTerritoryAt(x, y)     // top-left
+			tr := getTerritoryAt(x+1, y)   // top-right
+			bl := getTerritoryAt(x, y+1)   // bottom-left
+			br := getTerritoryAt(x+1, y+1) // bottom-right
+
+			// Count unique territories at this corner
+			hasVerticalBorder := tl != tr || bl != br
+			hasHorizontalBorder := tl != bl || tr != br
+
+			// Only draw corner if we have borders meeting
+			if hasVerticalBorder && hasHorizontalBorder {
+				// Determine which type of corner arc to draw based on territory configuration
+				s.drawCornerArc(screen, cornerX, cornerY, cornerRadius, lineWidth, borderColor, tl, tr, bl, br)
+			}
+		}
+	}
+}
+
+// drawCornerArc draws a rounded corner arc at the specified position
+func (s *GameplayScene) drawCornerArc(screen *ebiten.Image, cx, cy, radius, lineWidth float32, col color.RGBA, tl, tr, bl, br int) {
+	segments := 6 // Number of segments for the arc
+
+	// Determine which quadrant(s) need arcs based on territory configuration
+	// An arc is needed where two different territories meet at a corner
+
+	// Check each of the four possible arc positions
+	// Top-left arc (from top to left)
+	if tl != tr && tl != bl {
+		s.drawArcSegment(screen, cx, cy, radius, lineWidth, col, 180, 270, segments)
+	}
+	// Top-right arc (from right to top)
+	if tr != tl && tr != br {
+		s.drawArcSegment(screen, cx, cy, radius, lineWidth, col, 270, 360, segments)
+	}
+	// Bottom-right arc (from bottom to right)
+	if br != bl && br != tr {
+		s.drawArcSegment(screen, cx, cy, radius, lineWidth, col, 0, 90, segments)
+	}
+	// Bottom-left arc (from left to bottom)
+	if bl != tl && bl != br {
+		s.drawArcSegment(screen, cx, cy, radius, lineWidth, col, 90, 180, segments)
+	}
+}
+
+// drawArcSegment draws a quarter arc
+func (s *GameplayScene) drawArcSegment(screen *ebiten.Image, cx, cy, radius, lineWidth float32, col color.RGBA, startAngle, endAngle float64, segments int) {
+	import_math_used := 3.14159265358979323846 / 180.0 // degrees to radians
+
+	for i := 0; i < segments; i++ {
+		a1 := (startAngle + (endAngle-startAngle)*float64(i)/float64(segments)) * import_math_used
+		a2 := (startAngle + (endAngle-startAngle)*float64(i+1)/float64(segments)) * import_math_used
+
+		x1 := cx + radius*float32(cosApprox(a1))
+		y1 := cy + radius*float32(sinApprox(a1))
+		x2 := cx + radius*float32(cosApprox(a2))
+		y2 := cy + radius*float32(sinApprox(a2))
+
+		vector.StrokeLine(screen, x1, y1, x2, y2, lineWidth, col, false)
+	}
+}
+
+// Simple sin/cos approximations to avoid importing math
+func sinApprox(x float64) float64 {
+	// Normalize to [-pi, pi]
+	for x > 3.14159265358979323846 {
+		x -= 2 * 3.14159265358979323846
+	}
+	for x < -3.14159265358979323846 {
+		x += 2 * 3.14159265358979323846
+	}
+	// Taylor series approximation
+	x2 := x * x
+	return x * (1 - x2/6 + x2*x2/120 - x2*x2*x2/5040)
+}
+
+func cosApprox(x float64) float64 {
+	return sinApprox(x + 3.14159265358979323846/2)
 }
 
 // drawTerritoryIcons draws icons for all territory contents (resources, buildings, units, stockpiles)
@@ -758,7 +882,7 @@ func (s *GameplayScene) drawInfoPanel(screen *ebiten.Image) {
 func (s *GameplayScene) drawLeftSidebar(screen *ebiten.Image) {
 	sidebarX := 10
 	sidebarY := 10
-	sidebarW := 240
+	sidebarW := 200
 
 	// Player identity panel
 	myPlayer, ok := s.players[s.game.config.PlayerID]
@@ -767,29 +891,34 @@ func (s *GameplayScene) drawLeftSidebar(screen *ebiten.Image) {
 		playerName := player["name"].(string)
 		playerColor := player["color"].(string)
 
-		DrawFancyPanel(screen, sidebarX, sidebarY, sidebarW, 90, "You")
+		DrawFancyPanel(screen, sidebarX, sidebarY, sidebarW, 80, "You")
 
-		DrawLargeText(screen, playerName, sidebarX+15, sidebarY+40, ColorText)
+		DrawLargeText(screen, playerName, sidebarX+15, sidebarY+30, ColorText)
 
 		// Color indicator
 		if pc, ok := PlayerColors[playerColor]; ok {
-			colorSize := float32(40)
-			colorX := float32(sidebarX + sidebarW - 55)
-			colorY := float32(sidebarY + 35)
+			colorSize := float32(32)
+			colorX := float32(sidebarX + sidebarW - 48)
+			colorY := float32(sidebarY + 28)
 			vector.DrawFilledRect(screen, colorX, colorY, colorSize, colorSize, pc, false)
-			vector.StrokeRect(screen, colorX, colorY, colorSize, colorSize, 3, ColorBorder, false)
+			vector.StrokeRect(screen, colorX, colorY, colorSize, colorSize, 2, ColorBorder, false)
 		}
 
-		DrawText(screen, playerColor, sidebarX+15, sidebarY+65, ColorTextMuted)
+		DrawText(screen, playerColor, sidebarX+15, sidebarY+58, ColorTextMuted)
 	}
 
-	// Players list
-	if len(s.playerOrder) > 0 {
-		listY := sidebarY + 110
-		listH := ScreenHeight - listY - 100
-		DrawFancyPanel(screen, sidebarX, listY, sidebarW, listH, "Players")
+	// Players list - compact height based on player count
+	playersY := sidebarY + 95
+	playerCount := len(s.playerOrder)
+	playersH := 40 + playerCount*26 // Header + per-player height
+	if playersH > 200 {
+		playersH = 200 // Cap max height
+	}
 
-		y := listY + 40
+	if playerCount > 0 {
+		DrawFancyPanel(screen, sidebarX, playersY, sidebarW, playersH, "Players")
+
+		y := playersY + 38
 		for _, playerIDInterface := range s.playerOrder {
 			playerID := playerIDInterface.(string)
 			if playerData, ok := s.players[playerID]; ok {
@@ -800,8 +929,8 @@ func (s *GameplayScene) drawLeftSidebar(screen *ebiten.Image) {
 
 				// Color indicator
 				if pc, ok := PlayerColors[playerColor]; ok {
-					vector.DrawFilledRect(screen, float32(sidebarX+15), float32(y+3), 16, 16, pc, false)
-					vector.StrokeRect(screen, float32(sidebarX+15), float32(y+3), 16, 16, 2, ColorBorder, false)
+					vector.DrawFilledRect(screen, float32(sidebarX+12), float32(y+2), 14, 14, pc, false)
+					vector.StrokeRect(screen, float32(sidebarX+12), float32(y+2), 14, 14, 1, ColorBorder, false)
 				}
 
 				// Player name
@@ -813,14 +942,76 @@ func (s *GameplayScene) drawLeftSidebar(screen *ebiten.Image) {
 					nameText += " *"
 				}
 
-				DrawText(screen, nameText, sidebarX+38, y, ColorText)
-				y += 28
+				DrawText(screen, nameText, sidebarX+32, y, ColorText)
+				y += 26
 
-				if y > listY+listH-40 {
+				if y > playersY+playersH-20 {
 					break // Don't overflow
 				}
 			}
 		}
+	}
+
+	// Resources panel - below Players
+	resourcesY := playersY + playersH + 15
+	s.drawResourcesPanel(screen, sidebarX, resourcesY, sidebarW)
+}
+
+// drawResourcesPanel draws the player's resources
+func (s *GameplayScene) drawResourcesPanel(screen *ebiten.Image, x, y, w int) {
+	myPlayer, ok := s.players[s.game.config.PlayerID]
+	if !ok {
+		return
+	}
+
+	player := myPlayer.(map[string]interface{})
+	panelH := 150
+
+	DrawFancyPanel(screen, x, y, w, panelH, "Resources")
+
+	// Get stockpile data
+	stockpile, hasStockpile := player["stockpile"]
+	if hasStockpile {
+		stockpileData := stockpile.(map[string]interface{})
+
+		resY := y + 40
+		resources := []struct {
+			name  string
+			key   string
+			color color.RGBA
+		}{
+			{"Coal", "coal", color.RGBA{60, 60, 60, 255}},
+			{"Gold", "gold", color.RGBA{255, 215, 0, 255}},
+			{"Iron", "iron", color.RGBA{160, 160, 180, 255}},
+			{"Wood", "timber", color.RGBA{139, 90, 43, 255}},
+		}
+
+		for _, res := range resources {
+			count := 0
+			if val, ok := stockpileData[res.key]; ok {
+				count = int(val.(float64))
+			}
+
+			// Resource icon (colored square)
+			vector.DrawFilledRect(screen, float32(x+12), float32(resY+2), 14, 14, res.color, false)
+			vector.StrokeRect(screen, float32(x+12), float32(resY+2), 14, 14, 1, ColorBorder, false)
+
+			text := fmt.Sprintf("%s: %d", res.name, count)
+			DrawText(screen, text, x+32, resY, ColorText)
+			resY += 24
+		}
+
+		// Stockpile location
+		if stockpileTerr, ok := player["stockpileTerritory"]; ok && stockpileTerr != nil && stockpileTerr != "" {
+			terrID := stockpileTerr.(string)
+			if terr, ok := s.territories[terrID]; ok {
+				terrData := terr.(map[string]interface{})
+				terrName := terrData["name"].(string)
+				DrawText(screen, "At: "+terrName, x+12, resY+5, ColorTextMuted)
+			}
+		}
+	} else {
+		DrawText(screen, "No stockpile yet", x+12, y+45, ColorTextMuted)
 	}
 }
 
@@ -833,9 +1024,34 @@ func (s *GameplayScene) drawMapArea(screen *ebiten.Image) {
 	width := int(s.mapData["width"].(float64))
 	height := int(s.mapData["height"].(float64))
 
-	// Map dimensions
+	// Calculate available space for the map
+	sidebarWidth := 220    // Left sidebar width + margin
+	bottomBarHeight := 100 // Bottom bar height + margin
+	availableWidth := ScreenWidth - sidebarWidth - 20
+	availableHeight := ScreenHeight - bottomBarHeight - 20
+
+	// Calculate cell size to fit the map in available space
+	cellW := availableWidth / width
+	cellH := availableHeight / height
+	s.cellSize = cellW
+	if cellH < cellW {
+		s.cellSize = cellH
+	}
+	// Clamp cell size to reasonable bounds
+	if s.cellSize < 16 {
+		s.cellSize = 16
+	}
+	if s.cellSize > 40 {
+		s.cellSize = 40
+	}
+
+	// Map dimensions with calculated cell size
 	mapW := width * s.cellSize
 	mapH := height * s.cellSize
+
+	// Center the map in available space
+	s.offsetX = sidebarWidth + (availableWidth-mapW)/2
+	s.offsetY = 10 + (availableHeight-mapH)/2
 
 	// Frame around map
 	frameX := s.offsetX - 10
@@ -848,66 +1064,6 @@ func (s *GameplayScene) drawMapArea(screen *ebiten.Image) {
 
 	// Draw the map
 	s.drawMap(screen)
-}
-
-// drawRightSidebar draws resources and game info.
-func (s *GameplayScene) drawRightSidebar(screen *ebiten.Image) {
-	sidebarX := ScreenWidth - 250
-	sidebarY := 10
-	sidebarW := 240
-
-	// Resources panel
-	myPlayer, ok := s.players[s.game.config.PlayerID]
-	if ok {
-		player := myPlayer.(map[string]interface{})
-
-		DrawFancyPanel(screen, sidebarX, sidebarY, sidebarW, 180, "Resources")
-
-		// Get stockpile data
-		stockpile, hasStockpile := player["stockpile"]
-		if hasStockpile {
-			stockpileData := stockpile.(map[string]interface{})
-
-			y := sidebarY + 45
-			resources := []struct {
-				name  string
-				key   string
-				color color.RGBA
-			}{
-				{"Coal", "coal", color.RGBA{60, 60, 60, 255}},
-				{"Gold", "gold", color.RGBA{255, 215, 0, 255}},
-				{"Iron", "iron", color.RGBA{160, 160, 180, 255}},
-				{"Wood", "timber", color.RGBA{139, 90, 43, 255}},
-			}
-
-			for _, res := range resources {
-				count := 0
-				if val, ok := stockpileData[res.key]; ok {
-					count = int(val.(float64))
-				}
-
-				// Resource icon (colored square)
-				vector.DrawFilledRect(screen, float32(sidebarX+15), float32(y+2), 16, 16, res.color, false)
-				vector.StrokeRect(screen, float32(sidebarX+15), float32(y+2), 16, 16, 2, ColorBorder, false)
-
-				text := fmt.Sprintf("%s: %d", res.name, count)
-				DrawText(screen, text, sidebarX+40, y, ColorText)
-				y += 28
-			}
-
-			// Stockpile location
-			if stockpileTerr, ok := player["stockpileTerritory"]; ok && stockpileTerr != nil && stockpileTerr != "" {
-				terrID := stockpileTerr.(string)
-				if terr, ok := s.territories[terrID]; ok {
-					terrData := terr.(map[string]interface{})
-					terrName := terrData["name"].(string)
-					DrawText(screen, "At: "+terrName, sidebarX+15, y+10, ColorTextMuted)
-				}
-			}
-		} else {
-			DrawText(screen, "No stockpile yet", sidebarX+15, sidebarY+45, ColorTextMuted)
-		}
-	}
 }
 
 // drawBottomBar draws phase/turn information.
@@ -939,8 +1095,22 @@ func (s *GameplayScene) drawBottomBar(screen *ebiten.Image) {
 
 	case "Production":
 		if s.round == 1 {
-			instruction = "Click one of YOUR territories to place your stockpile"
-			instruction2 = "All players place stockpiles simultaneously"
+			// Check if we've already placed our stockpile
+			myStockpilePlaced := false
+			if myPlayer, ok := s.players[s.game.config.PlayerID]; ok {
+				player := myPlayer.(map[string]interface{})
+				if stockpileTerr, ok := player["stockpileTerritory"]; ok && stockpileTerr != nil && stockpileTerr != "" {
+					myStockpilePlaced = true
+				}
+			}
+
+			if myStockpilePlaced {
+				instruction = "Waiting for other players to place stockpiles..."
+				instruction2 = ""
+			} else {
+				instruction = "Click one of YOUR territories to place your stockpile"
+				instruction2 = "All players place stockpiles simultaneously"
+			}
 			showTurnIndicator = false
 		} else {
 			instruction = "Resources are being produced automatically"
@@ -982,10 +1152,10 @@ func (s *GameplayScene) drawBottomBar(screen *ebiten.Image) {
 	}
 
 	if instruction != "" {
-		DrawText(screen, instruction, barX+15, barY+38, ColorTextMuted)
+		DrawText(screen, instruction, barX+15, barY+45, ColorTextMuted)
 	}
 	if instruction2 != "" {
-		DrawText(screen, instruction2, barX+15, barY+54, ColorTextMuted)
+		DrawText(screen, instruction2, barX+15, barY+60, ColorTextMuted)
 	}
 
 	// Current turn indicator (left side)
@@ -1010,7 +1180,7 @@ func (s *GameplayScene) drawBottomBar(screen *ebiten.Image) {
 
 			// Indicate if it's your turn
 			if isMyTurn {
-				DrawLargeText(screen, "YOUR TURN!", turnX, barY+40, ColorSuccess)
+				DrawLargeText(screen, "YOUR TURN!", turnX, barY+35, ColorSuccess)
 			}
 		}
 	}

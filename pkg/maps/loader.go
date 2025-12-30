@@ -122,3 +122,10 @@ func LoadFromJSON(data []byte) (*Map, error) {
 	return Process(&raw), nil
 }
 
+// Register adds a map to the registry.
+func Register(m *Map) {
+	if m != nil && m.ID != "" {
+		Registry[m.ID] = m
+	}
+}
+

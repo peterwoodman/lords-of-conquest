@@ -256,27 +256,35 @@ func DrawTextCentered(screen *ebiten.Image, text string, x, y int, clr color.Col
 	DrawText(screen, text, x-w/2, y, clr)
 }
 
-// DrawLargeText draws scaled-up text (2x).
+// DrawLargeText draws scaled-up text (2x). Height is ~24px.
 func DrawLargeText(screen *ebiten.Image, text string, x, y int, clr color.Color) {
 	// Create a temporary image to render the text
 	textW := len(text) * 6
-	textH := 16 // Increased height to capture full text
+	textH := 12
 	tmpImg := ebiten.NewImage(textW, textH)
 	
-	// Render text to temp image with some vertical padding
-	ebitenutil.DebugPrintAt(tmpImg, text, 0, 2)
+	// Render text to temp image
+	ebitenutil.DebugPrintAt(tmpImg, text, 0, 0)
 	
-	// Draw scaled up 2x with shadow
+	// Get color components
+	r, g, b, a := clr.RGBA()
+	rf := float32(r) / 0xffff
+	gf := float32(g) / 0xffff
+	bf := float32(b) / 0xffff
+	af := float32(a) / 0xffff
+	
+	// Draw shadow
 	opts := &ebiten.DrawImageOptions{}
 	opts.GeoM.Scale(2.0, 2.0)
-	opts.GeoM.Translate(float64(x+2), float64(y+2))
-	opts.ColorScale.ScaleAlpha(0.5) // Dark shadow
+	opts.GeoM.Translate(float64(x+1), float64(y+1))
+	opts.ColorScale.Scale(0, 0, 0, af*0.5)
 	screen.DrawImage(tmpImg, opts)
 	
-	// Draw main scaled text
+	// Draw main scaled text with color
 	opts = &ebiten.DrawImageOptions{}
 	opts.GeoM.Scale(2.0, 2.0)
 	opts.GeoM.Translate(float64(x), float64(y))
+	opts.ColorScale.Scale(rf, gf, bf, af)
 	screen.DrawImage(tmpImg, opts)
 }
 
@@ -286,27 +294,33 @@ func DrawLargeTextCentered(screen *ebiten.Image, text string, x, y int, clr colo
 	DrawLargeText(screen, text, x-w/2, y, clr)
 }
 
-// DrawHugeTitle draws a massive title (3x scale).
+// DrawHugeTitle draws a massive title (3x scale). Height is ~36px.
 func DrawHugeTitle(screen *ebiten.Image, text string, x, y int) {
 	// Create a temporary image to render the text
 	textW := len(text) * 6
-	textH := 20 // Even more height for 3x scaling
+	textH := 12
 	tmpImg := ebiten.NewImage(textW, textH)
 	
-	// Render text to temp image with vertical padding
-	ebitenutil.DebugPrintAt(tmpImg, text, 0, 4)
+	// Render text to temp image
+	ebitenutil.DebugPrintAt(tmpImg, text, 0, 0)
 	
-	// Draw scaled up 3x with shadow
+	// Gold/amber color for title
+	rf := float32(1.0)
+	gf := float32(0.85)
+	bf := float32(0.3)
+	
+	// Draw shadow
 	opts := &ebiten.DrawImageOptions{}
 	opts.GeoM.Scale(3.0, 3.0)
-	opts.GeoM.Translate(float64(x+3), float64(y+3))
-	opts.ColorScale.ScaleAlpha(0.6) // Dark shadow
+	opts.GeoM.Translate(float64(x+2), float64(y+2))
+	opts.ColorScale.Scale(0, 0, 0, 0.6)
 	screen.DrawImage(tmpImg, opts)
 	
-	// Draw main scaled text
+	// Draw main scaled text with color
 	opts = &ebiten.DrawImageOptions{}
 	opts.GeoM.Scale(3.0, 3.0)
 	opts.GeoM.Translate(float64(x), float64(y))
+	opts.ColorScale.Scale(rf, gf, bf, 1.0)
 	screen.DrawImage(tmpImg, opts)
 }
 
@@ -419,9 +433,9 @@ func (l *List) Draw(screen *ebiten.Image) {
 		}
 
 		// Draw text - larger
-		DrawLargeText(screen, item.Text, l.X+15, itemY+8, ColorText)
+		DrawLargeText(screen, item.Text, l.X+15, itemY+6, ColorText)
 		if item.Subtext != "" {
-			DrawText(screen, item.Subtext, l.X+15, itemY+32, ColorTextMuted)
+			DrawText(screen, item.Subtext, l.X+15, itemY+34, ColorTextMuted)
 		}
 	}
 

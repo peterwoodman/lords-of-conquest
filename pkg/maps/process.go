@@ -3,6 +3,7 @@ package maps
 import (
 	"lords-of-conquest/internal/game"
 	"strconv"
+	"strings"
 )
 
 // Process takes a raw map and computes all derived data.
@@ -209,7 +210,7 @@ func createTerritories(m *Map, raw *RawMap) {
 
 // parseResource converts a resource string to ResourceType.
 func parseResource(s string) game.ResourceType {
-	switch s {
+	switch strings.ToLower(s) {
 	case "coal":
 		return game.ResourceCoal
 	case "gold":

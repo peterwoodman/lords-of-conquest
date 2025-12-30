@@ -24,6 +24,23 @@ type CreateGamePayload struct {
 	Name     string       `json:"name"`
 	IsPublic bool         `json:"is_public"`
 	Settings GameSettings `json:"settings"`
+	MapData  *MapData     `json:"map_data,omitempty"` // Generated map data
+}
+
+// MapData contains the full map information for generated maps.
+type MapData struct {
+	ID          string              `json:"id"`
+	Name        string              `json:"name"`
+	Width       int                 `json:"width"`
+	Height      int                 `json:"height"`
+	Grid        [][]int             `json:"grid"`
+	Territories map[string]TerritoryInfo `json:"territories"`
+}
+
+// TerritoryInfo contains territory metadata.
+type TerritoryInfo struct {
+	Name     string `json:"name"`
+	Resource string `json:"resource,omitempty"`
 }
 
 // GameCreatedPayload is the response when a game is created.

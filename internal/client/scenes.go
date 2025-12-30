@@ -5,6 +5,7 @@ import (
 	"image/color"
 
 	"lords-of-conquest/internal/protocol"
+	"lords-of-conquest/pkg/maps"
 
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/inpututil"
@@ -105,22 +106,22 @@ func (s *ConnectScene) Draw(screen *ebiten.Image) {
 	DrawFancyPanel(screen, panelX, panelY, panelW, panelH, "")
 	
 	// Huge title - centered
-	titleY := panelY + 50
+	titleY := panelY + 40
 	DrawHugeTitleCentered(screen, "LORDS OF CONQUEST", ScreenWidth/2, titleY)
 	
-	// Subtitle - larger
-	DrawLargeTextCentered(screen, "A Modern Remake", ScreenWidth/2, titleY+45, ColorTextMuted)
+	// Subtitle
+	DrawTextCentered(screen, "A Modern Remake", ScreenWidth/2, titleY+55, ColorTextMuted)
 
 	// Server input
-	inputY := panelY + 180
-	DrawLargeText(screen, "Server:", panelX+30, inputY-30, ColorTextMuted)
+	inputY := panelY + 170
+	DrawText(screen, "Server:", panelX+30, inputY-20, ColorTextMuted)
 	s.serverInput.Y = inputY
 	s.serverInput.H = 45
 	s.serverInput.Draw(screen)
 
 	// Name input
-	inputY += 90
-	DrawLargeText(screen, "Your Name:", panelX+30, inputY-30, ColorTextMuted)
+	inputY += 80
+	DrawText(screen, "Your Name:", panelX+30, inputY-20, ColorTextMuted)
 	s.nameInput.Y = inputY
 	s.nameInput.H = 45
 	s.nameInput.Draw(screen)
@@ -200,6 +201,30 @@ type LobbyScene struct {
 	createConfirmBtn *Button
 	createCancelBtn  *Button
 	createPublic     bool
+
+	// Map generation options
+	mapSizeBtn      [3]*Button // S, M, L
+	mapSize         int        // 0=S, 1=M, 2=L
+	territoriesBtn  [3]*Button // L, M, H
+	territories     int        // 0=L, 1=M, 2=H
+	waterBorderBtn  *Button
+	waterBorder     bool
+	islandsBtn      [3]*Button // L, M, H
+	islands         int        // 0=L, 1=M, 2=H
+	resourcesBtn    [3]*Button // L, M, H
+	resources       int        // 0=L, 1=M, 2=H
+	generateBtn     *Button
+	regenerateBtn   *Button
+
+	// Map preview
+	generatedMap    *maps.Map
+	generatedSteps  []maps.GeneratorStep
+	previewGrid     [][]int
+	previewWidth    int
+	previewHeight   int
+	animStep        int
+	animTicker      int
+	animating       bool
 }
 
 // NewLobbyScene creates a new lobby scene.
@@ -230,7 +255,7 @@ func NewLobbyScene(game *Game) *LobbyScene {
 	s.createBtn = &Button{
 		X: 600, Y: 100, W: 200, H: 40,
 		Text: "Create Game", Primary: true,
-		OnClick: func() { s.showCreate = true },
+		OnClick: func() { s.showCreate = true; s.initMapGeneration() },
 	}
 
 	s.joinBtn = &Button{
@@ -286,10 +311,71 @@ func NewLobbyScene(game *Game) *LobbyScene {
 	s.createCancelBtn = &Button{
 		X: ScreenWidth/2 + 10, Y: 410, W: 140, H: 40,
 		Text:    "Cancel",
-		OnClick: func() { s.showCreate = false },
+		OnClick: func() { s.showCreate = false; s.animating = false },
 	}
 
 	s.createPublic = true
+
+	// Map size buttons
+	sizes := []string{"S", "M", "L"}
+	for i := 0; i < 3; i++ {
+		idx := i
+		s.mapSizeBtn[i] = &Button{
+			Text:    sizes[i],
+			OnClick: func() { s.mapSize = idx },
+		}
+	}
+	s.mapSize = 1 // Default medium
+
+	// Territory count buttons
+	counts := []string{"Low", "Med", "High"}
+	for i := 0; i < 3; i++ {
+		idx := i
+		s.territoriesBtn[i] = &Button{
+			Text:    counts[i],
+			OnClick: func() { s.territories = idx },
+		}
+	}
+	s.territories = 1 // Default medium
+
+	// Water border button
+	s.waterBorderBtn = &Button{
+		Text:    "Water Border",
+		OnClick: func() { s.waterBorder = !s.waterBorder },
+	}
+	s.waterBorder = true // Default on
+
+	// Islands buttons
+	for i := 0; i < 3; i++ {
+		idx := i
+		s.islandsBtn[i] = &Button{
+			Text:    counts[i],
+			OnClick: func() { s.islands = idx },
+		}
+	}
+	s.islands = 1 // Default medium
+
+	// Resources buttons
+	for i := 0; i < 3; i++ {
+		idx := i
+		s.resourcesBtn[i] = &Button{
+			Text:    counts[i],
+			OnClick: func() { s.resources = idx },
+		}
+	}
+	s.resources = 1 // Default medium
+
+	// Generate buttons
+	s.generateBtn = &Button{
+		Text:    "Generate Map",
+		Primary: true,
+		OnClick: s.onGenerateMap,
+	}
+
+	s.regenerateBtn = &Button{
+		Text:    "Regenerate",
+		OnClick: s.onGenerateMap,
+	}
 
 	return s
 }
@@ -314,9 +400,52 @@ func (s *LobbyScene) Update() error {
 		s.createPublicBtn.Primary = s.createPublic
 		s.createPrivateBtn.Primary = !s.createPublic
 
+		// Update map generation buttons
+		for i := 0; i < 3; i++ {
+			s.mapSizeBtn[i].Update()
+			s.mapSizeBtn[i].Primary = s.mapSize == i
+			s.territoriesBtn[i].Update()
+			s.territoriesBtn[i].Primary = s.territories == i
+			s.islandsBtn[i].Update()
+			s.islandsBtn[i].Primary = s.islands == i
+			s.resourcesBtn[i].Update()
+			s.resourcesBtn[i].Primary = s.resources == i
+		}
+		s.waterBorderBtn.Update()
+		s.waterBorderBtn.Primary = s.waterBorder
+		s.generateBtn.Update()
+		s.regenerateBtn.Update()
+
+		// Animate map generation (one territory at a time)
+		if s.animating && s.generatedSteps != nil {
+			s.animTicker++
+			if s.animTicker >= 8 { // Show each territory for ~8 frames
+				s.animTicker = 0
+				if s.animStep < len(s.generatedSteps) {
+					step := s.generatedSteps[s.animStep]
+					if step.IsComplete {
+						s.animating = false
+					} else {
+						// Apply all cells for this territory at once
+						for _, cell := range step.Cells {
+							x, y := cell[0], cell[1]
+							if s.previewGrid != nil && y < len(s.previewGrid) && x < len(s.previewGrid[0]) {
+								s.previewGrid[y][x] = step.TerritoryID
+							}
+						}
+						s.animStep++
+					}
+				}
+			}
+		}
+
+		// Disable create button until map is generated
+		s.createConfirmBtn.Disabled = s.generatedMap == nil
+
 		// Escape to close
 		if inpututil.IsKeyJustPressed(ebiten.KeyEscape) {
 			s.showCreate = false
+			s.animating = false
 		}
 		return nil
 	}
@@ -361,9 +490,9 @@ func (s *LobbyScene) Draw(screen *ebiten.Image) {
 	titlePanel(screen, 20, 20, ScreenWidth-40, 80, "")
 	
 	// Large title
-	DrawLargeText(screen, "GAME LOBBY", 45, 38, ColorText)
+	DrawLargeText(screen, "GAME LOBBY", 45, 35, ColorText)
 	
-	DrawLargeText(screen, fmt.Sprintf("Welcome, %s!", s.game.config.PlayerName), 45, 58, ColorTextMuted)
+	DrawText(screen, fmt.Sprintf("Welcome, %s!", s.game.config.PlayerName), 45, 65, ColorTextMuted)
 
 	listY := 120
 	hasYourGames := len(s.yourGames) > 0
@@ -404,15 +533,15 @@ func (s *LobbyScene) Draw(screen *ebiten.Image) {
 	s.createBtn.Draw(screen)
 	
 	buttonY += 80
-	DrawLargeText(screen, "Join by code:", buttonX, buttonY, ColorTextMuted)
+	DrawText(screen, "Join by code:", buttonX, buttonY, ColorTextMuted)
 	s.codeInput.X = buttonX
-	s.codeInput.Y = buttonY + 25
+	s.codeInput.Y = buttonY + 20
 	s.codeInput.W = 200
 	s.codeInput.H = 45
 	s.codeInput.Draw(screen)
 	
 	s.joinCodeBtn.X = buttonX + 210
-	s.joinCodeBtn.Y = buttonY + 25
+	s.joinCodeBtn.Y = buttonY + 20
 	s.joinCodeBtn.W = 90
 	s.joinCodeBtn.H = 45
 	s.joinCodeBtn.Draw(screen)
@@ -442,36 +571,240 @@ func (s *LobbyScene) Draw(screen *ebiten.Image) {
 	if s.showCreate {
 		// Semi-transparent overlay
 		vector.DrawFilledRect(screen, 0, 0, float32(ScreenWidth), float32(ScreenHeight), 
-			color.RGBA{0, 0, 0, 180}, false)
+			color.RGBA{0, 0, 0, 200}, false)
 		
-		// Dialog panel
-		DrawFancyPanel(screen, ScreenWidth/2-300, 180, 600, 360, "Create New Game")
+		// Larger dialog for map generation
+		dialogW := 900
+		dialogH := 600
+		dialogX := (ScreenWidth - dialogW) / 2
+		dialogY := (ScreenHeight - dialogH) / 2
+		
+		DrawFancyPanel(screen, dialogX, dialogY, dialogW, dialogH, "Create New Game")
 
-		dialogX := ScreenWidth/2 - 250
-		dialogY := 250
+		// Left side: Options
+		optX := dialogX + 30
+		optY := dialogY + 50
+		optW := 280
 		
-		DrawLargeText(screen, "Game Name:", dialogX, dialogY, ColorTextMuted)
-		s.createNameInput.X = dialogX
-		s.createNameInput.Y = dialogY + 25
-		s.createNameInput.H = 45
+		// Game name
+		DrawText(screen, "Game Name:", optX, optY, ColorTextMuted)
+		s.createNameInput.X = optX
+		s.createNameInput.Y = optY + 20
+		s.createNameInput.W = optW
+		s.createNameInput.H = 35
 		s.createNameInput.Draw(screen)
 
-		dialogY += 100
-		DrawLargeText(screen, "Visibility:", dialogX, dialogY, ColorTextMuted)
-		s.createPublicBtn.Y = dialogY + 25
-		s.createPublicBtn.H = 50
-		s.createPrivateBtn.Y = dialogY + 25
-		s.createPrivateBtn.H = 50
+		optY += 70
+		// Visibility
+		DrawText(screen, "Visibility:", optX, optY, ColorTextMuted)
+		btnW := (optW - 10) / 2
+		s.createPublicBtn.X = optX
+		s.createPublicBtn.Y = optY + 20
+		s.createPublicBtn.W = btnW
+		s.createPublicBtn.H = 32
+		s.createPrivateBtn.X = optX + btnW + 10
+		s.createPrivateBtn.Y = optY + 20
+		s.createPrivateBtn.W = btnW
+		s.createPrivateBtn.H = 32
 		s.createPublicBtn.Draw(screen)
 		s.createPrivateBtn.Draw(screen)
 
-		s.createConfirmBtn.Y = dialogY + 110
-		s.createConfirmBtn.H = 50
-		s.createCancelBtn.Y = dialogY + 110
-		s.createCancelBtn.H = 50
+		optY += 65
+		// Map Size
+		DrawText(screen, "Map Size:", optX, optY, ColorTextMuted)
+		btn3W := (optW - 20) / 3
+		for i := 0; i < 3; i++ {
+			s.mapSizeBtn[i].X = optX + i*(btn3W+10)
+			s.mapSizeBtn[i].Y = optY + 20
+			s.mapSizeBtn[i].W = btn3W
+			s.mapSizeBtn[i].H = 32
+			s.mapSizeBtn[i].Draw(screen)
+		}
+
+		optY += 65
+		// Territories
+		DrawText(screen, "Territories:", optX, optY, ColorTextMuted)
+		for i := 0; i < 3; i++ {
+			s.territoriesBtn[i].X = optX + i*(btn3W+10)
+			s.territoriesBtn[i].Y = optY + 20
+			s.territoriesBtn[i].W = btn3W
+			s.territoriesBtn[i].H = 32
+			s.territoriesBtn[i].Draw(screen)
+		}
+
+		optY += 65
+		// Water Border
+		s.waterBorderBtn.X = optX
+		s.waterBorderBtn.Y = optY
+		s.waterBorderBtn.W = optW
+		s.waterBorderBtn.H = 32
+		s.waterBorderBtn.Draw(screen)
+
+		optY += 50
+		// Islands
+		DrawText(screen, "Islands:", optX, optY, ColorTextMuted)
+		for i := 0; i < 3; i++ {
+			s.islandsBtn[i].X = optX + i*(btn3W+10)
+			s.islandsBtn[i].Y = optY + 20
+			s.islandsBtn[i].W = btn3W
+			s.islandsBtn[i].H = 32
+			s.islandsBtn[i].Draw(screen)
+		}
+
+		optY += 65
+		// Resources
+		DrawText(screen, "Resources:", optX, optY, ColorTextMuted)
+		for i := 0; i < 3; i++ {
+			s.resourcesBtn[i].X = optX + i*(btn3W+10)
+			s.resourcesBtn[i].Y = optY + 20
+			s.resourcesBtn[i].W = btn3W
+			s.resourcesBtn[i].H = 32
+			s.resourcesBtn[i].Draw(screen)
+		}
+
+		optY += 65
+		// Generate button
+		s.generateBtn.X = optX
+		s.generateBtn.Y = optY
+		s.generateBtn.W = optW
+		s.generateBtn.H = 40
+		if s.generatedMap != nil {
+			s.generateBtn.Text = "Regenerate"
+		} else {
+			s.generateBtn.Text = "Generate Map"
+		}
+		s.generateBtn.Draw(screen)
+
+		// Right side: Map preview
+		previewX := dialogX + 340
+		previewY := dialogY + 50
+		previewW := dialogW - 370
+		previewH := dialogH - 150
+		
+		// Preview frame
+		DrawPanel(screen, previewX, previewY, previewW, previewH)
+		
+		// Draw map preview
+		if s.previewGrid != nil && s.previewWidth > 0 && s.previewHeight > 0 {
+			cellSize := previewW / s.previewWidth
+			cellSizeH := previewH / s.previewHeight
+			if cellSizeH < cellSize {
+				cellSize = cellSizeH
+			}
+			if cellSize < 2 {
+				cellSize = 2
+			}
+			if cellSize > 15 {
+				cellSize = 15
+			}
+			
+			mapDrawW := s.previewWidth * cellSize
+			mapDrawH := s.previewHeight * cellSize
+			mapOffX := previewX + (previewW-mapDrawW)/2
+			mapOffY := previewY + (previewH-mapDrawH)/2
+			
+			for y := 0; y < s.previewHeight; y++ {
+				for x := 0; x < s.previewWidth; x++ {
+					tid := s.previewGrid[y][x]
+					var cellColor color.RGBA
+					if tid == 0 {
+						// Water
+						cellColor = color.RGBA{30, 70, 140, 255}
+					} else {
+						// Territory - use ID for color
+						cellColor = s.territoryColor(tid)
+					}
+					
+					cx := float32(mapOffX + x*cellSize)
+					cy := float32(mapOffY + y*cellSize)
+					vector.DrawFilledRect(screen, cx, cy, float32(cellSize), float32(cellSize), cellColor, false)
+				}
+			}
+			
+			// Show territory count
+			if s.generatedMap != nil {
+				infoText := fmt.Sprintf("%d territories", len(s.generatedMap.Territories))
+				DrawText(screen, infoText, previewX+10, previewY+previewH-25, ColorTextMuted)
+			}
+		} else {
+			DrawTextCentered(screen, "Click 'Generate Map' to preview", previewX+previewW/2, previewY+previewH/2, ColorTextMuted)
+		}
+
+		// Bottom buttons
+		bottomY := dialogY + dialogH - 60
+		s.createConfirmBtn.X = dialogX + dialogW - 310
+		s.createConfirmBtn.Y = bottomY
+		s.createConfirmBtn.W = 140
+		s.createConfirmBtn.H = 45
+		s.createCancelBtn.X = dialogX + dialogW - 160
+		s.createCancelBtn.Y = bottomY
+		s.createCancelBtn.W = 140
+		s.createCancelBtn.H = 45
 		s.createConfirmBtn.Draw(screen)
 		s.createCancelBtn.Draw(screen)
 	}
+}
+
+// initMapGeneration resets map generation state
+func (s *LobbyScene) initMapGeneration() {
+	s.generatedMap = nil
+	s.generatedSteps = nil
+	s.previewGrid = nil
+	s.animating = false
+	s.animStep = 0
+}
+
+// onGenerateMap generates a new map with current options
+func (s *LobbyScene) onGenerateMap() {
+	opts := maps.GeneratorOptions{
+		Size:        maps.MapSize(s.mapSize),
+		Territories: maps.TerritoryCount(s.territories),
+		WaterBorder: s.waterBorder,
+		Islands:     maps.IslandAmount(s.islands),
+		Resources:   maps.ResourceAmount(s.resources),
+	}
+	
+	gen := maps.NewGenerator(opts)
+	s.generatedMap, s.generatedSteps = gen.Generate()
+	
+	// Initialize preview grid for animation - starts as all water (0)
+	s.previewWidth = s.generatedMap.Width
+	s.previewHeight = s.generatedMap.Height
+	s.previewGrid = make([][]int, s.previewHeight)
+	for y := range s.previewGrid {
+		s.previewGrid[y] = make([]int, s.previewWidth)
+		// All cells start as water (0) - territories will be added on top
+	}
+	
+	// Start animation
+	s.animStep = 0
+	s.animTicker = 0
+	s.animating = true
+}
+
+// territoryColor returns a color for a territory based on its ID
+func (s *LobbyScene) territoryColor(id int) color.RGBA {
+	// Generate a nice color palette based on territory ID
+	colors := []color.RGBA{
+		{180, 100, 100, 255}, // Red
+		{100, 180, 100, 255}, // Green
+		{100, 100, 180, 255}, // Blue
+		{180, 180, 100, 255}, // Yellow
+		{180, 100, 180, 255}, // Purple
+		{100, 180, 180, 255}, // Cyan
+		{200, 140, 100, 255}, // Orange
+		{140, 100, 200, 255}, // Violet
+		{100, 200, 140, 255}, // Teal
+		{200, 100, 140, 255}, // Pink
+		{140, 200, 100, 255}, // Lime
+		{100, 140, 200, 255}, // Sky
+		{170, 130, 90, 255},  // Tan
+		{130, 170, 90, 255},  // Olive
+		{90, 130, 170, 255},  // Steel
+		{170, 90, 130, 255},  // Rose
+	}
+	
+	return colors[id%len(colors)]
 }
 
 func (s *LobbyScene) SetGameList(games []protocol.GameListItem) {
@@ -542,6 +875,11 @@ func (s *LobbyScene) onJoinByCode() {
 }
 
 func (s *LobbyScene) onCreateConfirm() {
+	// Must have a generated map
+	if s.generatedMap == nil {
+		return
+	}
+	
 	name := s.createNameInput.Text
 	if name == "" {
 		name = s.game.config.PlayerName + "'s Game"
@@ -552,11 +890,30 @@ func (s *LobbyScene) onCreateConfirm() {
 		GameLevel:     "expert",
 		ChanceLevel:   "medium",
 		VictoryCities: 3,
-		MapID:         "test", // Use the test map
+		MapID:         s.generatedMap.ID,
 	}
 
-	s.game.CreateGame(name, s.createPublic, settings)
+	// Convert generated map to protocol MapData
+	mapData := &protocol.MapData{
+		ID:          s.generatedMap.ID,
+		Name:        s.generatedMap.Name,
+		Width:       s.generatedMap.Width,
+		Height:      s.generatedMap.Height,
+		Grid:        s.generatedMap.Grid,
+		Territories: make(map[string]protocol.TerritoryInfo),
+	}
+	
+	// Add territory info
+	for id, t := range s.generatedMap.Territories {
+		mapData.Territories[fmt.Sprintf("%d", id)] = protocol.TerritoryInfo{
+			Name:     t.Name,
+			Resource: t.Resource.String(),
+		}
+	}
+
+	s.game.CreateGame(name, s.createPublic, settings, mapData)
 	s.showCreate = false
+	s.animating = false
 }
 
 // ==================== Waiting Scene ====================
