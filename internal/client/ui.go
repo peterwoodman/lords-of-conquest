@@ -227,11 +227,12 @@ type List struct {
 // NewList creates a new list.
 func NewList(x, y, w, h int) *List {
 	return &List{
-		X:          x,
-		Y:          y,
-		W:          w,
-		H:          h,
-		itemHeight: 50,
+		X:           x,
+		Y:           y,
+		W:           w,
+		H:           h,
+		itemHeight:  50,
+		selectedIdx: -1,
 	}
 }
 
