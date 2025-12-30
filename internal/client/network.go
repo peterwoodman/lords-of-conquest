@@ -142,9 +142,9 @@ func (c *NetworkClient) readPump() {
 		default:
 		}
 
-		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+		// Read with no timeout - rely on ping/pong to detect dead connections
+		ctx := context.Background()
 		msgType, data, err := c.conn.Read(ctx)
-		cancel()
 		
 		if err != nil {
 			status := websocket.CloseStatus(err)

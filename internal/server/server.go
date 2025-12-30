@@ -239,10 +239,13 @@ func (h *Hub) sendWelcome(client *Client) {
 
 // handleDisconnect handles a client disconnecting.
 func (h *Hub) handleDisconnect(client *Client) {
-	h.mu.Lock()
-	defer h.mu.Unlock()
+	var gameID, playerID string
+	var shouldNotify bool
 
+	// First, update state while holding the lock
+	h.mu.Lock()
 	if _, ok := h.clients[client]; !ok {
+		h.mu.Unlock()
 		return
 	}
 
@@ -254,20 +257,31 @@ func (h *Hub) handleDisconnect(client *Client) {
 
 		// Update connection status in all games
 		if client.GameID != "" {
-			h.server.db.SetPlayerConnected(client.GameID, client.PlayerID, false)
+			gameID = client.GameID
+			playerID = client.PlayerID
 
 			// Notify other players in the game
 			if gameClients, ok := h.gameClients[client.GameID]; ok {
 				delete(gameClients, client)
-				h.notifyGamePlayers(client.GameID, protocol.TypeDisconnect, protocol.DisconnectPayload{
-					PlayerID: client.PlayerID,
-					Reason:   "disconnected",
-				})
+				shouldNotify = true
 			}
 		}
 	}
 
 	close(client.send)
+	h.mu.Unlock()
+
+	// Do database and notification AFTER releasing the lock
+	if gameID != "" {
+		h.server.db.SetPlayerConnected(gameID, playerID, false)
+	}
+
+	if shouldNotify {
+		h.notifyGamePlayers(gameID, protocol.TypeDisconnect, protocol.DisconnectPayload{
+			PlayerID: playerID,
+			Reason:   "disconnected",
+		})
+	}
 }
 
 // handleMessage routes incoming messages.
@@ -400,11 +414,10 @@ func (c *Client) ReadPump() {
 	c.conn.SetReadLimit(maxMessageSize)
 
 	for {
-		// Create context with timeout for reading
-		ctx, cancel := context.WithTimeout(context.Background(), pongWait)
+		// Read with no timeout - rely on ping/pong from WritePump to detect dead connections
+		ctx := context.Background()
 
 		msgType, data, err := c.conn.Read(ctx)
-		cancel()
 
 		if err != nil {
 			status := websocket.CloseStatus(err)

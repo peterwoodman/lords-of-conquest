@@ -1002,7 +1002,7 @@ func (h *Handlers) handleDeleteGame(client *Client, msg *protocol.Message) error
 // checkAndTriggerAI checks if the current player is an AI and triggers their move.
 func (h *Handlers) checkAndTriggerAI(gameID string) {
 	// Small delay to ensure state is fully saved and broadcast
-	time.Sleep(500 * time.Millisecond)
+	time.Sleep(100 * time.Millisecond)
 
 	// Load current game state
 	stateJSON, err := h.hub.server.db.GetGameState(gameID)
