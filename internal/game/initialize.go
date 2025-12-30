@@ -94,7 +94,9 @@ func shufflePlayerOrder(state *GameState) {
 
 // randomInt returns a random integer from 0 to n-1.
 func randomInt(n int) int {
-	// Simple random for now
-	return int(uint32(n) * uint32(uuid.New().ID()) % uint32(n))
+	if n <= 0 {
+		return 0
+	}
+	return int(uuid.New().ID() % uint32(n))
 }
 

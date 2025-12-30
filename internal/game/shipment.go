@@ -219,7 +219,7 @@ func (g *GameState) advanceShipmentTurn() {
 		}
 	}
 
-	if currentIdx == -1 {
+	if currentIdx == -1 || len(g.PlayerOrder) == 0 {
 		return
 	}
 
@@ -235,10 +235,12 @@ func (g *GameState) advanceShipmentTurn() {
 			p.AttacksRemaining = 2
 		}
 	} else {
-		// Skip eliminated players
-		for g.Players[g.PlayerOrder[nextIdx]].Eliminated {
+		// Skip eliminated players (with safety counter to prevent infinite loop)
+		iterations := 0
+		for g.Players[g.PlayerOrder[nextIdx]] != nil && g.Players[g.PlayerOrder[nextIdx]].Eliminated {
 			nextIdx = (nextIdx + 1) % len(g.PlayerOrder)
-			if nextIdx == 0 {
+			iterations++
+			if nextIdx == 0 || iterations >= len(g.PlayerOrder) {
 				g.Phase = PhaseConquest
 				g.CurrentPlayerID = g.PlayerOrder[0]
 				for _, p := range g.Players {

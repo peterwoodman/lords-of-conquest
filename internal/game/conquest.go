@@ -240,7 +240,7 @@ func (g *GameState) advanceConquestTurn() {
 		}
 	}
 
-	if currentIdx == -1 {
+	if currentIdx == -1 || len(g.PlayerOrder) == 0 {
 		return
 	}
 
@@ -249,7 +249,8 @@ func (g *GameState) advanceConquestTurn() {
 		nextIdx := (currentIdx + i) % len(g.PlayerOrder)
 		nextPlayer := g.Players[g.PlayerOrder[nextIdx]]
 
-		if nextPlayer.Eliminated {
+		// Safety check for nil player
+		if nextPlayer == nil || nextPlayer.Eliminated {
 			continue
 		}
 
@@ -259,7 +260,8 @@ func (g *GameState) advanceConquestTurn() {
 			g.CurrentPlayerID = g.PlayerOrder[0]
 			// Find first non-eliminated player
 			for _, pid := range g.PlayerOrder {
-				if !g.Players[pid].Eliminated {
+				p := g.Players[pid]
+				if p != nil && !p.Eliminated {
 					g.CurrentPlayerID = pid
 					break
 				}
@@ -277,7 +279,8 @@ func (g *GameState) advanceConquestTurn() {
 	// No one has attacks remaining, move to development phase
 	g.Phase = PhaseDevelopment
 	for _, pid := range g.PlayerOrder {
-		if !g.Players[pid].Eliminated {
+		p := g.Players[pid]
+		if p != nil && !p.Eliminated {
 			g.CurrentPlayerID = pid
 			break
 		}

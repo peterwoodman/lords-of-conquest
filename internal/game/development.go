@@ -156,16 +156,18 @@ func (g *GameState) advanceDevelopmentTurn() {
 		}
 	}
 
-	if currentIdx == -1 {
+	if currentIdx == -1 || len(g.PlayerOrder) == 0 {
 		return
 	}
 
 	nextIdx := (currentIdx + 1) % len(g.PlayerOrder)
 
-	// Skip eliminated players
-	for g.Players[g.PlayerOrder[nextIdx]].Eliminated {
+	// Skip eliminated players (with safety counter to prevent infinite loop)
+	iterations := 0
+	for g.Players[g.PlayerOrder[nextIdx]] != nil && g.Players[g.PlayerOrder[nextIdx]].Eliminated {
 		nextIdx = (nextIdx + 1) % len(g.PlayerOrder)
-		if nextIdx == currentIdx {
+		iterations++
+		if nextIdx == currentIdx || iterations >= len(g.PlayerOrder) {
 			// All other players eliminated - game should be over
 			return
 		}

@@ -1534,6 +1534,9 @@ func (h *Handlers) handleEndPhase(client *Client, msg *protocol.Message) error {
 		return game.ErrNotYourTurn
 	}
 
+	// Remember the current phase for logging
+	endedPhase := state.Phase.String()
+
 	// Handle based on current phase
 	switch state.Phase {
 	case game.PhaseShipment:
@@ -1561,7 +1564,7 @@ func (h *Handlers) handleEndPhase(client *Client, msg *protocol.Message) error {
 		return err
 	}
 
-	log.Printf("Player %s ended their %s phase", client.Name, state.Phase)
+	log.Printf("Player %s ended their %s phase", client.Name, endedPhase)
 
 	// Broadcast updated state
 	h.broadcastGameState(client.GameID)
