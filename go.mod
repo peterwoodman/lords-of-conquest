@@ -1,10 +1,12 @@
 module lords-of-conquest
 
-go 1.22
+go 1.23
+
+toolchain go1.24.0
 
 require (
+	github.com/coder/websocket v1.8.14
 	github.com/google/uuid v1.6.0
-	github.com/gorilla/websocket v1.5.1
 	github.com/hajimehoshi/ebiten/v2 v2.6.6
 	modernc.org/sqlite v1.28.0
 )
@@ -20,7 +22,6 @@ require (
 	golang.org/x/image v0.12.0 // indirect
 	golang.org/x/mobile v0.0.0-20230922142353-e2f452493d57 // indirect
 	golang.org/x/mod v0.14.0 // indirect
-	golang.org/x/net v0.19.0 // indirect
 	golang.org/x/sync v0.5.0 // indirect
 	golang.org/x/sys v0.15.0 // indirect
 	golang.org/x/tools v0.16.0 // indirect

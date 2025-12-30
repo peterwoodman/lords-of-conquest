@@ -2,6 +2,7 @@
 package client
 
 import (
+	"context"
 	"encoding/json"
 	"log"
 	"sync"
@@ -9,7 +10,7 @@ import (
 
 	"lords-of-conquest/internal/protocol"
 
-	"github.com/gorilla/websocket"
+	"github.com/coder/websocket"
 )
 
 // NetworkClient handles WebSocket communication with the server.
@@ -46,7 +47,10 @@ func (c *NetworkClient) Connect(serverAddr string) error {
 	url := "ws://" + serverAddr + "/ws"
 	log.Printf("Full WebSocket URL: %s", url)
 	
-	conn, _, err := websocket.DefaultDialer.Dial(url, nil)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	
+	conn, _, err := websocket.Dial(ctx, url, nil)
 	if err != nil {
 		log.Printf("WebSocket dial failed: %v", err)
 		return err
@@ -80,7 +84,7 @@ func (c *NetworkClient) Disconnect() {
 	close(c.done)
 
 	if c.conn != nil {
-		c.conn.Close()
+		c.conn.Close(websocket.StatusNormalClosure, "")
 		c.conn = nil
 	}
 }
@@ -129,11 +133,7 @@ func (c *NetworkClient) readPump() {
 		}
 	}()
 
-	c.conn.SetReadDeadline(time.Now().Add(60 * time.Second))
-	c.conn.SetPongHandler(func(string) error {
-		c.conn.SetReadDeadline(time.Now().Add(60 * time.Second))
-		return nil
-	})
+	c.conn.SetReadLimit(65536)
 
 	for {
 		select {
@@ -142,12 +142,21 @@ func (c *NetworkClient) readPump() {
 		default:
 		}
 
-		_, data, err := c.conn.ReadMessage()
+		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+		msgType, data, err := c.conn.Read(ctx)
+		cancel()
+		
 		if err != nil {
-			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
+			status := websocket.CloseStatus(err)
+			if status != websocket.StatusNormalClosure && status != websocket.StatusGoingAway {
 				log.Printf("WebSocket read error: %v", err)
 			}
 			return
+		}
+
+		// Only process text messages
+		if msgType != websocket.MessageText {
+			continue
 		}
 
 		var msg protocol.Message
@@ -180,22 +189,29 @@ func (c *NetworkClient) writePump() {
 			return
 
 		case msg := <-c.sendChan:
-			c.conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 
 			data, err := json.Marshal(msg)
 			if err != nil {
 				log.Printf("Failed to marshal message: %v", err)
+				cancel()
 				continue
 			}
 
-			if err := c.conn.WriteMessage(websocket.TextMessage, data); err != nil {
+			err = c.conn.Write(ctx, websocket.MessageText, data)
+			cancel()
+			
+			if err != nil {
 				log.Printf("WebSocket write error: %v", err)
 				return
 			}
 
 		case <-ticker.C:
-			c.conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
-			if err := c.conn.WriteMessage(websocket.PingMessage, nil); err != nil {
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			err := c.conn.Ping(ctx)
+			cancel()
+			
+			if err != nil {
 				return
 			}
 		}

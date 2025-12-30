@@ -13,16 +13,15 @@ import (
 	"lords-of-conquest/internal/database"
 	"lords-of-conquest/internal/protocol"
 
-	"github.com/gorilla/websocket"
+	"github.com/coder/websocket"
 )
 
 // Server is the main game server.
 type Server struct {
-	db       *database.DB
-	hub      *Hub
-	upgrader websocket.Upgrader
-	addr     string
-	server   *http.Server
+	db     *database.DB
+	hub    *Hub
+	addr   string
+	server *http.Server
 }
 
 // Config holds server configuration.
@@ -41,13 +40,6 @@ func New(cfg Config) (*Server, error) {
 	s := &Server{
 		db:   db,
 		addr: cfg.Addr,
-		upgrader: websocket.Upgrader{
-			ReadBufferSize:  1024,
-			WriteBufferSize: 1024,
-			CheckOrigin: func(r *http.Request) bool {
-				return true // Allow all origins for now
-			},
-		},
 	}
 
 	s.hub = NewHub(s)
@@ -105,9 +97,16 @@ func (s *Server) Stop(ctx context.Context) error {
 // handleWebSocket upgrades HTTP connections to WebSocket.
 func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	log.Printf("WebSocket connection from %s", r.RemoteAddr)
-	conn, err := s.upgrader.Upgrade(w, r, nil)
+
+	// Accept WebSocket connection with options
+	opts := &websocket.AcceptOptions{
+		CompressionMode: websocket.CompressionDisabled,
+		OriginPatterns:  []string{"*"}, // Allow all origins for now
+	}
+
+	conn, err := websocket.Accept(w, r, opts)
 	if err != nil {
-		log.Printf("Upgrade failed: %v", err)
+		log.Printf("Accept failed: %v", err)
 		return
 	}
 
@@ -395,23 +394,29 @@ func (c *Client) Send(msg *protocol.Message) {
 func (c *Client) ReadPump() {
 	defer func() {
 		c.hub.Unregister(c)
-		c.conn.Close()
+		c.conn.Close(websocket.StatusNormalClosure, "")
 	}()
 
 	c.conn.SetReadLimit(maxMessageSize)
-	c.conn.SetReadDeadline(time.Now().Add(pongWait))
-	c.conn.SetPongHandler(func(string) error {
-		c.conn.SetReadDeadline(time.Now().Add(pongWait))
-		return nil
-	})
 
 	for {
-		_, data, err := c.conn.ReadMessage()
+		// Create context with timeout for reading
+		ctx, cancel := context.WithTimeout(context.Background(), pongWait)
+
+		msgType, data, err := c.conn.Read(ctx)
+		cancel()
+
 		if err != nil {
-			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
+			status := websocket.CloseStatus(err)
+			if status != websocket.StatusNormalClosure && status != websocket.StatusGoingAway {
 				log.Printf("WebSocket error: %v", err)
 			}
 			break
+		}
+
+		// Only process text messages
+		if msgType != websocket.MessageText {
+			continue
 		}
 
 		var msg protocol.Message
@@ -429,31 +434,41 @@ func (c *Client) WritePump() {
 	ticker := time.NewTicker(pingPeriod)
 	defer func() {
 		ticker.Stop()
-		c.conn.Close()
+		c.conn.Close(websocket.StatusNormalClosure, "")
 	}()
 
 	for {
 		select {
 		case msg, ok := <-c.send:
-			c.conn.SetWriteDeadline(time.Now().Add(writeWait))
+			ctx, cancel := context.WithTimeout(context.Background(), writeWait)
+
 			if !ok {
-				c.conn.WriteMessage(websocket.CloseMessage, []byte{})
+				// Channel closed, close connection
+				c.conn.Close(websocket.StatusNormalClosure, "")
+				cancel()
 				return
 			}
 
 			data, err := json.Marshal(msg)
 			if err != nil {
 				log.Printf("Failed to marshal message: %v", err)
+				cancel()
 				continue
 			}
 
-			if err := c.conn.WriteMessage(websocket.TextMessage, data); err != nil {
+			err = c.conn.Write(ctx, websocket.MessageText, data)
+			cancel()
+
+			if err != nil {
 				return
 			}
 
 		case <-ticker.C:
-			c.conn.SetWriteDeadline(time.Now().Add(writeWait))
-			if err := c.conn.WriteMessage(websocket.PingMessage, nil); err != nil {
+			ctx, cancel := context.WithTimeout(context.Background(), writeWait)
+			err := c.conn.Ping(ctx)
+			cancel()
+
+			if err != nil {
 				return
 			}
 		}
