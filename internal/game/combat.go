@@ -119,20 +119,23 @@ func (g *GameState) CalculateDefenseStrength(target *Territory) int {
 	}
 	strength += target.TotalBoats() * 2
 
-	// Adjacent territories owned by defender
-	for _, adjID := range target.Adjacent {
-		adj := g.Territories[adjID]
-		if adj.Owner == target.Owner {
-			strength++ // Territory contribution
+	// Adjacent territories owned by defender (only if territory has an owner)
+	// Unclaimed territories don't get reinforcements from other unclaimed territories
+	if target.Owner != "" {
+		for _, adjID := range target.Adjacent {
+			adj := g.Territories[adjID]
+			if adj.Owner == target.Owner {
+				strength++ // Territory contribution
 
-			if adj.HasCity {
-				strength += 2
-			}
-			if adj.HasWeapon {
-				strength += 3
-			}
-			if adj.HasHorse {
-				strength += 1
+				if adj.HasCity {
+					strength += 2
+				}
+				if adj.HasWeapon {
+					strength += 3
+				}
+				if adj.HasHorse {
+					strength += 1
+				}
 			}
 		}
 	}

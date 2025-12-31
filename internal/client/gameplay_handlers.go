@@ -132,17 +132,15 @@ func (s *GameplayScene) handleConquest(territoryID string) {
 		return
 	}
 
-	// Check if the territory belongs to an enemy
+	// Check if the territory can be attacked (enemy or unclaimed)
 	if terr, ok := s.territories[territoryID].(map[string]interface{}); ok {
 		owner := terr["owner"].(string)
-		if owner != "" && owner != s.game.config.PlayerID {
-			// Enemy territory - request attack preview to see reinforcement options
-			log.Printf("Planning attack on territory %s", territoryID)
-			s.game.PlanAttack(territoryID)
-		} else if owner == s.game.config.PlayerID {
+		if owner == s.game.config.PlayerID {
 			log.Printf("Cannot attack your own territory")
 		} else {
-			log.Printf("Cannot attack unclaimed territory")
+			// Enemy or unclaimed territory - request attack preview
+			log.Printf("Planning attack on territory %s", territoryID)
+			s.game.PlanAttack(territoryID)
 		}
 	}
 }
@@ -354,7 +352,11 @@ func (s *GameplayScene) calculateCombatStrength(targetTID string) (attack, defen
 		}
 	}
 
-	// Count defender's adjacent territories
+	// Count defender's adjacent territories (only if territory has an owner)
+	// Unclaimed territories don't get reinforcements from other unclaimed territories
+	if targetOwner == "" {
+		return attack, defense
+	}
 	for _, terrData := range s.territories {
 		terr := terrData.(map[string]interface{})
 		if terr["owner"].(string) != targetOwner {

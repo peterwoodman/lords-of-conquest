@@ -18,7 +18,8 @@ func (s *GameplayScene) drawMap(screen *ebiten.Image) {
 	height := int(s.mapData["height"].(float64))
 	grid := s.mapData["grid"].([]interface{})
 
-	// Border inset - half the border width to keep color inside borders
+	// Border inset - matches arc inner edge (radius - lineWidth/2 = 6 - 2 = 4)
+	// to ensure cell color doesn't show through rounded corners
 	borderInset := float32(2)
 
 	// Helper to get territory ID at position (returns -1 for out of bounds)
@@ -110,6 +111,66 @@ func (s *GameplayScene) drawMap(screen *ebiten.Image) {
 			cellH := float32(s.cellSize) - topInset - bottomInset
 
 			vector.DrawFilledRect(screen, cellX, cellY, cellW, cellH, cellColor, false)
+
+			// Draw diagonal shading for cities
+			if territoryID != 0 {
+				if terr, ok := s.territories[tid].(map[string]interface{}); ok {
+					if hasCity, ok := terr["hasCity"].(bool); ok && hasCity {
+						// Draw diagonal lines across the cell
+						shadeColor := color.RGBA{
+							uint8(max(0, int(cellColor.R)-40)),
+							uint8(max(0, int(cellColor.G)-40)),
+							uint8(max(0, int(cellColor.B)-40)),
+							255,
+						}
+						lineSpacing := float32(6)
+						fullX := float32(sx)
+						fullY := float32(sy)
+						fullSize := float32(s.cellSize)
+
+						// Calculate phase offset based on global position to align lines across cells
+						// For 45-degree lines, lines align when (x - y) is constant
+						// We need to find where lines cross the top edge of this cell
+						globalOffset := fullX - fullY
+						// Adjust to get the first line position within this cell
+						phase := float32(int(globalOffset) % int(lineSpacing))
+						if phase < 0 {
+							phase += lineSpacing
+						}
+
+						// Draw lines from top-left to bottom-right direction
+						for offset := phase - fullSize; offset < fullSize*2; offset += lineSpacing {
+							x1 := fullX + offset
+							y1 := fullY
+							x2 := fullX + offset + fullSize
+							y2 := fullY + fullSize
+
+							// Clip to full cell bounds
+							if x1 < fullX {
+								y1 += fullX - x1
+								x1 = fullX
+							}
+							if x2 > fullX+fullSize {
+								y2 -= x2 - (fullX + fullSize)
+								x2 = fullX + fullSize
+							}
+							if y1 < fullY {
+								x1 += fullY - y1
+								y1 = fullY
+							}
+							if y2 > fullY+fullSize {
+								x2 -= y2 - (fullY + fullSize)
+								y2 = fullY + fullSize
+							}
+
+							// Only draw if line is within bounds
+							if x1 <= fullX+fullSize && x2 >= fullX && y1 <= fullY+fullSize && y2 >= fullY {
+								vector.StrokeLine(screen, x1, y1, x2, y2, 1, shadeColor, false)
+							}
+						}
+					}
+				}
+			}
 		}
 	}
 
@@ -331,10 +392,7 @@ func (s *GameplayScene) drawTerritoryIcons(screen *ebiten.Image) {
 			icons = append(icons, iconInfo{"stockpile", playerID})
 		}
 
-		// City
-		if hasCity, ok := terr["hasCity"].(bool); ok && hasCity {
-			icons = append(icons, iconInfo{"city", ""})
-		}
+		// City is shown via diagonal shading on the territory, not as an icon
 
 		// Weapon
 		if hasWeapon, ok := terr["hasWeapon"].(bool); ok && hasWeapon {
@@ -559,9 +617,27 @@ func (s *GameplayScene) drawBoatInWaterCell(screen *ebiten.Image, cellX, cellY f
 	x := cellX + offsetX
 	y := cellY + offsetY
 
-	// Always use the colored fallback drawing to ensure player color is visible
-	// PNG icon tinting doesn't work well for showing player colors
-	s.drawBoatIconFallbackColored(screen, x, y, iconSize, boatColor)
+	// Try to use PNG icon (should be white for proper tinting)
+	if iconImg := GetIcon("boat"); iconImg != nil {
+		op := &ebiten.DrawImageOptions{}
+		imgW := float32(iconImg.Bounds().Dx())
+		imgH := float32(iconImg.Bounds().Dy())
+		scaleX := iconSize / imgW
+		scaleY := iconSize / imgH
+		op.GeoM.Scale(float64(scaleX), float64(scaleY))
+		op.GeoM.Translate(float64(x), float64(y))
+		// Tint with owner color
+		op.ColorScale.Scale(
+			float32(boatColor.R)/255,
+			float32(boatColor.G)/255,
+			float32(boatColor.B)/255,
+			1.0,
+		)
+		screen.DrawImage(iconImg, op)
+	} else {
+		// Fallback to drawing with color
+		s.drawBoatIconFallbackColored(screen, x, y, iconSize, boatColor)
+	}
 }
 
 // drawBoatIconFallbackColored draws a boat with specific color
