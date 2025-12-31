@@ -98,5 +98,26 @@ var migrations = []migration{
 			ALTER TABLE games ADD COLUMN map_json TEXT;
 		`,
 	},
+	{
+		id:   4,
+		name: "add_game_history",
+		sql: `
+			-- Game history table: stores chronological game events for display
+			CREATE TABLE game_history (
+				id INTEGER PRIMARY KEY AUTOINCREMENT,
+				game_id TEXT NOT NULL,
+				round INTEGER NOT NULL,
+				phase TEXT NOT NULL,
+				player_id TEXT,
+				player_name TEXT,
+				event_type TEXT NOT NULL,
+				message TEXT NOT NULL,
+				created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+				FOREIGN KEY (game_id) REFERENCES games(id) ON DELETE CASCADE
+			);
+			CREATE INDEX idx_game_history_game ON game_history(game_id);
+			CREATE INDEX idx_game_history_game_order ON game_history(game_id, id);
+		`,
+	},
 }
 

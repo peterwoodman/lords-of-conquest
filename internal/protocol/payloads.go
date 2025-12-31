@@ -201,6 +201,22 @@ type GameStatePayload struct {
 	State interface{} `json:"state"`
 }
 
+// GameHistoryPayload contains game history events.
+type GameHistoryPayload struct {
+	Events []HistoryEvent `json:"events"`
+}
+
+// HistoryEvent is a single event in the game history log.
+type HistoryEvent struct {
+	ID         int64  `json:"id"`
+	Round      int    `json:"round"`
+	Phase      string `json:"phase"`
+	PlayerID   string `json:"player_id,omitempty"`
+	PlayerName string `json:"player_name,omitempty"`
+	EventType  string `json:"event_type"`
+	Message    string `json:"message"`
+}
+
 // GameEndedPayload is sent when the game concludes.
 type GameEndedPayload struct {
 	WinnerID   string      `json:"winner_id"`

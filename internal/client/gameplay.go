@@ -6,6 +6,8 @@ import (
 	"image/color"
 	"log"
 
+	"lords-of-conquest/internal/protocol"
+
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/inpututil"
 	"github.com/hajimehoshi/ebiten/v2/vector"
@@ -32,6 +34,10 @@ type GameplayScene struct {
 	currentTurn  string
 	round        int
 
+	// Game history
+	history       []HistoryEntry
+	historyScroll int // Scroll offset for history panel
+
 	// Rendering
 	cellSize    int
 	offsetX     int
@@ -56,6 +62,17 @@ type GameplayScene struct {
 	showCombatResult bool
 	combatResult     *CombatResultData
 	dismissResultBtn *Button
+}
+
+// HistoryEntry represents a single game history event for display.
+type HistoryEntry struct {
+	ID         int64
+	Round      int
+	Phase      string
+	PlayerID   string
+	PlayerName string
+	EventType  string
+	Message    string
 }
 
 // CombatResultData holds the result of a combat for display
@@ -1034,6 +1051,10 @@ func (s *GameplayScene) drawLeftSidebar(screen *ebiten.Image) {
 	// Resources panel - below Players
 	resourcesY := playersY + playersH + 15
 	s.drawResourcesPanel(screen, sidebarX, resourcesY, sidebarW)
+
+	// History panel - below Resources
+	historyY := resourcesY + 185 // Resources panel is 170 + 15 margin
+	s.drawHistoryPanel(screen, sidebarX, historyY, sidebarW)
 }
 
 // drawResourcesPanel draws the player's resources
@@ -1055,14 +1076,14 @@ func (s *GameplayScene) drawResourcesPanel(screen *ebiten.Image, x, y, w int) {
 
 		resY := y + 40
 		resources := []struct {
-			name  string
-			key   string
-			color color.RGBA
+			name    string
+			key     string
+			iconKey string
 		}{
-			{"Coal", "coal", color.RGBA{60, 60, 60, 255}},
-			{"Gold", "gold", color.RGBA{255, 215, 0, 255}},
-			{"Iron", "iron", color.RGBA{160, 160, 180, 255}},
-			{"Wood", "timber", color.RGBA{139, 90, 43, 255}},
+			{"Coal", "coal", "coal"},
+			{"Gold", "gold", "gold"},
+			{"Iron", "iron", "iron"},
+			{"Wood", "timber", "timber"},
 		}
 
 		for _, res := range resources {
@@ -1071,12 +1092,16 @@ func (s *GameplayScene) drawResourcesPanel(screen *ebiten.Image, x, y, w int) {
 				count = int(val.(float64))
 			}
 
-			// Resource icon (colored square)
-			vector.DrawFilledRect(screen, float32(x+12), float32(resY+2), 14, 14, res.color, false)
-			vector.StrokeRect(screen, float32(x+12), float32(resY+2), 14, 14, 1, ColorBorder, false)
+			// Resource icon
+			iconSize := 16
+			if icon := GetIcon(res.iconKey); icon != nil {
+				op := &ebiten.DrawImageOptions{}
+				op.GeoM.Translate(float64(x+11), float64(resY))
+				screen.DrawImage(icon, op)
+			}
 
 			text := fmt.Sprintf("%s: %d", res.name, count)
-			DrawText(screen, text, x+32, resY, ColorText)
+			DrawText(screen, text, x+11+iconSize+6, resY, ColorText)
 			resY += 24
 		}
 
@@ -1092,6 +1117,118 @@ func (s *GameplayScene) drawResourcesPanel(screen *ebiten.Image, x, y, w int) {
 	} else {
 		DrawText(screen, "No stockpile yet", x+12, y+45, ColorTextMuted)
 	}
+}
+
+// drawHistoryPanel draws the game history log.
+func (s *GameplayScene) drawHistoryPanel(screen *ebiten.Image, x, y, w int) {
+	// Calculate available height (fill remaining sidebar space)
+	availableH := ScreenHeight - y - 20
+	if availableH < 100 {
+		availableH = 100 // Minimum height
+	}
+	if availableH > 300 {
+		availableH = 300 // Maximum height
+	}
+
+	DrawFancyPanel(screen, x, y, w, availableH, "History")
+
+	if len(s.history) == 0 {
+		DrawText(screen, "No events yet", x+12, y+40, ColorTextMuted)
+		return
+	}
+
+	// Calculate how many events we can show
+	lineHeight := 18
+	headerHeight := 35
+	maxLines := (availableH - headerHeight - 10) / lineHeight
+
+	// Start from the bottom of the list (most recent), scrolling up
+	startIdx := len(s.history) - 1 - s.historyScroll
+	if startIdx < 0 {
+		startIdx = 0
+	}
+
+	// Draw events from bottom to top (most recent at bottom)
+	eventY := y + headerHeight
+	eventsDrawn := 0
+	currentRound := -1
+	currentPhase := ""
+
+	// We need to show events in chronological order with most recent at bottom
+	// So we iterate from older to newer, but start from an offset that fits our display
+	displayStart := len(s.history) - maxLines - s.historyScroll
+	if displayStart < 0 {
+		displayStart = 0
+	}
+
+	for i := displayStart; i < len(s.history) && eventsDrawn < maxLines; i++ {
+		event := s.history[i]
+
+		// Check if we need to show a round/phase header
+		if event.Round != currentRound || event.Phase != currentPhase {
+			currentRound = event.Round
+			currentPhase = event.Phase
+
+			// Draw phase header
+			phaseText := fmt.Sprintf("R%d %s", event.Round, event.Phase)
+			DrawText(screen, phaseText, x+10, eventY, ColorPrimary)
+			eventY += lineHeight
+			eventsDrawn++
+
+			if eventsDrawn >= maxLines {
+				break
+			}
+		}
+
+		// Draw event message with player color if available
+		textColor := ColorText
+		if event.PlayerID != "" {
+			if player, ok := s.players[event.PlayerID]; ok {
+				playerData := player.(map[string]interface{})
+				if colorName, ok := playerData["color"].(string); ok {
+					if pc, ok := PlayerColors[colorName]; ok {
+						textColor = pc
+					}
+				}
+			}
+		}
+
+		// Truncate message if too long
+		msg := event.Message
+		if len(msg) > 24 {
+			msg = msg[:21] + "..."
+		}
+
+		DrawText(screen, "  "+msg, x+10, eventY, textColor)
+		eventY += lineHeight
+		eventsDrawn++
+	}
+
+	// Draw scroll indicators if needed
+	if s.historyScroll > 0 {
+		DrawText(screen, "▼", x+w-20, y+availableH-15, ColorTextMuted)
+	}
+	if displayStart > 0 {
+		DrawText(screen, "▲", x+w-20, y+headerHeight, ColorTextMuted)
+	}
+}
+
+// SetHistory updates the game history from the server.
+func (s *GameplayScene) SetHistory(events []protocol.HistoryEvent) {
+	s.history = make([]HistoryEntry, len(events))
+	for i, e := range events {
+		s.history[i] = HistoryEntry{
+			ID:         e.ID,
+			Round:      e.Round,
+			Phase:      e.Phase,
+			PlayerID:   e.PlayerID,
+			PlayerName: e.PlayerName,
+			EventType:  e.EventType,
+			Message:    e.Message,
+		}
+	}
+	// Reset scroll to show newest events
+	s.historyScroll = 0
 }
 
 // drawMapArea draws the map with a decorative frame.

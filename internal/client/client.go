@@ -411,6 +411,16 @@ func (g *Game) handleMessage(msg *protocol.Message) {
 			}
 		}
 		
+	case protocol.TypeGameHistory:
+		var payload protocol.GameHistoryPayload
+		if err := msg.ParsePayload(&payload); err != nil {
+			log.Printf("Failed to parse game history: %v", err)
+			return
+		}
+		// Update gameplay scene with history
+		g.gameplayScene.SetHistory(payload.Events)
+		log.Printf("Received %d history events", len(payload.Events))
+
 	case protocol.TypeError:
 		var payload protocol.ErrorPayload
 		if err := msg.ParsePayload(&payload); err != nil {

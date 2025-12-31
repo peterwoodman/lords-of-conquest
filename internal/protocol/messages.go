@@ -48,6 +48,7 @@ const (
 	TypeActionResult  MessageType = "action_result"
 	TypeGameState     MessageType = "game_state"
 	TypeGameEnded     MessageType = "game_ended"
+	TypeGameHistory   MessageType = "game_history"
 )
 
 // Action message types

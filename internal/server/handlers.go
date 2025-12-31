@@ -336,6 +336,9 @@ func (h *Handlers) joinGame(client *Client, msgID string, gameID string, preferr
 
 		// Then send the current game state
 		h.broadcastGameState(gameID)
+
+		// Send game history
+		h.sendGameHistory(client, gameID)
 	} else {
 		// Game is in lobby - send lobby state
 		h.sendLobbyState(client, gameID)
@@ -483,6 +486,9 @@ func (h *Handlers) handleStartGame(client *Client, msg *protocol.Message) error 
 		return err
 	}
 
+	// Log game start in history
+	h.logHistory(client.GameID, 1, "Selection", "", "", database.EventRoundStart, "Game started - Round 1")
+
 	// Notify all players
 	h.hub.notifyGamePlayers(client.GameID, protocol.TypeGameStarted, protocol.GameStartedPayload{
 		GameID: client.GameID,
@@ -492,6 +498,9 @@ func (h *Handlers) handleStartGame(client *Client, msg *protocol.Message) error 
 
 	// Send initial game state
 	h.broadcastGameState(client.GameID)
+
+	// Send initial game history
+	h.broadcastGameHistory(client.GameID)
 
 	// Trigger AI if first player is AI
 	go h.checkAndTriggerAI(client.GameID)
@@ -866,10 +875,20 @@ func (h *Handlers) handleSelectTerritory(client *Client, msg *protocol.Message) 
 		return err
 	}
 
+	// Get territory name before selection
+	terrName := payload.TerritoryID
+	if terr, ok := state.Territories[payload.TerritoryID]; ok {
+		terrName = terr.Name
+	}
+
 	// Execute selection
 	if err := state.SelectTerritory(client.PlayerID, payload.TerritoryID); err != nil {
 		return err
 	}
+
+	// Log history event
+	h.logHistory(client.GameID, state.Round, state.Phase.String(), client.PlayerID, client.Name,
+		database.EventTerritorySelected, fmt.Sprintf("Selected %s", terrName))
 
 	// Save updated state
 	stateJSON2, err := json.Marshal(state)
@@ -915,10 +934,20 @@ func (h *Handlers) handlePlaceStockpile(client *Client, msg *protocol.Message) e
 		return err
 	}
 
+	// Get territory name before placement
+	terrName := payload.TerritoryID
+	if terr, ok := state.Territories[payload.TerritoryID]; ok {
+		terrName = terr.Name
+	}
+
 	// Place stockpile
 	if err := state.PlaceStockpile(client.PlayerID, payload.TerritoryID); err != nil {
 		return err
 	}
+
+	// Log history event
+	h.logHistory(client.GameID, state.Round, state.Phase.String(), client.PlayerID, client.Name,
+		database.EventStockpilePlaced, fmt.Sprintf("Placed stockpile on %s", terrName))
 
 	// Save updated state
 	stateJSON2, err := json.Marshal(state)
@@ -1239,6 +1268,16 @@ func (h *Handlers) aiSelectTerritory(gameID string, state *game.GameState) {
 	// Select random territory
 	selectedID := availableTerritories[rand.Intn(len(availableTerritories))]
 
+	// Get territory name and player name
+	terrName := selectedID
+	if terr, ok := state.Territories[selectedID]; ok {
+		terrName = terr.Name
+	}
+	playerName := state.CurrentPlayerID
+	if player, ok := state.Players[state.CurrentPlayerID]; ok {
+		playerName = player.Name
+	}
+
 	log.Printf("AI: Selecting territory %s from %d available", selectedID, len(availableTerritories))
 
 	// Execute selection
@@ -1248,6 +1287,10 @@ func (h *Handlers) aiSelectTerritory(gameID string, state *game.GameState) {
 		go h.checkAndTriggerAI(gameID)
 		return
 	}
+
+	// Log history event
+	h.logHistory(gameID, state.Round, state.Phase.String(), state.CurrentPlayerID, playerName,
+		database.EventTerritorySelected, fmt.Sprintf("Selected %s", terrName))
 
 	// Save and broadcast
 	h.saveAndBroadcastAIState(gameID, state)
@@ -1295,6 +1338,12 @@ func (h *Handlers) aiPlaceStockpile(gameID string, state *game.GameState) {
 		// Pick a random territory
 		selectedID := territories[rand.Intn(len(territories))]
 
+		// Get territory name and player name
+		terrName := selectedID
+		if terr, ok := state.Territories[selectedID]; ok {
+			terrName = terr.Name
+		}
+
 		log.Printf("AI: Player %s placing stockpile at %s", playerID, selectedID)
 
 		// Place stockpile
@@ -1302,6 +1351,11 @@ func (h *Handlers) aiPlaceStockpile(gameID string, state *game.GameState) {
 			log.Printf("AI: Failed to place stockpile: %v", err)
 			continue
 		}
+
+		// Log history event
+		h.logHistory(gameID, state.Round, state.Phase.String(), playerID, player.Name,
+			database.EventStockpilePlaced, fmt.Sprintf("Placed stockpile on %s", terrName))
+
 		anyPlaced = true
 	}
 
@@ -1422,6 +1476,16 @@ func (h *Handlers) aiConquest(gameID string, state *game.GameState) {
 
 	// Only attack if we have at least 1:1 odds (simple AI)
 	if bestTarget != "" && bestOdds >= 1.0 {
+		// Get territory name and player name
+		terrName := bestTarget
+		if terr, ok := state.Territories[bestTarget]; ok {
+			terrName = terr.Name
+		}
+		playerName := state.CurrentPlayerID
+		if p, ok := state.Players[state.CurrentPlayerID]; ok {
+			playerName = p.Name
+		}
+
 		log.Printf("AI: Attacking %s (odds: %.2f)", bestTarget, bestOdds)
 		result, err := state.Attack(state.CurrentPlayerID, bestTarget, nil)
 		if err != nil {
@@ -1429,8 +1493,12 @@ func (h *Handlers) aiConquest(gameID string, state *game.GameState) {
 			state.EndConquest(state.CurrentPlayerID)
 		} else if result.AttackerWins {
 			log.Printf("AI: Attack successful!")
+			h.logHistory(gameID, state.Round, state.Phase.String(), state.CurrentPlayerID, playerName,
+				database.EventAttackSuccess, fmt.Sprintf("Captured %s", terrName))
 		} else {
 			log.Printf("AI: Attack failed, lost the battle")
+			h.logHistory(gameID, state.Round, state.Phase.String(), state.CurrentPlayerID, playerName,
+				database.EventAttackFailed, fmt.Sprintf("Attack on %s failed", terrName))
 		}
 	} else {
 		log.Printf("AI: No favorable attacks (best odds: %.2f), ending conquest", bestOdds)
@@ -1454,6 +1522,12 @@ func (h *Handlers) aiDevelopment(gameID string, state *game.GameState) {
 	// Simple AI: Try to build things in order of priority: cities > weapons > boats
 	built := false
 
+	// Get player name for history logging
+	playerName := state.CurrentPlayerID
+	if p, ok := state.Players[state.CurrentPlayerID]; ok {
+		playerName = p.Name
+	}
+
 	// Try to build a city if we can afford it
 	if player.Stockpile.CanAffordStockpile(game.GetBuildCost(game.BuildCity)) || player.Stockpile.Gold >= game.GoldCost(game.BuildCity) {
 		// Find a territory without a city
@@ -1462,6 +1536,8 @@ func (h *Handlers) aiDevelopment(gameID string, state *game.GameState) {
 				useGold := !player.Stockpile.CanAffordStockpile(game.GetBuildCost(game.BuildCity))
 				if err := state.Build(state.CurrentPlayerID, game.BuildCity, id, useGold); err == nil {
 					log.Printf("AI: Built city at %s", id)
+					h.logHistory(gameID, state.Round, state.Phase.String(), state.CurrentPlayerID, playerName,
+						database.EventBuild, fmt.Sprintf("Built city on %s", t.Name))
 					built = true
 					break
 				}
@@ -1477,6 +1553,8 @@ func (h *Handlers) aiDevelopment(gameID string, state *game.GameState) {
 				useGold := !player.Stockpile.CanAffordStockpile(game.GetBuildCost(game.BuildWeapon))
 				if err := state.Build(state.CurrentPlayerID, game.BuildWeapon, id, useGold); err == nil {
 					log.Printf("AI: Built weapon at %s", id)
+					h.logHistory(gameID, state.Round, state.Phase.String(), state.CurrentPlayerID, playerName,
+						database.EventBuild, fmt.Sprintf("Built weapon on %s", t.Name))
 					built = true
 					break
 				}
@@ -1493,6 +1571,8 @@ func (h *Handlers) aiDevelopment(gameID string, state *game.GameState) {
 					useGold := !player.Stockpile.CanAffordStockpile(game.GetBuildCost(game.BuildBoat))
 					if err := state.Build(state.CurrentPlayerID, game.BuildBoat, id, useGold); err == nil {
 						log.Printf("AI: Built boat at %s", id)
+						h.logHistory(gameID, state.Round, state.Phase.String(), state.CurrentPlayerID, playerName,
+							database.EventBuild, fmt.Sprintf("Built boat on %s", t.Name))
 						built = true
 						break
 					}
@@ -1554,10 +1634,20 @@ func (h *Handlers) handleMoveStockpile(client *Client, msg *protocol.Message) er
 		return err
 	}
 
+	// Get destination territory name
+	destName := payload.Destination
+	if terr, ok := state.Territories[payload.Destination]; ok {
+		destName = terr.Name
+	}
+
 	// Execute move
 	if err := state.MoveStockpile(client.PlayerID, payload.Destination); err != nil {
 		return err
 	}
+
+	// Log history event
+	h.logHistory(client.GameID, state.Round, state.Phase.String(), client.PlayerID, client.Name,
+		database.EventStockpileMoved, fmt.Sprintf("Moved stockpile to %s", destName))
 
 	// Save updated state
 	stateJSON2, err := json.Marshal(state)
@@ -1819,10 +1909,25 @@ func (h *Handlers) handleExecuteAttack(client *Client, msg *protocol.Message) er
 		}
 	}
 
+	// Get territory name before attack
+	terrName := payload.TargetTerritory
+	if terr, ok := state.Territories[payload.TargetTerritory]; ok {
+		terrName = terr.Name
+	}
+
 	// Execute attack
 	result, err := state.Attack(client.PlayerID, payload.TargetTerritory, brought)
 	if err != nil {
 		return err
+	}
+
+	// Log history event
+	if result.AttackerWins {
+		h.logHistory(client.GameID, state.Round, state.Phase.String(), client.PlayerID, client.Name,
+			database.EventAttackSuccess, fmt.Sprintf("Captured %s", terrName))
+	} else {
+		h.logHistory(client.GameID, state.Round, state.Phase.String(), client.PlayerID, client.Name,
+			database.EventAttackFailed, fmt.Sprintf("Attack on %s failed", terrName))
 	}
 
 	// Save updated state
@@ -1911,10 +2016,20 @@ func (h *Handlers) handleBuild(client *Client, msg *protocol.Message) error {
 		return game.ErrInvalidTarget
 	}
 
+	// Get territory name before build
+	terrName := payload.Territory
+	if terr, ok := state.Territories[payload.Territory]; ok {
+		terrName = terr.Name
+	}
+
 	// Execute build
 	if err := state.Build(client.PlayerID, buildType, payload.Territory, payload.UseGold); err != nil {
 		return err
 	}
+
+	// Log history event
+	h.logHistory(client.GameID, state.Round, state.Phase.String(), client.PlayerID, client.Name,
+		database.EventBuild, fmt.Sprintf("Built %s on %s", payload.Type, terrName))
 
 	// Save updated state
 	stateJSON2, err := json.Marshal(state)
@@ -1933,4 +2048,51 @@ func (h *Handlers) handleBuild(client *Client, msg *protocol.Message) error {
 	h.broadcastGameState(client.GameID)
 
 	return nil
+}
+
+// ==================== History Logging ====================
+
+// logHistory adds an event to the game history log.
+func (h *Handlers) logHistory(gameID string, round int, phase, playerID, playerName, eventType, message string) {
+	if err := h.hub.server.db.AddHistoryEvent(gameID, round, phase, playerID, playerName, eventType, message); err != nil {
+		log.Printf("Failed to log history event: %v", err)
+	}
+}
+
+// sendGameHistory sends the game history to a client.
+func (h *Handlers) sendGameHistory(client *Client, gameID string) {
+	events, err := h.hub.server.db.GetGameHistory(gameID)
+	if err != nil {
+		log.Printf("Failed to get game history: %v", err)
+		return
+	}
+
+	payload := protocol.GameHistoryPayload{
+		Events: make([]protocol.HistoryEvent, len(events)),
+	}
+	for i, e := range events {
+		payload.Events[i] = protocol.HistoryEvent{
+			ID:         e.ID,
+			Round:      e.Round,
+			Phase:      e.Phase,
+			PlayerID:   e.PlayerID,
+			PlayerName: e.PlayerName,
+			EventType:  e.EventType,
+			Message:    e.Message,
+		}
+	}
+
+	msg, _ := protocol.NewMessage(protocol.TypeGameHistory, payload)
+	client.Send(msg)
+}
+
+// broadcastGameHistory sends the game history to all players in a game.
+func (h *Handlers) broadcastGameHistory(gameID string) {
+	h.hub.mu.RLock()
+	clients := h.hub.gameClients[gameID]
+	h.hub.mu.RUnlock()
+
+	for client := range clients {
+		h.sendGameHistory(client, gameID)
+	}
 }
