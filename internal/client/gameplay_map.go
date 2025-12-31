@@ -559,50 +559,47 @@ func (s *GameplayScene) drawBoatInWaterCell(screen *ebiten.Image, cellX, cellY f
 	x := cellX + offsetX
 	y := cellY + offsetY
 
-	// Try to use PNG icon first
-	if iconImg := GetIcon("boat"); iconImg != nil {
-		op := &ebiten.DrawImageOptions{}
-		imgW := float32(iconImg.Bounds().Dx())
-		imgH := float32(iconImg.Bounds().Dy())
-		scaleX := iconSize / imgW
-		scaleY := iconSize / imgH
-		op.GeoM.Scale(float64(scaleX), float64(scaleY))
-		op.GeoM.Translate(float64(x), float64(y))
-		// Tint with owner color
-		op.ColorScale.Scale(
-			float32(boatColor.R)/255,
-			float32(boatColor.G)/255,
-			float32(boatColor.B)/255,
-			1.0,
-		)
-		screen.DrawImage(iconImg, op)
-	} else {
-		// Fallback to drawing with color
-		s.drawBoatIconFallbackColored(screen, x, y, iconSize, boatColor)
-	}
+	// Always use the colored fallback drawing to ensure player color is visible
+	// PNG icon tinting doesn't work well for showing player colors
+	s.drawBoatIconFallbackColored(screen, x, y, iconSize, boatColor)
 }
 
 // drawBoatIconFallbackColored draws a boat with specific color
 func (s *GameplayScene) drawBoatIconFallbackColored(screen *ebiten.Image, x, y, size float32, boatColor color.RGBA) {
-	// Simple boat shape
+	// Simple boat shape with prominent player color
 	cx := x + size/2
 	cy := y + size/2
 
-	// Hull
-	hullW := size * 0.7
-	hullH := size * 0.25
-	hullY := cy + size*0.1
+	// Hull - main player color
+	hullW := size * 0.8
+	hullH := size * 0.3
+	hullY := cy + size*0.15
 
 	vector.DrawFilledRect(screen, cx-hullW/2, hullY, hullW, hullH, boatColor, false)
+	// Hull outline for visibility
+	vector.StrokeRect(screen, cx-hullW/2, hullY, hullW, hullH, 1, color.RGBA{0, 0, 0, 200}, false)
 
 	// Mast
 	mastX := cx
-	mastTop := cy - size*0.3
+	mastTop := cy - size*0.25
 
-	vector.StrokeLine(screen, mastX, mastTop, mastX, hullY, 2, boatColor, false)
+	vector.StrokeLine(screen, mastX, mastTop, mastX, hullY, 2, color.RGBA{60, 40, 20, 255}, false)
 
-	// Sail triangle
-	sailColor := color.RGBA{min(boatColor.R+50, 255), min(boatColor.G+50, 255), min(boatColor.B+50, 255), 255}
-	vector.StrokeLine(screen, mastX, mastTop, mastX+size*0.25, cy, 1, sailColor, false)
-	vector.StrokeLine(screen, mastX, mastTop, mastX, cy, 1, sailColor, false)
+	// Sail - filled triangle in player color (lighter)
+	sailColor := color.RGBA{
+		min(boatColor.R+40, 255),
+		min(boatColor.G+40, 255),
+		min(boatColor.B+40, 255),
+		255,
+	}
+	// Draw sail as filled triangle using lines
+	sailBottom := hullY - 2
+	sailHeight := sailBottom - mastTop
+	sailWidth := size * 0.3
+	for i := float32(0); i < sailHeight; i += 1.5 {
+		progress := i / sailHeight
+		lineY := mastTop + i
+		lineRight := mastX + sailWidth*progress
+		vector.StrokeLine(screen, mastX, lineY, lineRight, lineY, 1.5, sailColor, false)
+	}
 }

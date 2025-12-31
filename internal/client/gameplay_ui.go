@@ -136,11 +136,19 @@ func (s *GameplayScene) drawResourcesPanel(screen *ebiten.Image, x, y, w int) {
 				count = int(val.(float64))
 			}
 
-			// Resource icon
+			// Resource icon with light background for visibility
 			iconSize := 16
 			if icon := GetIcon(res.iconKey); icon != nil {
+				// Draw light background behind black icon
+				iconX := float32(x + 11)
+				iconY := float32(resY)
+				vector.DrawFilledRect(screen, iconX-1, iconY-1, float32(iconSize+2), float32(iconSize+2),
+					color.RGBA{180, 180, 180, 255}, false)
+				vector.StrokeRect(screen, iconX-1, iconY-1, float32(iconSize+2), float32(iconSize+2),
+					1, color.RGBA{100, 100, 100, 255}, false)
+
 				op := &ebiten.DrawImageOptions{}
-				op.GeoM.Translate(float64(x+11), float64(resY))
+				op.GeoM.Translate(float64(iconX), float64(iconY))
 				screen.DrawImage(icon, op)
 			}
 

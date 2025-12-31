@@ -273,10 +273,25 @@ func (s *GameplayScene) drawAttackPlan(screen *ebiten.Image) {
 
 	// Panel dimensions based on reinforcement count
 	reinforceCount := len(s.attackPreview.Reinforcements)
-	panelW := 400
-	panelH := 200
+	panelW := 450 // Wider panel for better button layout
+	panelH := 160 // Base height for no reinforcements
 	if reinforceCount > 0 {
-		panelH += 40 + reinforceCount*60
+		panelH = 200 + reinforceCount*60
+		// Add extra space for checkboxes when a unit is selected
+		if s.selectedReinforcement != nil {
+			checkboxCount := 0
+			if s.selectedReinforcement.UnitType == "boat" {
+				if s.selectedReinforcement.CanCarryHorse {
+					checkboxCount++
+				}
+				if s.selectedReinforcement.CanCarryWeapon {
+					checkboxCount++
+				}
+			} else if s.selectedReinforcement.UnitType == "horse" && s.selectedReinforcement.CanCarryWeapon {
+				checkboxCount++
+			}
+			panelH += checkboxCount * 25
+		}
 	}
 	panelX := ScreenWidth/2 - panelW/2
 	panelY := ScreenHeight/2 - panelH/2
@@ -382,26 +397,31 @@ func (s *GameplayScene) drawAttackPlan(screen *ebiten.Image) {
 		}
 	}
 
-	// Buttons
+	// Buttons at bottom of panel
 	btnY := panelY + panelH - 55
 
-	// Attack without reinforcement button
+	// Attack button (text depends on whether reinforcements are available)
+	if reinforceCount == 0 {
+		s.attackNoReinfBtn.Text = "Attack"
+	} else {
+		s.attackNoReinfBtn.Text = "Attack Without"
+	}
 	s.attackNoReinfBtn.X = panelX + 20
 	s.attackNoReinfBtn.Y = btnY
 	s.attackNoReinfBtn.Draw(screen)
 
-	// Attack with selected reinforcement (only if one is selected)
-	if s.selectedReinforcement != nil {
-		s.attackWithReinfBtn.X = panelX + 200
-		s.attackWithReinfBtn.Y = btnY
-		s.attackWithReinfBtn.Text = "Attack with " + s.selectedReinforcement.UnitType
-		s.attackWithReinfBtn.Draw(screen)
-	}
-
-	// Cancel button
+	// Cancel button (always on the right)
 	s.cancelAttackBtn.X = panelX + panelW - 120
 	s.cancelAttackBtn.Y = btnY
 	s.cancelAttackBtn.Draw(screen)
+
+	// Attack with selected reinforcement (only if one is selected, positioned in middle)
+	if s.selectedReinforcement != nil {
+		s.attackWithReinfBtn.X = panelX + (panelW-160)/2 // Center the button
+		s.attackWithReinfBtn.Y = btnY
+		s.attackWithReinfBtn.Text = "With " + s.selectedReinforcement.UnitType
+		s.attackWithReinfBtn.Draw(screen)
+	}
 }
 
 // drawCheckbox draws a simple checkbox with label
