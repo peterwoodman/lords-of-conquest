@@ -291,10 +291,10 @@ func (s *GameplayScene) drawHistoryPanel(screen *ebiten.Image, x, y, w int) {
 
 	// Draw scroll indicators if needed
 	if s.historyScroll > 0 {
-		DrawText(screen, "▲", x+w-20, y+headerHeight, ColorTextMuted)
+		DrawText(screen, "^", x+w-15, y+headerHeight, ColorTextMuted)
 	}
 	if s.historyScroll < maxScroll {
-		DrawText(screen, "▼", x+w-20, y+availableH-15, ColorTextMuted)
+		DrawText(screen, "v", x+w-15, y+availableH-15, ColorTextMuted)
 	}
 }
 
@@ -391,7 +391,10 @@ func (s *GameplayScene) drawBottomBar(screen *ebiten.Image) {
 	// Check if we're in Territory Selection (only in year 1)
 	if s.currentPhase == "Territory Selection" {
 		// During territory selection, show it prominently
-		DrawText(screen, "► Territory Selection", phaseX, phaseY+30, ColorSuccess)
+		displayText := "> Territory Selection"
+		vector.DrawFilledRect(screen, float32(phaseX-2), float32(phaseY+28),
+			float32(len(displayText)*7+4), float32(17), color.RGBA{40, 80, 40, 255}, false)
+		DrawText(screen, displayText, phaseX, phaseY+30, ColorSuccess)
 	} else {
 		// Draw phase list vertically
 		for _, phase := range phases {
@@ -399,9 +402,12 @@ func (s *GameplayScene) drawBottomBar(screen *ebiten.Image) {
 			displayText := "  " + phase // Indent for non-current phases
 
 			if phase == s.currentPhase {
-				// Current phase - highlighted with arrow
+				// Current phase - highlighted with arrow and background
 				textColor = ColorSuccess
-				displayText = "► " + phase
+				displayText = "> " + phase
+				// Draw highlight background
+				vector.DrawFilledRect(screen, float32(phaseX-2), float32(phaseY-2),
+					float32(len(displayText)*7+4), float32(lineHeight), color.RGBA{40, 80, 40, 255}, false)
 			}
 
 			DrawText(screen, displayText, phaseX, phaseY, textColor)
