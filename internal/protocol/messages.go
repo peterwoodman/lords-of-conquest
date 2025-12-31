@@ -44,6 +44,7 @@ const (
 const (
 	TypeGameStarted   MessageType = "game_started"
 	TypePhaseChanged  MessageType = "phase_changed"
+	TypePhaseSkipped  MessageType = "phase_skipped"
 	TypeTurnChanged   MessageType = "turn_changed"
 	TypeActionResult  MessageType = "action_result"
 	TypeGameState     MessageType = "game_state"

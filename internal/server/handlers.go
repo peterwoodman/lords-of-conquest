@@ -753,6 +753,26 @@ func (h *Handlers) broadcastGameState(gameID string) {
 		return
 	}
 
+	// Check for skipped phases and notify clients
+	if len(state.SkippedPhases) > 0 {
+		for _, skip := range state.SkippedPhases {
+			skipPayload := protocol.PhaseSkippedPayload{
+				Phase:  skip.Phase.String(),
+				Reason: skip.Reason,
+			}
+			log.Printf("Broadcasting phase skip: %s - %s", skip.Phase.String(), skip.Reason)
+			h.hub.notifyGamePlayers(gameID, protocol.TypePhaseSkipped, skipPayload)
+		}
+
+		// Clear skipped phases after notifying
+		state.SkippedPhases = nil
+
+		// Save the updated state (with cleared skips)
+		updatedJSON, _ := json.Marshal(state)
+		h.hub.server.db.SaveGameState(gameID, string(updatedJSON),
+			state.CurrentPlayerID, state.Round, state.Phase.String())
+	}
+
 	// Update player online status from hub
 	for playerID, player := range state.Players {
 		if player.IsAI {

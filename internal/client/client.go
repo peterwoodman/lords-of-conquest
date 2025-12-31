@@ -535,6 +535,16 @@ func (g *Game) handleMessage(msg *protocol.Message) {
 		}
 		log.Printf("Alliance vote %s: accepted=%v", payload.BattleID, payload.Accepted)
 
+	case protocol.TypePhaseSkipped:
+		var payload protocol.PhaseSkippedPayload
+		if err := msg.ParsePayload(&payload); err != nil {
+			log.Printf("Failed to parse phase skipped: %v", err)
+			return
+		}
+		// Show phase skip popup in gameplay scene
+		g.gameplayScene.ShowPhaseSkipped(payload.Phase, payload.Reason)
+		log.Printf("Phase skipped: %s - %s", payload.Phase, payload.Reason)
+
 	case protocol.TypeError:
 		var payload protocol.ErrorPayload
 		if err := msg.ParsePayload(&payload); err != nil {

@@ -731,3 +731,79 @@ func (s *GameplayScene) voteAlliance(side string) {
 	s.showAllyRequest = false
 	s.allyRequest = nil
 }
+
+// ShowPhaseSkipped displays the phase skip popup.
+func (s *GameplayScene) ShowPhaseSkipped(phase, reason string) {
+	s.phaseSkipPhase = phase
+	s.phaseSkipReason = reason
+	s.phaseSkipCountdown = 30 * 60 // 30 seconds at 60fps
+	s.showPhaseSkip = true
+}
+
+// drawPhaseSkip draws the phase skip popup.
+func (s *GameplayScene) drawPhaseSkip(screen *ebiten.Image) {
+	// Semi-transparent overlay
+	vector.DrawFilledRect(screen, 0, 0, float32(ScreenWidth), float32(ScreenHeight),
+		color.RGBA{0, 0, 0, 180}, false)
+
+	// Popup panel
+	panelW := 450
+	panelH := 180
+	panelX := ScreenWidth/2 - panelW/2
+	panelY := ScreenHeight/2 - panelH/2
+
+	DrawFancyPanel(screen, panelX, panelY, panelW, panelH, s.phaseSkipPhase+" Skipped!")
+
+	// Reason text (may need to wrap)
+	reason := s.phaseSkipReason
+	y := panelY + 50
+
+	// Word wrap the reason if too long
+	maxCharsPerLine := 50
+	if len(reason) > maxCharsPerLine {
+		// Simple word wrap
+		words := []string{}
+		start := 0
+		for i := 0; i < len(reason); i++ {
+			if reason[i] == ' ' {
+				words = append(words, reason[start:i])
+				start = i + 1
+			}
+		}
+		if start < len(reason) {
+			words = append(words, reason[start:])
+		}
+
+		line := ""
+		for _, word := range words {
+			if len(line)+len(word)+1 > maxCharsPerLine {
+				DrawText(screen, line, panelX+20, y, ColorText)
+				y += 20
+				line = word
+			} else {
+				if line != "" {
+					line += " "
+				}
+				line += word
+			}
+		}
+		if line != "" {
+			DrawText(screen, line, panelX+20, y, ColorText)
+			y += 20
+		}
+	} else {
+		DrawText(screen, reason, panelX+20, y, ColorText)
+		y += 20
+	}
+
+	// Countdown
+	y += 10
+	secondsLeft := s.phaseSkipCountdown / 60
+	DrawText(screen, fmt.Sprintf("(continuing in %d seconds...)", secondsLeft),
+		panelX+20, y, ColorTextMuted)
+
+	// OK button
+	s.dismissSkipBtn.X = panelX + panelW/2 - 50
+	s.dismissSkipBtn.Y = panelY + panelH - 55
+	s.dismissSkipBtn.Draw(screen)
+}

@@ -263,6 +263,9 @@ func (g *GameState) startNewRound() {
 	g.Round++
 	log.Printf("startNewRound: Beginning round %d", g.Round)
 
+	// Clear any previous skipped phases
+	g.SkippedPhases = nil
+
 	// Shuffle player order
 	shufflePlayerOrder(g)
 
@@ -275,12 +278,42 @@ func (g *GameState) startNewRound() {
 	pm := NewPhaseManager(g)
 
 	if ShouldSkipPhase(PhaseProduction, g.Settings.ChanceLevel) {
-		log.Printf("startNewRound: Skipping production phase")
+		// Record the skip
+		g.SkippedPhases = append(g.SkippedPhases, PhaseSkipInfo{
+			Phase:  PhaseProduction,
+			Reason: GetSkipReason(PhaseProduction),
+		})
+		log.Printf("startNewRound: Skipping production phase - %s", g.SkippedPhases[len(g.SkippedPhases)-1].Reason)
+
 		if len(g.Players) >= 3 {
-			g.Phase = PhaseTrade
+			// Check if trade should also be skipped
+			if ShouldSkipPhase(PhaseTrade, g.Settings.ChanceLevel) {
+				g.SkippedPhases = append(g.SkippedPhases, PhaseSkipInfo{
+					Phase:  PhaseTrade,
+					Reason: GetSkipReason(PhaseTrade),
+				})
+				log.Printf("startNewRound: Skipping trade phase - %s", g.SkippedPhases[len(g.SkippedPhases)-1].Reason)
+				g.Phase = PhaseShipment
+				// Check shipment skip too
+				if ShouldSkipPhase(PhaseShipment, g.Settings.ChanceLevel) {
+					g.SkippedPhases = append(g.SkippedPhases, PhaseSkipInfo{
+						Phase:  PhaseShipment,
+						Reason: GetSkipReason(PhaseShipment),
+					})
+					log.Printf("startNewRound: Skipping shipment phase - %s", g.SkippedPhases[len(g.SkippedPhases)-1].Reason)
+					g.Phase = PhaseConquest
+				}
+			} else {
+				g.Phase = PhaseTrade
+			}
 		} else {
 			g.Phase = PhaseShipment
 			if ShouldSkipPhase(PhaseShipment, g.Settings.ChanceLevel) {
+				g.SkippedPhases = append(g.SkippedPhases, PhaseSkipInfo{
+					Phase:  PhaseShipment,
+					Reason: GetSkipReason(PhaseShipment),
+				})
+				log.Printf("startNewRound: Skipping shipment phase - %s", g.SkippedPhases[len(g.SkippedPhases)-1].Reason)
 				g.Phase = PhaseConquest
 			}
 		}
@@ -290,10 +323,34 @@ func (g *GameState) startNewRound() {
 
 		// After production, advance to next phase
 		if len(g.Players) >= 3 {
-			g.Phase = PhaseTrade
+			// Check if trade should be skipped
+			if ShouldSkipPhase(PhaseTrade, g.Settings.ChanceLevel) {
+				g.SkippedPhases = append(g.SkippedPhases, PhaseSkipInfo{
+					Phase:  PhaseTrade,
+					Reason: GetSkipReason(PhaseTrade),
+				})
+				log.Printf("startNewRound: Skipping trade phase - %s", g.SkippedPhases[len(g.SkippedPhases)-1].Reason)
+				g.Phase = PhaseShipment
+				// Check shipment skip too
+				if ShouldSkipPhase(PhaseShipment, g.Settings.ChanceLevel) {
+					g.SkippedPhases = append(g.SkippedPhases, PhaseSkipInfo{
+						Phase:  PhaseShipment,
+						Reason: GetSkipReason(PhaseShipment),
+					})
+					log.Printf("startNewRound: Skipping shipment phase - %s", g.SkippedPhases[len(g.SkippedPhases)-1].Reason)
+					g.Phase = PhaseConquest
+				}
+			} else {
+				g.Phase = PhaseTrade
+			}
 		} else {
 			g.Phase = PhaseShipment
 			if ShouldSkipPhase(PhaseShipment, g.Settings.ChanceLevel) {
+				g.SkippedPhases = append(g.SkippedPhases, PhaseSkipInfo{
+					Phase:  PhaseShipment,
+					Reason: GetSkipReason(PhaseShipment),
+				})
+				log.Printf("startNewRound: Skipping shipment phase - %s", g.SkippedPhases[len(g.SkippedPhases)-1].Reason)
 				g.Phase = PhaseConquest
 			}
 		}

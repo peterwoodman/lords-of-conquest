@@ -94,6 +94,13 @@ type GameplayScene struct {
 	supportAttackerBtn    *Button
 	supportDefenderBtn    *Button
 	stayNeutralBtn        *Button
+
+	// Phase skip popup
+	showPhaseSkip      bool
+	phaseSkipPhase     string
+	phaseSkipReason    string
+	phaseSkipCountdown int // Frames remaining (30 seconds at 60fps = 1800)
+	dismissSkipBtn     *Button
 }
 
 // AllianceRequestData holds data for an incoming alliance request.
@@ -267,6 +274,15 @@ func NewGameplayScene(game *Game) *GameplayScene {
 		OnClick: func() { s.voteAlliance("neutral") },
 	}
 
+	// Phase skip popup button
+	s.dismissSkipBtn = &Button{
+		X: 0, Y: 0, W: 100, H: 40,
+		Text: "OK",
+		OnClick: func() {
+			s.showPhaseSkip = false
+		},
+	}
+
 	return s
 }
 
@@ -289,6 +305,19 @@ func (s *GameplayScene) Update() error {
 			s.showCombatResult = false
 		}
 		return nil // Block other input while showing result
+	}
+
+	// Handle phase skip popup
+	if s.showPhaseSkip {
+		s.dismissSkipBtn.Update()
+		s.phaseSkipCountdown--
+		if s.phaseSkipCountdown <= 0 {
+			s.showPhaseSkip = false
+		}
+		if inpututil.IsKeyJustPressed(ebiten.KeyEscape) || inpututil.IsKeyJustPressed(ebiten.KeyEnter) {
+			s.showPhaseSkip = false
+		}
+		return nil // Block other input while showing popup
 	}
 
 	// Handle build menu
@@ -466,5 +495,9 @@ func (s *GameplayScene) Draw(screen *ebiten.Image) {
 	// Draw alliance request popup overlay
 	if s.showAllyRequest {
 		s.drawAllyRequest(screen)
+	}
+	// Draw phase skip popup overlay
+	if s.showPhaseSkip {
+		s.drawPhaseSkip(screen)
 	}
 }

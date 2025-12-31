@@ -225,6 +225,12 @@ type GameEndedPayload struct {
 	FinalState interface{} `json:"final_state"`
 }
 
+// PhaseSkippedPayload is sent when a phase is skipped due to chance.
+type PhaseSkippedPayload struct {
+	Phase  string `json:"phase"`  // The phase that was skipped
+	Reason string `json:"reason"` // Funny reason for skipping
+}
+
 // ==================== Action Payloads ====================
 
 // SelectTerritoryPayload selects a territory.

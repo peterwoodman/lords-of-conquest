@@ -13,6 +13,7 @@ type GameState struct {
 	Players         map[string]*Player     `json:"players"`
 	Territories     map[string]*Territory  `json:"territories"`
 	WaterBodies     map[string]*WaterBody  `json:"waterBodies"`
+	SkippedPhases   []PhaseSkipInfo        `json:"skippedPhases,omitempty"` // Phases skipped in last transition
 }
 
 // Settings contains the configurable game parameters.
