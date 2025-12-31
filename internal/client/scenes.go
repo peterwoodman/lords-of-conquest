@@ -943,6 +943,17 @@ type WaitingScene struct {
 	startBtn    *Button
 	leaveBtn    *Button
 	copyCodeBtn *Button
+
+	// Host-only settings
+	mapBtn      *Button
+	settingsBtn *Button
+
+	// Settings dialog
+	showSettings     bool
+	chanceLevelBtns  [3]*Button // Low, Medium, High
+	victoryCitiesBtns [4]*Button // 3, 4, 5, 6
+	maxPlayersBtns   [3]*Button // 2, 3, 4
+	settingsCloseBtn *Button
 }
 
 // NewWaitingScene creates a new waiting scene.
@@ -985,6 +996,58 @@ func NewWaitingScene(game *Game) *WaitingScene {
 		Text: "Copy Join Code",
 	}
 
+	// Host-only buttons for map and settings
+	s.mapBtn = &Button{
+		X: 500, Y: 320, W: 180, H: 40,
+		Text:    "Change Map",
+		OnClick: func() { s.onChangeMap() },
+	}
+
+	s.settingsBtn = &Button{
+		X: 500, Y: 370, W: 180, H: 40,
+		Text:    "Settings",
+		OnClick: func() { s.showSettings = true },
+	}
+
+	// Settings dialog buttons
+	chanceLevels := []string{"Low", "Medium", "High"}
+	for i, label := range chanceLevels {
+		idx := i
+		s.chanceLevelBtns[i] = &Button{
+			Text: label,
+			OnClick: func() {
+				s.game.UpdateGameSettings("chanceLevel", chanceLevels[idx])
+			},
+		}
+	}
+
+	victoryCities := []string{"3", "4", "5", "6"}
+	for i, label := range victoryCities {
+		idx := i
+		s.victoryCitiesBtns[i] = &Button{
+			Text: label,
+			OnClick: func() {
+				s.game.UpdateGameSettings("victoryCities", victoryCities[idx])
+			},
+		}
+	}
+
+	maxPlayers := []string{"2", "3", "4"}
+	for i, label := range maxPlayers {
+		idx := i
+		s.maxPlayersBtns[i] = &Button{
+			Text: label,
+			OnClick: func() {
+				s.game.UpdateGameSettings("maxPlayers", maxPlayers[idx])
+			},
+		}
+	}
+
+	s.settingsCloseBtn = &Button{
+		Text:    "Close",
+		OnClick: func() { s.showSettings = false },
+	}
+
 	return s
 }
 
@@ -992,6 +1055,24 @@ func (s *WaitingScene) OnEnter() {}
 func (s *WaitingScene) OnExit()  {}
 
 func (s *WaitingScene) Update() error {
+	// Handle settings dialog
+	if s.showSettings {
+		for _, btn := range s.chanceLevelBtns {
+			btn.Update()
+		}
+		for _, btn := range s.victoryCitiesBtns {
+			btn.Update()
+		}
+		for _, btn := range s.maxPlayersBtns {
+			btn.Update()
+		}
+		s.settingsCloseBtn.Update()
+		if inpututil.IsKeyJustPressed(ebiten.KeyEscape) {
+			s.showSettings = false
+		}
+		return nil
+	}
+
 	s.playerList.Update()
 	s.readyBtn.Update()
 	s.leaveBtn.Update()
@@ -1024,9 +1105,13 @@ func (s *WaitingScene) Update() error {
 		isHost := lobby.HostID == s.game.config.PlayerID
 		s.startBtn.Disabled = !isHost || !s.canStart()
 		s.addAIBtn.Disabled = !isHost || len(lobby.Players) >= lobby.Settings.MaxPlayers
+		s.mapBtn.Disabled = !isHost
+		s.settingsBtn.Disabled = !isHost
 
 		s.addAIBtn.Update()
 		s.startBtn.Update()
+		s.mapBtn.Update()
+		s.settingsBtn.Update()
 
 		// Update ready button text
 		for _, p := range lobby.Players {
@@ -1072,6 +1157,8 @@ func (s *WaitingScene) Draw(screen *ebiten.Image) {
 	if isHost {
 		s.addAIBtn.Draw(screen)
 		s.startBtn.Draw(screen)
+		s.mapBtn.Draw(screen)
+		s.settingsBtn.Draw(screen)
 	}
 	s.readyBtn.Draw(screen)
 	s.leaveBtn.Draw(screen)
@@ -1081,6 +1168,82 @@ func (s *WaitingScene) Draw(screen *ebiten.Image) {
 	if isHost {
 		DrawText(screen, "(You are the host)", 500, 130, ColorTextMuted)
 	}
+
+	// Settings dialog overlay
+	if s.showSettings {
+		s.drawSettingsDialog(screen, lobby)
+	}
+}
+
+func (s *WaitingScene) drawSettingsDialog(screen *ebiten.Image, lobby *protocol.LobbyStatePayload) {
+	// Semi-transparent overlay
+	vector.DrawFilledRect(screen, 0, 0, float32(ScreenWidth), float32(ScreenHeight),
+		color.RGBA{0, 0, 0, 200}, false)
+
+	// Dialog panel
+	dialogW := 400
+	dialogH := 350
+	dialogX := (ScreenWidth - dialogW) / 2
+	dialogY := (ScreenHeight - dialogH) / 2
+
+	DrawFancyPanel(screen, dialogX, dialogY, dialogW, dialogH, "Game Settings")
+
+	y := dialogY + 50
+	btnW := 80
+	btnH := 35
+
+	// Chance Level
+	DrawText(screen, "Chance Level:", dialogX+20, y, ColorText)
+	y += 25
+	for i, btn := range s.chanceLevelBtns {
+		btn.X = dialogX + 20 + i*(btnW+10)
+		btn.Y = y
+		btn.W = btnW
+		btn.H = btnH
+		btn.Primary = lobby.Settings.ChanceLevel == btn.Text
+		btn.Draw(screen)
+	}
+
+	y += 55
+	// Victory Cities
+	DrawText(screen, "Cities to Win:", dialogX+20, y, ColorText)
+	y += 25
+	for i, btn := range s.victoryCitiesBtns {
+		btn.X = dialogX + 20 + i*(60+10)
+		btn.Y = y
+		btn.W = 60
+		btn.H = btnH
+		btn.Primary = fmt.Sprintf("%d", lobby.Settings.VictoryCities) == btn.Text
+		btn.Draw(screen)
+	}
+
+	y += 55
+	// Max Players
+	DrawText(screen, "Max Players:", dialogX+20, y, ColorText)
+	y += 25
+	for i, btn := range s.maxPlayersBtns {
+		btn.X = dialogX + 20 + i*(60+10)
+		btn.Y = y
+		btn.W = 60
+		btn.H = btnH
+		btn.Primary = fmt.Sprintf("%d", lobby.Settings.MaxPlayers) == btn.Text
+		btn.Draw(screen)
+	}
+
+	// Close button
+	s.settingsCloseBtn.X = dialogX + dialogW/2 - 60
+	s.settingsCloseBtn.Y = dialogY + dialogH - 55
+	s.settingsCloseBtn.W = 120
+	s.settingsCloseBtn.H = 40
+	s.settingsCloseBtn.Draw(screen)
+}
+
+func (s *WaitingScene) onChangeMap() {
+	// Go back to lobby scene with create dialog open
+	s.game.LeaveGame()
+	s.game.SetScene(s.game.lobbyScene)
+	// Trigger the create game dialog
+	s.game.lobbyScene.showCreate = true
 }
 
 func (s *WaitingScene) onToggleReady() {

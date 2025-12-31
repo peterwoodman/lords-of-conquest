@@ -101,6 +101,14 @@ type GameplayScene struct {
 	phaseSkipReason    string
 	phaseSkipCountdown int // Frames remaining (30 seconds at 60fps = 1800)
 	dismissSkipBtn     *Button
+
+	// Victory screen
+	showVictory      bool
+	victoryWinnerID  string
+	victoryWinnerName string
+	victoryReason    string
+	victoryTimer     int // Frames since victory started (for message transition)
+	returnToLobbyBtn *Button
 }
 
 // AllianceRequestData holds data for an incoming alliance request.
@@ -283,6 +291,19 @@ func NewGameplayScene(game *Game) *GameplayScene {
 		},
 	}
 
+	// Victory screen button
+	s.returnToLobbyBtn = &Button{
+		X: 0, Y: 0, W: 200, H: 50,
+		Text:    "Return to Lobby",
+		Primary: true,
+		OnClick: func() {
+			StopWinnerMusic()
+			s.showVictory = false
+			s.game.LeaveGame()
+			s.game.SetScene(s.game.lobbyScene)
+		},
+	}
+
 	return s
 }
 
@@ -296,6 +317,13 @@ func (s *GameplayScene) Update() error {
 	// Only process input if we have map data
 	if s.mapData == nil {
 		return nil
+	}
+
+	// Handle victory screen (takes priority over everything)
+	if s.showVictory {
+		s.victoryTimer++
+		s.returnToLobbyBtn.Update()
+		return nil // Block all other input
 	}
 
 	// Handle combat result dialog
@@ -499,5 +527,9 @@ func (s *GameplayScene) Draw(screen *ebiten.Image) {
 	// Draw phase skip popup overlay
 	if s.showPhaseSkip {
 		s.drawPhaseSkip(screen)
+	}
+	// Draw victory screen overlay (last, on top of everything)
+	if s.showVictory {
+		s.drawVictoryScreen(screen)
 	}
 }

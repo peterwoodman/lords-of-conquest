@@ -59,6 +59,10 @@ func NewGame() (*Game, error) {
 		CreatePlaceholderIcons()
 	}
 
+	// Initialize audio
+	InitAudio()
+	LoadAudio()
+
 	g := &Game{
 		config:  config,
 		network: NewNetworkClient(),
@@ -198,6 +202,15 @@ func (g *Game) AddAI(personality string) error {
 		Personality: personality,
 	}
 	return g.network.SendPayload(protocol.TypeAddAI, payload)
+}
+
+// UpdateGameSettings updates a single game setting (host only).
+func (g *Game) UpdateGameSettings(key, value string) error {
+	payload := protocol.UpdateSettingPayload{
+		Key:   key,
+		Value: value,
+	}
+	return g.network.SendPayload(protocol.TypeUpdateSettings, payload)
 }
 
 // LeaveGame leaves the current game.
@@ -544,6 +557,16 @@ func (g *Game) handleMessage(msg *protocol.Message) {
 		// Show phase skip popup in gameplay scene
 		g.gameplayScene.ShowPhaseSkipped(payload.Phase, payload.Reason)
 		log.Printf("Phase skipped: %s - %s", payload.Phase, payload.Reason)
+
+	case protocol.TypeGameEnded:
+		var payload protocol.GameEndedPayload
+		if err := msg.ParsePayload(&payload); err != nil {
+			log.Printf("Failed to parse game ended: %v", err)
+			return
+		}
+		// Show victory screen
+		g.gameplayScene.ShowVictory(payload.WinnerID, payload.WinnerName, payload.Reason)
+		log.Printf("Game ended! Winner: %s by %s", payload.WinnerName, payload.Reason)
 
 	case protocol.TypeError:
 		var payload protocol.ErrorPayload

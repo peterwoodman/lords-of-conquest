@@ -128,4 +128,13 @@ var migrations = []migration{
 			ALTER TABLE game_players ADD COLUMN alliance_setting TEXT DEFAULT 'ask';
 		`,
 	},
+	{
+		id:   6,
+		name: "add_game_winner",
+		sql: `
+			-- Add winner columns to games table
+			ALTER TABLE games ADD COLUMN winner_id TEXT;
+			ALTER TABLE games ADD COLUMN win_reason TEXT;
+		`,
+	},
 }

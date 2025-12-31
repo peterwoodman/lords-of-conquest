@@ -107,6 +107,12 @@ type UpdateSettingsPayload struct {
 	Settings GameSettings `json:"settings"`
 }
 
+// UpdateSettingPayload is sent to update a single game setting.
+type UpdateSettingPayload struct {
+	Key   string `json:"key"`   // Setting name: "chanceLevel", "victoryCities", "maxPlayers"
+	Value string `json:"value"` // New value as string
+}
+
 // PlayerReadyPayload indicates player ready state.
 type PlayerReadyPayload struct {
 	Ready bool `json:"ready"`

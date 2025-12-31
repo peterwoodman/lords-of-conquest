@@ -167,6 +167,47 @@ func (db *DB) GetGameByJoinCode(code string) (*Game, error) {
 	return db.GetGame(id)
 }
 
+// UpdateGameSetting updates a single game setting.
+func (db *DB) UpdateGameSetting(gameID, key, value string) error {
+	// Get current settings
+	game, err := db.GetGame(gameID)
+	if err != nil {
+		return err
+	}
+
+	// Update the specific setting
+	switch key {
+	case "chance_level":
+		game.Settings.ChanceLevel = value
+	case "victory_cities":
+		var cities int
+		fmt.Sscanf(value, "%d", &cities)
+		if cities >= 3 && cities <= 6 {
+			game.Settings.VictoryCities = cities
+		}
+	case "max_players":
+		var maxPlayers int
+		fmt.Sscanf(value, "%d", &maxPlayers)
+		if maxPlayers >= 2 && maxPlayers <= 4 {
+			game.Settings.MaxPlayers = maxPlayers
+		}
+	default:
+		return errors.New("unknown setting: " + key)
+	}
+
+	// Save updated settings
+	settingsJSON, err := json.Marshal(game.Settings)
+	if err != nil {
+		return err
+	}
+
+	_, err = db.conn.Exec(`
+		UPDATE games SET settings_json = ?, max_players = ? WHERE id = ?
+	`, string(settingsJSON), game.Settings.MaxPlayers, gameID)
+
+	return err
+}
+
 // ListPublicGames returns all public games that are waiting for players.
 func (db *DB) ListPublicGames() ([]*GameInfo, error) {
 	rows, err := db.conn.Query(`
@@ -381,12 +422,12 @@ func (db *DB) StartGame(gameID string) error {
 	return err
 }
 
-// EndGame marks a game as finished.
-func (db *DB) EndGame(gameID string) error {
+// EndGame marks a game as finished with a winner.
+func (db *DB) EndGame(gameID string, winnerID string, reason string) error {
 	now := time.Now()
 	_, err := db.conn.Exec(`
-		UPDATE games SET status = ?, ended_at = ? WHERE id = ?
-	`, GameStatusFinished, now, gameID)
+		UPDATE games SET status = ?, ended_at = ?, winner_id = ?, win_reason = ? WHERE id = ?
+	`, GameStatusFinished, now, winnerID, reason, gameID)
 	return err
 }
 

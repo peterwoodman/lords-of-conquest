@@ -4,16 +4,24 @@ import (
 	"bytes"
 	"image"
 	"image/color"
+	"io"
 	_ "image/png"
 	"log"
 	"os"
 	"path/filepath"
 
 	"github.com/hajimehoshi/ebiten/v2"
+	"github.com/hajimehoshi/ebiten/v2/audio"
+	"github.com/hajimehoshi/ebiten/v2/audio/mp3"
 )
 
 // Icons holds all loaded icon images
 var Icons = make(map[string]*ebiten.Image)
+
+// Audio
+var audioContext *audio.Context
+var winnerMusic *audio.Player
+var winnerMusicBytes []byte
 
 // LoadIcons loads all icon images from the assets/icons directory
 func LoadIcons() {
@@ -100,3 +108,99 @@ func createColoredSquare(size int, c color.RGBA) *ebiten.Image {
 	return img
 }
 
+// InitAudio initializes the audio context
+func InitAudio() {
+	audioContext = audio.NewContext(44100)
+}
+
+// LoadAudio loads audio files
+func LoadAudio() {
+	// Try to find sound directory
+	soundDirs := []string{
+		"internal/client/assets/sound",
+		"assets/sound",
+		"data/sound",
+	}
+
+	var baseDir string
+	for _, dir := range soundDirs {
+		if _, err := os.Stat(dir); err == nil {
+			baseDir = dir
+			break
+		}
+	}
+
+	if baseDir == "" {
+		log.Printf("No sound directory found")
+		return
+	}
+
+	// Load winner music
+	path := filepath.Join(baseDir, "winner.mp3")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		log.Printf("Failed to load winner.mp3: %v", err)
+		return
+	}
+	winnerMusicBytes = data
+	log.Printf("Loaded winner music: %s", path)
+}
+
+// PlayWinnerMusic starts playing the victory music
+func PlayWinnerMusic() {
+	if audioContext == nil || len(winnerMusicBytes) == 0 {
+		log.Printf("Cannot play winner music: audio not initialized")
+		return
+	}
+
+	// Stop any existing music
+	StopWinnerMusic()
+
+	// Decode the MP3
+	decoded, err := mp3.DecodeWithSampleRate(44100, bytes.NewReader(winnerMusicBytes))
+	if err != nil {
+		log.Printf("Failed to decode winner.mp3: %v", err)
+		return
+	}
+
+	// Create an infinite loop player
+	loop := audio.NewInfiniteLoop(decoded, decoded.Length())
+
+	player, err := audioContext.NewPlayer(loop)
+	if err != nil {
+		log.Printf("Failed to create audio player: %v", err)
+		return
+	}
+
+	winnerMusic = player
+	winnerMusic.Play()
+	log.Printf("Playing winner music")
+}
+
+// StopWinnerMusic stops the victory music
+func StopWinnerMusic() {
+	if winnerMusic != nil {
+		winnerMusic.Close()
+		winnerMusic = nil
+	}
+}
+
+// IsWinnerMusicPlaying returns true if victory music is playing
+func IsWinnerMusicPlaying() bool {
+	return winnerMusic != nil && winnerMusic.IsPlaying()
+}
+
+// audioLoopReader wraps a reader to loop infinitely
+type audioLoopReader struct {
+	src    io.ReadSeeker
+	length int64
+}
+
+func (r *audioLoopReader) Read(p []byte) (n int, err error) {
+	n, err = r.src.Read(p)
+	if err == io.EOF {
+		r.src.Seek(0, io.SeekStart)
+		return r.Read(p)
+	}
+	return n, err
+}

@@ -807,3 +807,84 @@ func (s *GameplayScene) drawPhaseSkip(screen *ebiten.Image) {
 	s.dismissSkipBtn.Y = panelY + panelH - 55
 	s.dismissSkipBtn.Draw(screen)
 }
+
+// ShowVictory displays the victory screen.
+func (s *GameplayScene) ShowVictory(winnerID, winnerName, reason string) {
+	s.victoryWinnerID = winnerID
+	s.victoryWinnerName = winnerName
+	s.victoryReason = reason
+	s.victoryTimer = 0
+	s.showVictory = true
+
+	// Start playing the victory music
+	PlayWinnerMusic()
+}
+
+// drawVictoryScreen draws the victory celebration screen.
+func (s *GameplayScene) drawVictoryScreen(screen *ebiten.Image) {
+	// Full screen dark overlay
+	vector.DrawFilledRect(screen, 0, 0, float32(ScreenWidth), float32(ScreenHeight),
+		color.RGBA{0, 0, 0, 230}, false)
+
+	// Calculate center
+	centerX := ScreenWidth / 2
+	centerY := ScreenHeight / 2
+
+	// Transition messages after 5 seconds (300 frames)
+	showMusicMessage := s.victoryTimer > 300
+
+	// Draw decorative border/frame
+	frameW := 600
+	frameH := 350
+	frameX := centerX - frameW/2
+	frameY := centerY - frameH/2
+
+	// Fancy gold border
+	borderColor := color.RGBA{218, 165, 32, 255} // Gold
+	vector.StrokeRect(screen, float32(frameX-4), float32(frameY-4),
+		float32(frameW+8), float32(frameH+8), 4, borderColor, false)
+	vector.StrokeRect(screen, float32(frameX-8), float32(frameY-8),
+		float32(frameW+16), float32(frameH+16), 2, borderColor, false)
+
+	// Dark panel background
+	DrawFancyPanel(screen, frameX, frameY, frameW, frameH, "")
+
+	if showMusicMessage {
+		// "A Musical Tribute to the Winner"
+		DrawLargeTextCentered(screen, "A Musical Tribute", centerX, frameY+60, borderColor)
+		DrawLargeTextCentered(screen, "to the Winner", centerX, frameY+100, borderColor)
+
+		// Winner name
+		DrawLargeTextCentered(screen, s.victoryWinnerName, centerX, frameY+170, ColorText)
+
+		// Music credit
+		DrawTextCentered(screen, "Prelude and Fugue No. 1 in C major, BWV 846", centerX, frameY+220, ColorTextMuted)
+		DrawTextCentered(screen, "by Johann Sebastian Bach", centerX, frameY+240, ColorTextMuted)
+	} else {
+		// "A Lord Of Conquest Is Proclaimed!!"
+		DrawLargeTextCentered(screen, "A Lord Of Conquest", centerX, frameY+60, borderColor)
+		DrawLargeTextCentered(screen, "Is Proclaimed!!", centerX, frameY+100, borderColor)
+
+		// Winner name in large text
+		DrawLargeTextCentered(screen, s.victoryWinnerName, centerX, frameY+170, ColorSuccess)
+
+		// Victory reason
+		reasonText := "by conquest"
+		if s.victoryReason == "cities" {
+			reasonText = fmt.Sprintf("with %d cities", s.game.lobbyState.Settings.VictoryCities)
+		} else if s.victoryReason == "elimination" {
+			reasonText = "by eliminating all rivals"
+		}
+		DrawTextCentered(screen, reasonText, centerX, frameY+210, ColorTextMuted)
+	}
+
+	// Return to lobby button
+	s.returnToLobbyBtn.X = centerX - 100
+	s.returnToLobbyBtn.Y = frameY + frameH - 70
+	s.returnToLobbyBtn.Draw(screen)
+
+	// Check if this player is the winner
+	if s.victoryWinnerID == s.game.config.PlayerID {
+		DrawTextCentered(screen, "Congratulations! You are victorious!", centerX, frameY+frameH+20, ColorSuccess)
+	}
+}

@@ -43,6 +43,8 @@ func (h *Handlers) Handle(client *Client, msg *protocol.Message) {
 		err = h.handleDeleteGame(client, msg)
 	case protocol.TypeAddAI:
 		err = h.handleAddAI(client, msg)
+	case protocol.TypeUpdateSettings:
+		err = h.handleUpdateSettings(client, msg)
 	case protocol.TypePlayerReady:
 		err = h.handlePlayerReady(client, msg)
 	case protocol.TypeStartGame:
@@ -416,6 +418,52 @@ func (h *Handlers) handleAddAI(client *Client, msg *protocol.Message) error {
 	if err := h.hub.server.db.AddAIPlayer(client.GameID, color, payload.Personality); err != nil {
 		return err
 	}
+
+	// Broadcast updated lobby state
+	h.broadcastLobbyState(client.GameID)
+
+	return nil
+}
+
+// handleUpdateSettings handles updating game settings (host only).
+func (h *Handlers) handleUpdateSettings(client *Client, msg *protocol.Message) error {
+	if client.GameID == "" {
+		return errors.New("not in a game")
+	}
+
+	// Verify client is host
+	game, err := h.hub.server.db.GetGame(client.GameID)
+	if err != nil {
+		return err
+	}
+	if game.HostPlayerID != client.PlayerID {
+		return errors.New("only host can update settings")
+	}
+
+	var payload protocol.UpdateSettingPayload
+	if err := msg.ParsePayload(&payload); err != nil {
+		return err
+	}
+
+	// Update the specific setting
+	switch payload.Key {
+	case "chanceLevel":
+		if err := h.hub.server.db.UpdateGameSetting(client.GameID, "chance_level", payload.Value); err != nil {
+			return err
+		}
+	case "victoryCities":
+		if err := h.hub.server.db.UpdateGameSetting(client.GameID, "victory_cities", payload.Value); err != nil {
+			return err
+		}
+	case "maxPlayers":
+		if err := h.hub.server.db.UpdateGameSetting(client.GameID, "max_players", payload.Value); err != nil {
+			return err
+		}
+	default:
+		return errors.New("unknown setting: " + payload.Key)
+	}
+
+	log.Printf("Host %s updated game setting: %s = %s", client.Name, payload.Key, payload.Value)
 
 	// Broadcast updated lobby state
 	h.broadcastLobbyState(client.GameID)
@@ -2237,6 +2285,12 @@ func (h *Handlers) handleExecuteAttack(client *Client, msg *protocol.Message) er
 		log.Printf("Player %s failed to conquer %s", client.Name, payload.TargetTerritory)
 	}
 
+	// Check for game over BEFORE broadcasting state
+	if state.IsGameOver() {
+		h.handleGameOver(client.GameID, &state)
+		return nil
+	}
+
 	// Broadcast updated state
 	h.broadcastGameState(client.GameID)
 
@@ -2495,4 +2549,40 @@ func (h *Handlers) handleAllianceVote(client *Client, msg *protocol.Message) err
 
 	log.Printf("Player %s voted %s for battle %s", client.PlayerID, payload.Side, payload.BattleID)
 	return nil
+}
+
+// handleGameOver handles the end of a game.
+func (h *Handlers) handleGameOver(gameID string, state *game.GameState) {
+	winner := state.GetWinner()
+	if winner == nil {
+		log.Printf("Game over but no winner found for game %s", gameID)
+		return
+	}
+
+	// Determine the reason for winning
+	reason := "elimination"
+	if state.CountCities(winner.ID) >= state.Settings.VictoryCities {
+		reason = "cities"
+	}
+
+	log.Printf("Game %s ended! Winner: %s (%s) by %s", gameID, winner.Name, winner.ID, reason)
+
+	// Update game status in database
+	h.hub.server.db.EndGame(gameID, winner.ID, reason)
+
+	// Log the victory
+	h.logHistory(gameID, state.Round, state.Phase.String(), winner.ID, winner.Name,
+		database.EventGameEnd, fmt.Sprintf("%s wins by %s!", winner.Name, reason))
+
+	// Broadcast final state first so clients have it
+	h.broadcastGameState(gameID)
+
+	// Send game ended message to all players
+	payload := protocol.GameEndedPayload{
+		WinnerID:   winner.ID,
+		WinnerName: winner.Name,
+		Reason:     reason,
+	}
+
+	h.hub.notifyGamePlayers(gameID, protocol.TypeGameEnded, payload)
 }
