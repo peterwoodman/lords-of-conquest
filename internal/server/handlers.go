@@ -762,6 +762,9 @@ func (h *Handlers) broadcastGameState(gameID string) {
 	log.Printf("Broadcasting game state for game %s", gameID)
 	h.hub.notifyGamePlayers(gameID, protocol.TypeGameState, payload)
 	log.Printf("Game state broadcast complete")
+
+	// Also broadcast history to keep it in sync
+	h.broadcastGameHistory(gameID)
 }
 
 // loadMapFromDatabase loads a map from the database and registers it.

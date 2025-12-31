@@ -448,10 +448,41 @@ func (l *List) Draw(screen *ebiten.Image) {
 	}
 }
 
-// SetItems sets the list items.
+// SetItems sets the list items and resets scroll.
 func (l *List) SetItems(items []ListItem) {
 	l.Items = items
 	l.scrollOffset = 0
+	l.selectedIdx = -1
+}
+
+// SetItemsPreserve sets the list items while preserving selection and scroll position.
+// If the previously selected item ID still exists, it stays selected.
+func (l *List) SetItemsPreserve(items []ListItem, previousSelectedID string) {
+	oldScroll := l.scrollOffset
+	l.Items = items
+
+	// Preserve selection if the item still exists
+	l.selectedIdx = -1
+	if previousSelectedID != "" {
+		for i, item := range items {
+			if item.ID == previousSelectedID {
+				l.selectedIdx = i
+				break
+			}
+		}
+	}
+
+	// Preserve scroll position (clamp to valid range)
+	itemHeight := 60
+	maxScroll := len(l.Items)*itemHeight - l.H
+	if maxScroll < 0 {
+		maxScroll = 0
+	}
+	if oldScroll > maxScroll {
+		l.scrollOffset = maxScroll
+	} else {
+		l.scrollOffset = oldScroll
+	}
 }
 
 // GetSelectedID returns the selected item's ID.

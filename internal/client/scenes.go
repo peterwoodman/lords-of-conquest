@@ -225,6 +225,9 @@ type LobbyScene struct {
 	animStep        int
 	animTicker      int
 	animating       bool
+
+	// Auto-refresh timer (5 seconds at 60fps = 300 frames)
+	refreshTimer int
 }
 
 // NewLobbyScene creates a new lobby scene.
@@ -382,6 +385,7 @@ func NewLobbyScene(game *Game) *LobbyScene {
 
 func (s *LobbyScene) OnEnter() {
 	s.showCreate = false
+	s.refreshTimer = 0 // Reset auto-refresh timer
 	s.game.ListGames()
 	s.game.ListYourGames()
 }
@@ -458,6 +462,14 @@ func (s *LobbyScene) Update() error {
 	s.deleteBtn.Update()
 	s.joinCodeBtn.Update()
 	s.refreshBtn.Update()
+
+	// Auto-refresh every 5 seconds (300 frames at 60fps)
+	s.refreshTimer++
+	if s.refreshTimer >= 300 {
+		s.refreshTimer = 0
+		s.game.ListGames()
+		s.game.ListYourGames()
+	}
 
 	// Update selected game from either list
 	if id := s.yourGameList.GetSelectedID(); id != "" {
@@ -817,7 +829,8 @@ func (s *LobbyScene) SetGameList(games []protocol.GameListItem) {
 			Subtext: fmt.Sprintf("%d/%d players", g.PlayerCount, g.MaxPlayers),
 		}
 	}
-	s.gameList.SetItems(items)
+	// Preserve selection and scroll if this is an auto-refresh
+	s.gameList.SetItemsPreserve(items, s.selectedGame)
 }
 
 func (s *LobbyScene) SetYourGames(games []protocol.GameListItem) {
@@ -834,7 +847,8 @@ func (s *LobbyScene) SetYourGames(games []protocol.GameListItem) {
 			Subtext: fmt.Sprintf("%s (%d/%d)", status, g.PlayerCount, g.MaxPlayers),
 		}
 	}
-	s.yourGameList.SetItems(items)
+	// Preserve selection and scroll if this is an auto-refresh
+	s.yourGameList.SetItemsPreserve(items, s.selectedGame)
 }
 
 func (s *LobbyScene) isCreator(gameID string) bool {
@@ -848,6 +862,7 @@ func (s *LobbyScene) isCreator(gameID string) bool {
 }
 
 func (s *LobbyScene) onRefresh() {
+	s.refreshTimer = 0 // Reset auto-refresh timer
 	s.game.ListGames()
 	s.game.ListYourGames()
 }
