@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"image"
 	"image/color"
+	"image/gif"
 	"io"
 	_ "image/png"
 	"log"
@@ -17,6 +18,10 @@ import (
 
 // Icons holds all loaded icon images
 var Icons = make(map[string]*ebiten.Image)
+
+// Title screen images
+var titleScreen8Bit *ebiten.Image
+var titleScreenModern *ebiten.Image
 
 // Audio
 var audioContext *audio.Context
@@ -72,6 +77,70 @@ func LoadIcons() {
 // GetIcon returns an icon image, or nil if not loaded
 func GetIcon(name string) *ebiten.Image {
 	return Icons[name]
+}
+
+// LoadTitleScreens loads the title screen images
+func LoadTitleScreens() {
+	// Try to find assets directory
+	assetDirs := []string{
+		"internal/client/assets",
+		"assets",
+		"data",
+	}
+
+	var baseDir string
+	for _, dir := range assetDirs {
+		if _, err := os.Stat(dir); err == nil {
+			baseDir = dir
+			break
+		}
+	}
+
+	if baseDir == "" {
+		log.Printf("No assets directory found for title screens")
+		return
+	}
+
+	// Load 8-bit title screen (GIF)
+	path8Bit := filepath.Join(baseDir, "8-bit-title-screen.gif")
+	data8Bit, err := os.ReadFile(path8Bit)
+	if err != nil {
+		log.Printf("Failed to load 8-bit title screen: %v", err)
+	} else {
+		// Decode GIF - use first frame
+		gifImg, err := gif.DecodeAll(bytes.NewReader(data8Bit))
+		if err != nil {
+			log.Printf("Failed to decode 8-bit title screen GIF: %v", err)
+		} else if len(gifImg.Image) > 0 {
+			titleScreen8Bit = ebiten.NewImageFromImage(gifImg.Image[0])
+			log.Printf("Loaded 8-bit title screen: %s", path8Bit)
+		}
+	}
+
+	// Load modern title screen (PNG)
+	pathModern := filepath.Join(baseDir, "title-screen.png")
+	dataModern, err := os.ReadFile(pathModern)
+	if err != nil {
+		log.Printf("Failed to load modern title screen: %v", err)
+	} else {
+		img, _, err := image.Decode(bytes.NewReader(dataModern))
+		if err != nil {
+			log.Printf("Failed to decode modern title screen: %v", err)
+		} else {
+			titleScreenModern = ebiten.NewImageFromImage(img)
+			log.Printf("Loaded modern title screen: %s", pathModern)
+		}
+	}
+}
+
+// GetTitleScreen8Bit returns the 8-bit title screen image
+func GetTitleScreen8Bit() *ebiten.Image {
+	return titleScreen8Bit
+}
+
+// GetTitleScreenModern returns the modern title screen image
+func GetTitleScreenModern() *ebiten.Image {
+	return titleScreenModern
 }
 
 // CreatePlaceholderIcons creates simple colored placeholder icons

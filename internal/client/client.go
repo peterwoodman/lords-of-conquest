@@ -33,6 +33,7 @@ type Game struct {
 	nextScene    Scene
 
 	// Scenes
+	titleScene   *TitleScene
 	connectScene *ConnectScene
 	lobbyScene   *LobbyScene
 	waitingScene *WaitingScene
@@ -59,6 +60,9 @@ func NewGame() (*Game, error) {
 		CreatePlaceholderIcons()
 	}
 
+	// Load title screens
+	LoadTitleScreens()
+
 	// Initialize audio
 	InitAudio()
 	LoadAudio()
@@ -69,13 +73,14 @@ func NewGame() (*Game, error) {
 	}
 
 	// Create scenes
+	g.titleScene = NewTitleScene(g)
 	g.connectScene = NewConnectScene(g)
 	g.lobbyScene = NewLobbyScene(g)
 	g.waitingScene = NewWaitingScene(g)
 	g.gameplayScene = NewGameplayScene(g)
 
-	// Start with connect scene
-	g.currentScene = g.connectScene
+	// Start with title scene
+	g.currentScene = g.titleScene
 	g.currentScene.OnEnter()
 
 	// Set up network callbacks

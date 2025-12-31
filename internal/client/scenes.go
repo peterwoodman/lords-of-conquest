@@ -12,6 +12,189 @@ import (
 	"github.com/hajimehoshi/ebiten/v2/vector"
 )
 
+// ==================== Title Scene ====================
+
+// TitleScene shows the game's title screen with a transition.
+type TitleScene struct {
+	game *Game
+
+	timer       int     // Frame counter
+	phase       int     // 0=8bit, 1=fading, 2=modern, 3=done
+	fadeAlpha   float64 // 0.0 to 1.0 for fade transition
+	skipPressed bool
+}
+
+// Title screen timing (at 60fps)
+const (
+	titlePhase8Bit    = 0
+	titlePhaseFading  = 1
+	titlePhaseModern  = 2
+	titlePhaseDone    = 3
+
+	title8BitDuration  = 180 // 3 seconds of 8-bit
+	titleFadeDuration  = 60  // 1 second fade
+	titleModernDuration = 120 // 2 seconds of modern before connect
+)
+
+// NewTitleScene creates a new title scene.
+func NewTitleScene(game *Game) *TitleScene {
+	return &TitleScene{game: game}
+}
+
+func (s *TitleScene) OnEnter() {
+	s.timer = 0
+	s.phase = titlePhase8Bit
+	s.fadeAlpha = 0
+	s.skipPressed = false
+}
+
+func (s *TitleScene) OnExit() {}
+
+func (s *TitleScene) Update() error {
+	s.timer++
+
+	// Allow skipping with any key or click
+	if inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) ||
+		inpututil.IsKeyJustPressed(ebiten.KeySpace) ||
+		inpututil.IsKeyJustPressed(ebiten.KeyEnter) ||
+		inpututil.IsKeyJustPressed(ebiten.KeyEscape) {
+		s.skipPressed = true
+	}
+
+	// If skipped, go straight to connect with title background
+	if s.skipPressed {
+		s.game.connectScene.showTitleBackground = true
+		s.game.SetScene(s.game.connectScene)
+		return nil
+	}
+
+	// Phase transitions based on timer
+	switch s.phase {
+	case titlePhase8Bit:
+		if s.timer >= title8BitDuration {
+			s.phase = titlePhaseFading
+			s.timer = 0
+		}
+	case titlePhaseFading:
+		s.fadeAlpha = float64(s.timer) / float64(titleFadeDuration)
+		if s.fadeAlpha >= 1.0 {
+			s.fadeAlpha = 1.0
+			s.phase = titlePhaseModern
+			s.timer = 0
+		}
+	case titlePhaseModern:
+		if s.timer >= titleModernDuration {
+			s.phase = titlePhaseDone
+			s.game.connectScene.showTitleBackground = true
+			s.game.SetScene(s.game.connectScene)
+		}
+	}
+
+	return nil
+}
+
+func (s *TitleScene) Draw(screen *ebiten.Image) {
+	// Get title images
+	img8Bit := GetTitleScreen8Bit()
+	imgModern := GetTitleScreenModern()
+
+	// Calculate scaling to fill screen while maintaining aspect ratio
+	screenW := float64(ScreenWidth)
+	screenH := float64(ScreenHeight)
+
+	switch s.phase {
+	case titlePhase8Bit:
+		// Show only 8-bit version
+		if img8Bit != nil {
+			s.drawImageFullScreen(screen, img8Bit)
+		} else {
+			// Fallback if image not loaded
+			screen.Fill(color.RGBA{0, 0, 0, 255})
+			DrawLargeTextCentered(screen, "LORDS OF CONQUEST", int(screenW)/2, int(screenH)/2-20, ColorPrimary)
+			DrawTextCentered(screen, "(8-bit title screen)", int(screenW)/2, int(screenH)/2+20, ColorTextMuted)
+		}
+
+	case titlePhaseFading:
+		// Crossfade between 8-bit and modern
+		if img8Bit != nil {
+			s.drawImageFullScreen(screen, img8Bit)
+		}
+		if imgModern != nil {
+			// Draw modern on top with increasing alpha
+			s.drawImageFullScreenWithAlpha(screen, imgModern, s.fadeAlpha)
+		}
+
+	case titlePhaseModern, titlePhaseDone:
+		// Show only modern version
+		if imgModern != nil {
+			s.drawImageFullScreen(screen, imgModern)
+		} else {
+			screen.Fill(color.RGBA{20, 20, 40, 255})
+			DrawLargeTextCentered(screen, "LORDS OF CONQUEST", int(screenW)/2, int(screenH)/2-20, ColorPrimary)
+		}
+	}
+
+	// Skip hint at bottom
+	DrawTextCentered(screen, "Press any key to skip", int(screenW)/2, int(screenH)-30, ColorTextMuted)
+}
+
+func (s *TitleScene) drawImageFullScreen(screen *ebiten.Image, img *ebiten.Image) {
+	if img == nil {
+		return
+	}
+
+	imgW := float64(img.Bounds().Dx())
+	imgH := float64(img.Bounds().Dy())
+	screenW := float64(ScreenWidth)
+	screenH := float64(ScreenHeight)
+
+	// Scale to cover screen
+	scaleX := screenW / imgW
+	scaleY := screenH / imgH
+	scale := scaleX
+	if scaleY > scaleX {
+		scale = scaleY
+	}
+
+	// Center the image
+	offsetX := (screenW - imgW*scale) / 2
+	offsetY := (screenH - imgH*scale) / 2
+
+	op := &ebiten.DrawImageOptions{}
+	op.GeoM.Scale(scale, scale)
+	op.GeoM.Translate(offsetX, offsetY)
+	screen.DrawImage(img, op)
+}
+
+func (s *TitleScene) drawImageFullScreenWithAlpha(screen *ebiten.Image, img *ebiten.Image, alpha float64) {
+	if img == nil {
+		return
+	}
+
+	imgW := float64(img.Bounds().Dx())
+	imgH := float64(img.Bounds().Dy())
+	screenW := float64(ScreenWidth)
+	screenH := float64(ScreenHeight)
+
+	// Scale to cover screen
+	scaleX := screenW / imgW
+	scaleY := screenH / imgH
+	scale := scaleX
+	if scaleY > scaleX {
+		scale = scaleY
+	}
+
+	// Center the image
+	offsetX := (screenW - imgW*scale) / 2
+	offsetY := (screenH - imgH*scale) / 2
+
+	op := &ebiten.DrawImageOptions{}
+	op.GeoM.Scale(scale, scale)
+	op.GeoM.Translate(offsetX, offsetY)
+	op.ColorScale.ScaleAlpha(float32(alpha))
+	screen.DrawImage(img, op)
+}
+
 // ==================== Connect Scene ====================
 
 // ConnectScene handles server connection and player name entry.
@@ -23,6 +206,9 @@ type ConnectScene struct {
 	connectBtn  *Button
 	statusText  string
 	connecting  bool
+
+	// If true, show the modern title screen as background
+	showTitleBackground bool
 }
 
 // NewConnectScene creates a new connect scene.
@@ -88,14 +274,22 @@ func (s *ConnectScene) Update() error {
 }
 
 func (s *ConnectScene) Draw(screen *ebiten.Image) {
-	// Starfield background effect (simple dots)
-	for i := 0; i < 50; i++ {
-		x := float32((i * 137) % ScreenWidth)
-		y := float32((i * 97) % ScreenHeight)
-		size := float32(1 + (i%3))
-		alpha := uint8(100 + (i % 155))
-		starColor := color.RGBA{100, 150, 255, alpha}
-		vector.DrawFilledCircle(screen, x, y, size, starColor, false)
+	// Background - either title screen or starfield
+	if s.showTitleBackground {
+		imgModern := GetTitleScreenModern()
+		if imgModern != nil {
+			s.drawTitleBackground(screen, imgModern)
+		}
+	} else {
+		// Starfield background effect (simple dots)
+		for i := 0; i < 50; i++ {
+			x := float32((i * 137) % ScreenWidth)
+			y := float32((i * 97) % ScreenHeight)
+			size := float32(1 + (i%3))
+			alpha := uint8(100 + (i % 155))
+			starColor := color.RGBA{100, 150, 255, alpha}
+			vector.DrawFilledCircle(screen, x, y, size, starColor, false)
+		}
 	}
 	
 	// Main panel
@@ -142,6 +336,34 @@ func (s *ConnectScene) Draw(screen *ebiten.Image) {
 
 	// Version
 	DrawText(screen, "v0.1.0", 10, ScreenHeight-30, ColorTextMuted)
+}
+
+func (s *ConnectScene) drawTitleBackground(screen *ebiten.Image, img *ebiten.Image) {
+	if img == nil {
+		return
+	}
+
+	imgW := float64(img.Bounds().Dx())
+	imgH := float64(img.Bounds().Dy())
+	screenW := float64(ScreenWidth)
+	screenH := float64(ScreenHeight)
+
+	// Scale to cover screen
+	scaleX := screenW / imgW
+	scaleY := screenH / imgH
+	scale := scaleX
+	if scaleY > scaleX {
+		scale = scaleY
+	}
+
+	// Center the image
+	offsetX := (screenW - imgW*scale) / 2
+	offsetY := (screenH - imgH*scale) / 2
+
+	op := &ebiten.DrawImageOptions{}
+	op.GeoM.Scale(scale, scale)
+	op.GeoM.Translate(offsetX, offsetY)
+	screen.DrawImage(img, op)
 }
 
 func (s *ConnectScene) onConnect() {
