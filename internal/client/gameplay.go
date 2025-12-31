@@ -51,17 +51,33 @@ type GameplayScene struct {
 	selectedTerritory string // For multi-step actions like moving stockpile
 
 	// Build menu (Development phase)
-	showBuildMenu      bool
-	buildMenuTerritory string
-	buildCityBtn       *Button
-	buildWeaponBtn     *Button
-	buildBoatBtn       *Button
-	cancelBuildBtn     *Button
+	showBuildMenu       bool
+	buildMenuTerritory  string
+	buildCityBtn        *Button
+	buildWeaponBtn      *Button
+	buildBoatBtn        *Button
+	cancelBuildBtn      *Button
+	
+	// Water body selection for boats
+	showWaterBodySelect   bool
+	waterBodyOptions      []string // Water body IDs to choose from
+	waterBodySelectBtns   []*Button
 
 	// Combat result display
 	showCombatResult bool
 	combatResult     *CombatResultData
 	dismissResultBtn *Button
+
+	// Attack planning (Conquest phase)
+	showAttackPlan      bool
+	attackPlanTarget    string                  // Territory ID being attacked
+	attackPreview       *AttackPreviewData      // Preview from server
+	selectedReinforcement *ReinforcementData    // Selected unit to bring
+	attackNoReinfBtn    *Button
+	attackWithReinfBtn  *Button
+	cancelAttackBtn     *Button
+	loadHorseCheckbox   bool                    // For boats: load horse?
+	loadWeaponCheckbox  bool                    // For boats: load weapon?
 }
 
 // HistoryEntry represents a single game history event for display.
@@ -82,6 +98,25 @@ type CombatResultData struct {
 	DefenseStrength int
 	TargetTerritory string
 	TargetName      string
+}
+
+// AttackPreviewData holds attack preview info from server
+type AttackPreviewData struct {
+	TargetTerritory string
+	AttackStrength  int
+	DefenseStrength int
+	CanAttack       bool
+	Reinforcements  []ReinforcementData
+}
+
+// ReinforcementData holds info about a unit that can join an attack
+type ReinforcementData struct {
+	UnitType      string
+	FromTerritory string
+	WaterBodyID   string   // For boats
+	StrengthBonus int
+	CanCarryWeapon bool
+	CanCarryHorse  bool
 }
 
 // Panel is a UI panel.
@@ -137,6 +172,24 @@ func NewGameplayScene(game *Game) *GameplayScene {
 		OnClick: func() { s.showCombatResult = false },
 	}
 
+	// Attack planning buttons
+	s.attackNoReinfBtn = &Button{
+		X: 0, Y: 0, W: 160, H: 40,
+		Text:    "Attack Without",
+		OnClick: func() { s.doAttack(false) },
+	}
+	s.attackWithReinfBtn = &Button{
+		X: 0, Y: 0, W: 160, H: 40,
+		Text:    "Bring Unit",
+		Primary: true,
+		OnClick: func() { s.doAttack(true) },
+	}
+	s.cancelAttackBtn = &Button{
+		X: 0, Y: 0, W: 100, H: 40,
+		Text:    "Cancel",
+		OnClick: func() { s.cancelAttackPlan() },
+	}
+
 	return s
 }
 
@@ -173,6 +226,36 @@ func (s *GameplayScene) Update() error {
 		return nil // Block other input while showing menu
 	}
 
+	// Handle water body selection for boats
+	if s.showWaterBodySelect {
+		if inpututil.IsKeyJustPressed(ebiten.KeyEscape) {
+			s.showWaterBodySelect = false
+			s.waterBodyOptions = nil
+			s.buildMenuTerritory = ""
+		}
+		// Handle click on water cell
+		if inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) {
+			mx, my := ebiten.CursorPosition()
+			cell := s.screenToGrid(mx, my)
+			if cell[0] >= 0 {
+				s.handleWaterBodyClick(cell[0], cell[1])
+			}
+		}
+		return nil // Block other input while showing selection
+	}
+
+	// Handle attack planning dialog
+	if s.showAttackPlan {
+		s.attackNoReinfBtn.Update()
+		s.cancelAttackBtn.Update()
+		if s.selectedReinforcement != nil {
+			s.attackWithReinfBtn.Update()
+		}
+		if inpututil.IsKeyJustPressed(ebiten.KeyEscape) {
+			s.cancelAttackPlan()
+		}
+		return nil // Block other input while planning
+	}
 	// Update hovered cell
 	mx, my := ebiten.CursorPosition()
 	s.hoveredCell = s.screenToGrid(mx, my)
@@ -239,6 +322,15 @@ func (s *GameplayScene) Draw(screen *ebiten.Image) {
 		s.drawBuildMenu(screen)
 	}
 
+	// Draw water body selection overlay
+	if s.showWaterBodySelect {
+		s.drawWaterBodySelect(screen)
+	}
+
+	// Draw attack planning overlay
+	if s.showAttackPlan {
+		s.drawAttackPlan(screen)
+	}
 	// Draw combat result overlay
 	if s.showCombatResult {
 		s.drawCombatResult(screen)
@@ -352,8 +444,11 @@ func (s *GameplayScene) drawMap(screen *ebiten.Image) {
 	// Draw territory boundaries
 	s.drawTerritoryBoundaries(screen, width, height, grid)
 
-	// Draw territory icons (resources, buildings, units)
+	// Draw territory icons (resources, buildings, units - but not boats)
 	s.drawTerritoryIcons(screen)
+
+	// Draw boats in water cells
+	s.drawBoatsInWater(screen)
 }
 
 // drawTerritoryBoundaries draws lines between different territories with rounded corners
@@ -584,10 +679,7 @@ func (s *GameplayScene) drawTerritoryIcons(screen *ebiten.Image) {
 			icons = append(icons, iconInfo{"resource", resource})
 		}
 
-		// Boats (can have multiple)
-		if boats, ok := terr["boats"].(float64); ok && int(boats) > 0 {
-			icons = append(icons, iconInfo{"boat", fmt.Sprintf("%d", int(boats))})
-		}
+		// Boats are now drawn in water cells, not on territories
 
 		// Draw each icon on a different cell
 		for i, icon := range icons {
@@ -664,6 +756,183 @@ func (s *GameplayScene) sortCellsByInteriorness(cells [][2]int, terrID int, grid
 			}
 		}
 	}
+}
+
+// drawBoatsInWater draws boat icons in water cells adjacent to territories that own them
+func (s *GameplayScene) drawBoatsInWater(screen *ebiten.Image) {
+	if s.mapData == nil || s.territories == nil {
+		return
+	}
+
+	// Get water grid and water bodies info
+	_, hasWaterGrid := s.mapData["waterGrid"].([]interface{})
+	waterBodies, hasWaterBodies := s.mapData["waterBodies"].(map[string]interface{})
+	if !hasWaterGrid || !hasWaterBodies {
+		return
+	}
+
+	grid := s.mapData["grid"].([]interface{})
+	width := int(s.mapData["width"].(float64))
+	height := int(s.mapData["height"].(float64))
+
+	// For each territory, find its boats and draw them in adjacent water cells
+	for terrID, terrData := range s.territories {
+		terr, ok := terrData.(map[string]interface{})
+		if !ok {
+			continue
+		}
+
+		// Get boats map (water body ID -> count)
+		boatsData, hasBoats := terr["boats"].(map[string]interface{})
+		if !hasBoats || len(boatsData) == 0 {
+			continue
+		}
+
+		// Get territory owner color
+		var boatColor color.RGBA = color.RGBA{139, 90, 43, 255} // Brown default
+		if owner, ok := terr["owner"].(string); ok && owner != "" {
+			if player, ok := s.players[owner].(map[string]interface{}); ok {
+				if playerColorName, ok := player["color"].(string); ok {
+					if pc, ok := PlayerColors[playerColorName]; ok {
+						boatColor = pc
+					}
+				}
+			}
+		}
+
+		// Extract numeric territory ID
+		var numTerritoryID int
+		if len(terrID) > 1 && terrID[0] == 't' {
+			fmt.Sscanf(terrID[1:], "%d", &numTerritoryID)
+		}
+
+		// For each water body with boats
+		for waterBodyID, countVal := range boatsData {
+			count := 0
+			switch v := countVal.(type) {
+			case float64:
+				count = int(v)
+			case int:
+				count = v
+			}
+			if count <= 0 {
+				continue
+			}
+
+			// Get water body info to find cells
+			wbData, ok := waterBodies[waterBodyID].(map[string]interface{})
+			if !ok {
+				continue
+			}
+
+			wbCells, ok := wbData["cells"].([]interface{})
+			if !ok {
+				continue
+			}
+
+			// Find water cells in this water body that are adjacent to this territory
+			adjacentWaterCells := make([][2]int, 0)
+			for _, cellData := range wbCells {
+				cell, ok := cellData.([]interface{})
+				if !ok || len(cell) < 2 {
+					continue
+				}
+				wx := int(cell[0].(float64))
+				wy := int(cell[1].(float64))
+
+				// Check if this water cell is adjacent to the territory
+				dirs := [][2]int{{0, -1}, {0, 1}, {-1, 0}, {1, 0}}
+				for _, d := range dirs {
+					nx, ny := wx+d[0], wy+d[1]
+					if nx >= 0 && nx < width && ny >= 0 && ny < height {
+						row := grid[ny].([]interface{})
+						if int(row[nx].(float64)) == numTerritoryID {
+							adjacentWaterCells = append(adjacentWaterCells, [2]int{wx, wy})
+							break
+						}
+					}
+				}
+			}
+
+			// Draw boats on adjacent water cells
+			boatsDrawn := 0
+			for _, waterCell := range adjacentWaterCells {
+				if boatsDrawn >= count {
+					break
+				}
+				sx, sy := s.gridToScreen(waterCell[0], waterCell[1])
+				s.drawBoatInWaterCell(screen, float32(sx), float32(sy), boatColor)
+				boatsDrawn++
+			}
+
+			// If not enough adjacent cells, show remaining count as number
+			if boatsDrawn < count && len(adjacentWaterCells) > 0 {
+				// Draw on the first cell with a count
+				cell := adjacentWaterCells[0]
+				sx, sy := s.gridToScreen(cell[0], cell[1])
+				DrawText(screen, fmt.Sprintf("%d", count), sx+s.cellSize/2, sy+2, color.RGBA{255, 255, 255, 255})
+			}
+		}
+	}
+}
+
+// drawBoatInWaterCell draws a single boat icon in a water cell with the owner's color
+func (s *GameplayScene) drawBoatInWaterCell(screen *ebiten.Image, cellX, cellY float32, boatColor color.RGBA) {
+	cellSize := float32(s.cellSize)
+	iconSize := cellSize * 0.65
+
+	// Center the icon in the cell
+	offsetX := (cellSize - iconSize) / 2
+	offsetY := (cellSize - iconSize) / 2
+	x := cellX + offsetX
+	y := cellY + offsetY
+
+	// Try to use PNG icon first
+	if iconImg := GetIcon("boat"); iconImg != nil {
+		op := &ebiten.DrawImageOptions{}
+		imgW := float32(iconImg.Bounds().Dx())
+		imgH := float32(iconImg.Bounds().Dy())
+		scaleX := iconSize / imgW
+		scaleY := iconSize / imgH
+		op.GeoM.Scale(float64(scaleX), float64(scaleY))
+		op.GeoM.Translate(float64(x), float64(y))
+		// Tint with owner color
+		op.ColorScale.Scale(
+			float32(boatColor.R)/255,
+			float32(boatColor.G)/255,
+			float32(boatColor.B)/255,
+			1.0,
+		)
+		screen.DrawImage(iconImg, op)
+	} else {
+		// Fallback to drawing with color
+		s.drawBoatIconFallbackColored(screen, x, y, iconSize, boatColor)
+	}
+}
+
+// drawBoatIconFallbackColored draws a boat with specific color
+func (s *GameplayScene) drawBoatIconFallbackColored(screen *ebiten.Image, x, y, size float32, boatColor color.RGBA) {
+	// Simple boat shape
+	cx := x + size/2
+	cy := y + size/2
+
+	// Hull
+	hullW := size * 0.7
+	hullH := size * 0.25
+	hullY := cy + size*0.1
+
+	vector.DrawFilledRect(screen, cx-hullW/2, hullY, hullW, hullH, boatColor, false)
+
+	// Mast
+	mastX := cx
+	mastTop := cy - size*0.3
+
+	vector.StrokeLine(screen, mastX, mastTop, mastX, hullY, 2, boatColor, false)
+
+	// Sail triangle
+	sailColor := color.RGBA{min(boatColor.R+50, 255), min(boatColor.G+50, 255), min(boatColor.B+50, 255), 255}
+	vector.StrokeLine(screen, mastX, mastTop, mastX+size*0.25, cy, 1, sailColor, false)
+	vector.StrokeLine(screen, mastX, mastTop, mastX, cy, 1, sailColor, false)
 }
 
 // drawIconOnCell draws an icon centered on a grid cell
@@ -1464,9 +1733,9 @@ func (s *GameplayScene) drawHoverInfo(screen *ebiten.Image) {
 			contents = append(contents, "🐎 Horse (+1 strength)")
 		}
 
-		// Boats
-		if boats, ok := terr["boats"].(float64); ok && int(boats) > 0 {
-			boatCount := int(boats)
+		// Boats (using totalBoats for display)
+		if totalBoats, ok := terr["totalBoats"].(float64); ok && int(totalBoats) > 0 {
+			boatCount := int(totalBoats)
 			contents = append(contents, fmt.Sprintf("⛵ Boats: %d (+%d strength)", boatCount, boatCount*2))
 		}
 
@@ -1483,8 +1752,8 @@ func (s *GameplayScene) drawHoverInfo(screen *ebiten.Image) {
 		// Coastal info
 		if coastalTiles, ok := terr["coastalTiles"].(float64); ok && int(coastalTiles) > 0 {
 			boats := 0
-			if b, ok := terr["boats"].(float64); ok {
-				boats = int(b)
+			if tb, ok := terr["totalBoats"].(float64); ok {
+				boats = int(tb)
 			}
 			contents = append(contents, fmt.Sprintf("🌊 Coastal (%d/%d boat slots)", boats, int(coastalTiles)))
 		}
@@ -1701,9 +1970,9 @@ func (s *GameplayScene) handleConquest(territoryID string) {
 	if terr, ok := s.territories[territoryID].(map[string]interface{}); ok {
 		owner := terr["owner"].(string)
 		if owner != "" && owner != s.game.config.PlayerID {
-			// Enemy territory - try to attack
-			log.Printf("Attacking territory %s", territoryID)
-			s.game.ExecuteAttack(territoryID)
+			// Enemy territory - request attack preview to see reinforcement options
+			log.Printf("Planning attack on territory %s", territoryID)
+			s.game.PlanAttack(territoryID)
 		} else if owner == s.game.config.PlayerID {
 			log.Printf("Cannot attack your own territory")
 		} else {
@@ -1798,9 +2067,9 @@ func (s *GameplayScene) getTerritoryStrength(terr map[string]interface{}) int {
 		strength += 1
 	}
 
-	// Boats: +2 each
-	if boats, ok := terr["boats"].(float64); ok && int(boats) > 0 {
-		strength += int(boats) * 2
+	// Boats: +2 each (using totalBoats)
+	if totalBoats, ok := terr["totalBoats"].(float64); ok && int(totalBoats) > 0 {
+		strength += int(totalBoats) * 2
 	}
 
 	return strength
@@ -2000,23 +2269,319 @@ func (s *GameplayScene) drawCombatResult(screen *ebiten.Image) {
 	s.dismissResultBtn.Draw(screen)
 }
 
+// drawWaterBodySelect draws the water body selection UI for boat placement
+func (s *GameplayScene) drawWaterBodySelect(screen *ebiten.Image) {
+	// Semi-transparent overlay
+	vector.DrawFilledRect(screen, 0, 0, float32(ScreenWidth), float32(ScreenHeight),
+		color.RGBA{0, 0, 0, 180}, false)
+
+	// Panel
+	panelW := 280
+	panelH := 120 + len(s.waterBodyOptions)*50
+	panelX := ScreenWidth/2 - panelW/2
+	panelY := ScreenHeight/2 - panelH/2
+
+	DrawFancyPanel(screen, panelX, panelY, panelW, panelH, "Place Boat")
+
+	DrawTextCentered(screen, "Select water to place boat:", ScreenWidth/2, panelY+45, ColorText)
+	DrawTextCentered(screen, "Click a water cell adjacent to your territory", ScreenWidth/2, panelY+65, ColorTextMuted)
+
+	// Highlight water cells that can be clicked
+	if s.mapData != nil {
+		s.highlightSelectableWaterCells(screen)
+	}
+}
+
+// highlightSelectableWaterCells highlights water cells that can be selected for boat placement
+func (s *GameplayScene) highlightSelectableWaterCells(screen *ebiten.Image) {
+	if s.buildMenuTerritory == "" || len(s.waterBodyOptions) == 0 {
+		return
+	}
+
+	grid := s.mapData["grid"].([]interface{})
+	width := int(s.mapData["width"].(float64))
+	height := int(s.mapData["height"].(float64))
+
+	waterBodies, hasWaterBodies := s.mapData["waterBodies"].(map[string]interface{})
+	if !hasWaterBodies {
+		return
+	}
+
+	// Extract numeric territory ID
+	var numTerritoryID int
+	if len(s.buildMenuTerritory) > 1 && s.buildMenuTerritory[0] == 't' {
+		fmt.Sscanf(s.buildMenuTerritory[1:], "%d", &numTerritoryID)
+	}
+
+	// For each water body option, find and highlight adjacent cells
+	for _, waterBodyID := range s.waterBodyOptions {
+		wbData, ok := waterBodies[waterBodyID].(map[string]interface{})
+		if !ok {
+			continue
+		}
+
+		wbCells, ok := wbData["cells"].([]interface{})
+		if !ok {
+			continue
+		}
+
+		// Find water cells adjacent to the territory
+		for _, cellData := range wbCells {
+			cell, ok := cellData.([]interface{})
+			if !ok || len(cell) < 2 {
+				continue
+			}
+			wx := int(cell[0].(float64))
+			wy := int(cell[1].(float64))
+
+			// Check if adjacent to territory
+			dirs := [][2]int{{0, -1}, {0, 1}, {-1, 0}, {1, 0}}
+			isAdjacent := false
+			for _, d := range dirs {
+				nx, ny := wx+d[0], wy+d[1]
+				if nx >= 0 && nx < width && ny >= 0 && ny < height {
+					row := grid[ny].([]interface{})
+					if int(row[nx].(float64)) == numTerritoryID {
+						isAdjacent = true
+						break
+					}
+				}
+			}
+
+			if isAdjacent {
+				sx, sy := s.gridToScreen(wx, wy)
+				// Draw highlight
+				highlightColor := color.RGBA{100, 200, 255, 150}
+				vector.DrawFilledRect(screen, float32(sx)+2, float32(sy)+2,
+					float32(s.cellSize)-4, float32(s.cellSize)-4, highlightColor, false)
+				vector.StrokeRect(screen, float32(sx)+1, float32(sy)+1,
+					float32(s.cellSize)-2, float32(s.cellSize)-2, 2, color.RGBA{100, 200, 255, 255}, false)
+			}
+		}
+	}
+}
+
+// drawAttackPlan draws the attack planning dialog
+func (s *GameplayScene) drawAttackPlan(screen *ebiten.Image) {
+	if s.attackPreview == nil {
+		return
+	}
+
+	// Semi-transparent overlay
+	vector.DrawFilledRect(screen, 0, 0, float32(ScreenWidth), float32(ScreenHeight),
+		color.RGBA{0, 0, 0, 180}, false)
+
+	// Get target name
+	targetName := s.attackPlanTarget
+	if terr, ok := s.territories[s.attackPlanTarget].(map[string]interface{}); ok {
+		if name, ok := terr["name"].(string); ok {
+			targetName = name
+		}
+	}
+
+	// Panel dimensions based on reinforcement count
+	reinforceCount := len(s.attackPreview.Reinforcements)
+	panelW := 400
+	panelH := 200
+	if reinforceCount > 0 {
+		panelH += 40 + reinforceCount*60
+	}
+	panelX := ScreenWidth/2 - panelW/2
+	panelY := ScreenHeight/2 - panelH/2
+
+	DrawFancyPanel(screen, panelX, panelY, panelW, panelH, "Plan Attack")
+
+	// Target info
+	DrawTextCentered(screen, "Attack: "+targetName, ScreenWidth/2, panelY+45, ColorText)
+	
+	// Strength preview
+	strengthText := fmt.Sprintf("Your Strength: %d vs Defense: %d",
+		s.attackPreview.AttackStrength, s.attackPreview.DefenseStrength)
+	DrawTextCentered(screen, strengthText, ScreenWidth/2, panelY+70, ColorTextMuted)
+
+	yPos := panelY + 100
+
+	// Reinforcement options
+	if reinforceCount > 0 {
+		DrawText(screen, "Available Reinforcements (click to select):", panelX+15, yPos, ColorText)
+		yPos += 25
+
+		for i, reinf := range s.attackPreview.Reinforcements {
+			// Territory name
+			fromName := reinf.FromTerritory
+			if terr, ok := s.territories[reinf.FromTerritory].(map[string]interface{}); ok {
+				if name, ok := terr["name"].(string); ok {
+					fromName = name
+				}
+			}
+
+			// Check if selected
+			isSelected := s.selectedReinforcement != nil &&
+				s.selectedReinforcement.FromTerritory == reinf.FromTerritory &&
+				s.selectedReinforcement.UnitType == reinf.UnitType
+
+			// Draw option box
+			optY := yPos + i*60
+			boxColor := color.RGBA{50, 50, 70, 255}
+			if isSelected {
+				boxColor = color.RGBA{80, 100, 150, 255}
+			}
+			vector.DrawFilledRect(screen, float32(panelX+15), float32(optY), float32(panelW-30), 55, boxColor, false)
+			if isSelected {
+				vector.StrokeRect(screen, float32(panelX+15), float32(optY), float32(panelW-30), 55, 2, ColorBorder, false)
+			}
+
+			// Unit type and location
+			unitLabel := fmt.Sprintf("%s from %s (+%d)", reinf.UnitType, fromName, reinf.StrengthBonus)
+			DrawText(screen, unitLabel, panelX+25, optY+15, ColorText)
+
+			// Carry options
+			carryText := ""
+			if reinf.UnitType == "boat" {
+				if reinf.CanCarryHorse {
+					carryText += "Can load Horse "
+				}
+				if reinf.CanCarryWeapon {
+					carryText += "Can load Weapon"
+				}
+			} else if reinf.UnitType == "horse" && reinf.CanCarryWeapon {
+				carryText = "Can carry Weapon"
+			}
+			if carryText != "" {
+				DrawText(screen, carryText, panelX+25, optY+35, ColorTextMuted)
+			}
+
+			// Handle click on this option
+			mx, my := ebiten.CursorPosition()
+			if mx >= panelX+15 && mx <= panelX+panelW-15 &&
+				my >= optY && my <= optY+55 {
+				if inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) {
+					s.selectedReinforcement = &ReinforcementData{
+						UnitType:       reinf.UnitType,
+						FromTerritory:  reinf.FromTerritory,
+						WaterBodyID:    reinf.WaterBodyID,
+						StrengthBonus:  reinf.StrengthBonus,
+						CanCarryWeapon: reinf.CanCarryWeapon,
+						CanCarryHorse:  reinf.CanCarryHorse,
+					}
+					// Reset checkboxes when changing selection
+					s.loadHorseCheckbox = false
+					s.loadWeaponCheckbox = false
+				}
+			}
+		}
+		yPos += reinforceCount * 60
+
+		// Cargo checkboxes if boat or horse selected
+		if s.selectedReinforcement != nil {
+			if s.selectedReinforcement.UnitType == "boat" {
+				if s.selectedReinforcement.CanCarryHorse {
+					s.drawCheckbox(screen, panelX+20, yPos+10, "Load Horse onto Boat", &s.loadHorseCheckbox)
+					yPos += 25
+				}
+				if s.selectedReinforcement.CanCarryWeapon {
+					s.drawCheckbox(screen, panelX+20, yPos+10, "Load Weapon onto Boat", &s.loadWeaponCheckbox)
+					yPos += 25
+				}
+			} else if s.selectedReinforcement.UnitType == "horse" && s.selectedReinforcement.CanCarryWeapon {
+				s.drawCheckbox(screen, panelX+20, yPos+10, "Carry Weapon on Horse", &s.loadWeaponCheckbox)
+				yPos += 25
+			}
+		}
+	}
+
+	// Buttons
+	btnY := panelY + panelH - 55
+
+	// Attack without reinforcement button
+	s.attackNoReinfBtn.X = panelX + 20
+	s.attackNoReinfBtn.Y = btnY
+	s.attackNoReinfBtn.Draw(screen)
+
+	// Attack with selected reinforcement (only if one is selected)
+	if s.selectedReinforcement != nil {
+		s.attackWithReinfBtn.X = panelX + 200
+		s.attackWithReinfBtn.Y = btnY
+		s.attackWithReinfBtn.Text = "Attack with " + s.selectedReinforcement.UnitType
+		s.attackWithReinfBtn.Draw(screen)
+	}
+
+	// Cancel button
+	s.cancelAttackBtn.X = panelX + panelW - 120
+	s.cancelAttackBtn.Y = btnY
+	s.cancelAttackBtn.Draw(screen)
+}
+
+// drawCheckbox draws a simple checkbox with label
+func (s *GameplayScene) drawCheckbox(screen *ebiten.Image, x, y int, label string, checked *bool) {
+	boxSize := 16
+	
+	// Draw box
+	boxColor := color.RGBA{60, 60, 80, 255}
+	if *checked {
+		boxColor = color.RGBA{100, 150, 200, 255}
+	}
+	vector.DrawFilledRect(screen, float32(x), float32(y), float32(boxSize), float32(boxSize), boxColor, false)
+	vector.StrokeRect(screen, float32(x), float32(y), float32(boxSize), float32(boxSize), 1, ColorText, false)
+	
+	// Draw check mark if checked
+	if *checked {
+		// Simple X mark
+		vector.StrokeLine(screen, float32(x+3), float32(y+3), float32(x+boxSize-3), float32(y+boxSize-3), 2, ColorText, false)
+		vector.StrokeLine(screen, float32(x+boxSize-3), float32(y+3), float32(x+3), float32(y+boxSize-3), 2, ColorText, false)
+	}
+	
+	// Draw label
+	DrawText(screen, label, x+boxSize+8, y+2, ColorText)
+	
+	// Handle click
+	mx, my := ebiten.CursorPosition()
+	if mx >= x && mx <= x+boxSize+150 && my >= y && my <= y+boxSize {
+		if inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) {
+			*checked = !*checked
+		}
+	}
+}
+
 // doBuild executes a build action
 func (s *GameplayScene) doBuild(buildType string) {
 	if s.buildMenuTerritory == "" {
 		return
 	}
 
+	// For boats, check if we need to select a water body
+	if buildType == "boat" {
+		if terr, ok := s.territories[s.buildMenuTerritory].(map[string]interface{}); ok {
+			if waterBodies, ok := terr["waterBodies"].([]interface{}); ok && len(waterBodies) > 1 {
+				// Multiple water bodies - show selection UI
+				s.waterBodyOptions = make([]string, len(waterBodies))
+				for i, wb := range waterBodies {
+					s.waterBodyOptions[i] = wb.(string)
+				}
+				s.showWaterBodySelect = true
+				s.showBuildMenu = false
+				return
+			}
+		}
+	}
+
 	// Determine if we should use gold (if we can't afford regular cost)
-	useGold := false
+	useGold := s.shouldUseGold(buildType)
+
+	log.Printf("Building %s at %s (useGold: %v)", buildType, s.buildMenuTerritory, useGold)
+	s.game.Build(buildType, s.buildMenuTerritory, useGold)
+	s.showBuildMenu = false
+	s.buildMenuTerritory = ""
+}
+
+// shouldUseGold determines if gold should be used for a build
+func (s *GameplayScene) shouldUseGold(buildType string) bool {
 	if myPlayer, ok := s.players[s.game.config.PlayerID]; ok {
 		player := myPlayer.(map[string]interface{})
 		if stockpile, ok := player["stockpile"].(map[string]interface{}); ok {
-			coal, gold, iron, timber := 0, 0, 0, 0
+			coal, iron, timber := 0, 0, 0
 			if v, ok := stockpile["coal"].(float64); ok {
 				coal = int(v)
-			}
-			if v, ok := stockpile["gold"].(float64); ok {
-				gold = int(v)
 			}
 			if v, ok := stockpile["iron"].(float64); ok {
 				iron = int(v)
@@ -2027,26 +2592,111 @@ func (s *GameplayScene) doBuild(buildType string) {
 
 			switch buildType {
 			case "city":
+				gold := 0
+				if v, ok := stockpile["gold"].(float64); ok {
+					gold = int(v)
+				}
 				if !(coal >= 1 && gold >= 1 && iron >= 1 && timber >= 1) {
-					useGold = true
+					return true
 				}
 			case "weapon":
 				if !(coal >= 1 && iron >= 1) {
-					useGold = true
+					return true
 				}
 			case "boat":
 				if timber < 3 {
-					useGold = true
+					return true
 				}
 			}
-			_ = gold // Avoid unused variable warning
 		}
 	}
+	return false
+}
 
-	log.Printf("Building %s at %s (useGold: %v)", buildType, s.buildMenuTerritory, useGold)
-	s.game.Build(buildType, s.buildMenuTerritory, useGold)
-	s.showBuildMenu = false
+// doBuildBoatInWater builds a boat in a specific water body
+func (s *GameplayScene) doBuildBoatInWater(waterBodyID string) {
+	if s.buildMenuTerritory == "" {
+		return
+	}
+
+	useGold := s.shouldUseGold("boat")
+	log.Printf("Building boat at %s in water body %s (useGold: %v)", s.buildMenuTerritory, waterBodyID, useGold)
+	s.game.BuildBoatInWater(s.buildMenuTerritory, waterBodyID, useGold)
+	s.showWaterBodySelect = false
+	s.waterBodyOptions = nil
 	s.buildMenuTerritory = ""
+}
+
+// handleWaterBodyClick handles clicking on a water cell during water body selection
+func (s *GameplayScene) handleWaterBodyClick(cellX, cellY int) {
+	if s.buildMenuTerritory == "" || len(s.waterBodyOptions) == 0 {
+		return
+	}
+
+	grid := s.mapData["grid"].([]interface{})
+	width := int(s.mapData["width"].(float64))
+	height := int(s.mapData["height"].(float64))
+
+	// Check if clicked cell is water
+	if cellX < 0 || cellX >= width || cellY < 0 || cellY >= height {
+		return
+	}
+	row := grid[cellY].([]interface{})
+	if int(row[cellX].(float64)) != 0 {
+		return // Not water
+	}
+
+	waterBodies, hasWaterBodies := s.mapData["waterBodies"].(map[string]interface{})
+	if !hasWaterBodies {
+		return
+	}
+
+	// Extract numeric territory ID
+	var numTerritoryID int
+	if len(s.buildMenuTerritory) > 1 && s.buildMenuTerritory[0] == 't' {
+		fmt.Sscanf(s.buildMenuTerritory[1:], "%d", &numTerritoryID)
+	}
+
+	// Check if this cell is in one of our water body options and adjacent to territory
+	for _, waterBodyID := range s.waterBodyOptions {
+		wbData, ok := waterBodies[waterBodyID].(map[string]interface{})
+		if !ok {
+			continue
+		}
+
+		wbCells, ok := wbData["cells"].([]interface{})
+		if !ok {
+			continue
+		}
+
+		// Check if clicked cell is in this water body
+		for _, cellData := range wbCells {
+			cell, ok := cellData.([]interface{})
+			if !ok || len(cell) < 2 {
+				continue
+			}
+			wx := int(cell[0].(float64))
+			wy := int(cell[1].(float64))
+
+			if wx != cellX || wy != cellY {
+				continue
+			}
+
+			// Check if adjacent to territory
+			dirs := [][2]int{{0, -1}, {0, 1}, {-1, 0}, {1, 0}}
+			for _, d := range dirs {
+				nx, ny := wx+d[0], wy+d[1]
+				if nx >= 0 && nx < width && ny >= 0 && ny < height {
+					nrow := grid[ny].([]interface{})
+					if int(nrow[nx].(float64)) == numTerritoryID {
+						// Found it! Build boat in this water body
+						s.doBuildBoatInWater(waterBodyID)
+						return
+					}
+				}
+			}
+		}
+	}
 }
 
 // ShowCombatResult displays the combat result popup
@@ -2145,3 +2795,60 @@ func min(a, b uint8) uint8 {
 	return b
 }
 
+// ShowAttackPlan displays the attack planning dialog
+func (s *GameplayScene) ShowAttackPlan(preview *AttackPreviewData) {
+	s.attackPreview = preview
+	s.attackPlanTarget = preview.TargetTerritory
+	s.selectedReinforcement = nil
+	s.loadHorseCheckbox = false
+	s.loadWeaponCheckbox = false
+	s.showAttackPlan = true
+}
+
+// doAttack executes the attack with or without reinforcement
+func (s *GameplayScene) doAttack(withReinforcement bool) {
+	if s.attackPlanTarget == "" {
+		return
+	}
+
+	var reinforcement *ReinforcementInfo
+	if withReinforcement && s.selectedReinforcement != nil {
+		reinforcement = &ReinforcementInfo{
+			UnitType:      s.selectedReinforcement.UnitType,
+			FromTerritory: s.selectedReinforcement.FromTerritory,
+			WaterBodyID:   s.selectedReinforcement.WaterBodyID,
+		}
+		// For boats: add cargo
+		if s.selectedReinforcement.UnitType == "boat" {
+			if s.loadWeaponCheckbox && s.selectedReinforcement.CanCarryWeapon {
+				reinforcement.CarryWeapon = true
+				reinforcement.WeaponFrom = s.selectedReinforcement.FromTerritory
+			}
+			if s.loadHorseCheckbox && s.selectedReinforcement.CanCarryHorse {
+				reinforcement.CarryHorse = true
+				reinforcement.HorseFrom = s.selectedReinforcement.FromTerritory
+			}
+		}
+		// For horses: add weapon cargo
+		if s.selectedReinforcement.UnitType == "horse" {
+			if s.loadWeaponCheckbox && s.selectedReinforcement.CanCarryWeapon {
+				reinforcement.CarryWeapon = true
+				reinforcement.WeaponFrom = s.selectedReinforcement.FromTerritory
+			}
+		}
+	}
+
+	log.Printf("Executing attack on %s with reinforcement: %v", s.attackPlanTarget, reinforcement)
+	s.game.ExecuteAttackWithReinforcement(s.attackPlanTarget, reinforcement)
+	s.cancelAttackPlan()
+}
+
+// cancelAttackPlan cancels the attack planning
+func (s *GameplayScene) cancelAttackPlan() {
+	s.showAttackPlan = false
+	s.attackPlanTarget = ""
+	s.attackPreview = nil
+	s.selectedReinforcement = nil
+	s.loadHorseCheckbox = false
+	s.loadWeaponCheckbox = false
+}

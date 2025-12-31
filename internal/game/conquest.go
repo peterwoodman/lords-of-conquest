@@ -49,6 +49,7 @@ type PlanAttackResult struct {
 type ReinforcementOption struct {
 	UnitType      string
 	FromTerritory string
+	WaterBodyID   string // For boats: which water body the boat is in
 	Strength      int
 	CanCarry      []string // Types of units this can carry
 }
@@ -94,21 +95,26 @@ func (g *GameState) GetAttackPlan(attackerID, targetID string) *PlanAttackResult
 			result.Reinforcements = append(result.Reinforcements, opt)
 		}
 
-		// Boats (water movement)
-		if t.Boats > 0 && t.IsCoastal() && g.canBoatReachTarget(id, targetID) {
-			opt := ReinforcementOption{
-				UnitType:      "boat",
-				FromTerritory: id,
-				Strength:      2,
-				CanCarry:      []string{},
+		// Boats (water movement) - one option per water body with boats
+		if t.TotalBoats() > 0 && t.IsCoastal() {
+			for waterID, boatCount := range t.Boats {
+				if boatCount > 0 && g.canBoatReachTargetViaWater(id, targetID, waterID) {
+					opt := ReinforcementOption{
+						UnitType:      "boat",
+						FromTerritory: id,
+						WaterBodyID:   waterID,
+						Strength:      2,
+						CanCarry:      []string{},
+					}
+					if t.HasHorse {
+						opt.CanCarry = append(opt.CanCarry, "horse")
+					}
+					if t.HasWeapon {
+						opt.CanCarry = append(opt.CanCarry, "weapon")
+					}
+					result.Reinforcements = append(result.Reinforcements, opt)
+				}
 			}
-			if t.HasHorse {
-				opt.CanCarry = append(opt.CanCarry, "horse")
-			}
-			if t.HasWeapon {
-				opt.CanCarry = append(opt.CanCarry, "weapon")
-			}
-			result.Reinforcements = append(result.Reinforcements, opt)
 		}
 	}
 
@@ -137,25 +143,25 @@ func (g *GameState) canHorseReachTarget(playerID, fromID, targetID string) bool 
 	return false
 }
 
-// canBoatReachTarget checks if a boat can reach a territory adjacent to target via water.
-func (g *GameState) canBoatReachTarget(fromID, targetID string) bool {
-	from := g.Territories[fromID]
+// canBoatReachTargetViaWater checks if a boat in a specific water body can attack the target.
+func (g *GameState) canBoatReachTargetViaWater(fromID, targetID, waterBodyID string) bool {
 	target := g.Territories[targetID]
+	water := g.WaterBodies[waterBodyID]
+	if water == nil {
+		return false
+	}
 
-	// Check if we can reach a territory adjacent to the target via water
-	for _, waterID := range from.WaterBodies {
-		water := g.WaterBodies[waterID]
-		for _, coastalID := range water.Territories {
-			if g.isAdjacent(coastalID, targetID) || coastalID == targetID {
-				// Can reach adjacent territory via water
-				return true
-			}
-			// Check if target has coastal tiles in this water body
-			for _, tw := range target.WaterBodies {
-				if tw == waterID {
-					return true
-				}
-			}
+	// Check if target borders this water body (boat can attack from water)
+	for _, tw := range target.WaterBodies {
+		if tw == waterBodyID {
+			return true
+		}
+	}
+
+	// Check if any territory in this water body is adjacent to the target
+	for _, coastalID := range water.Territories {
+		if g.isAdjacent(coastalID, targetID) {
+			return true
 		}
 	}
 
@@ -286,4 +292,3 @@ func (g *GameState) advanceConquestTurn() {
 		}
 	}
 }
-

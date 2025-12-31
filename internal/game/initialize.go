@@ -44,6 +44,7 @@ func InitializeGame(mapData MapData, players []*Player, settings Settings) (*Gam
 			Name:         t.Name,
 			Owner:        "", // Unclaimed
 			Resource:     t.Resource,
+			Boats:        make(map[string]int), // Initialize empty boat map
 			Adjacent:     t.Adjacent,
 			CoastalTiles: t.CoastalTiles,
 			WaterBodies:  t.WaterBodies,

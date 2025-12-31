@@ -244,6 +244,53 @@ func (g *Game) Build(buildType, territoryID string, useGold bool) error {
 	return g.network.SendPayload(protocol.TypeBuild, payload)
 }
 
+// BuildBoatInWater builds a boat in a specific water body.
+func (g *Game) BuildBoatInWater(territoryID, waterBodyID string, useGold bool) error {
+	payload := protocol.BuildPayload{
+		Type:        "boat",
+		Territory:   territoryID,
+		WaterBodyID: waterBodyID,
+		UseGold:     useGold,
+	}
+	return g.network.SendPayload(protocol.TypeBuild, payload)
+}
+
+// PlanAttack requests an attack preview for a target territory.
+func (g *Game) PlanAttack(targetTerritory string) error {
+	payload := protocol.PlanAttackPayload{
+		TargetTerritory: targetTerritory,
+	}
+	return g.network.SendPayload(protocol.TypePlanAttack, payload)
+}
+
+// ExecuteAttackWithReinforcement executes an attack with optional reinforcement.
+func (g *Game) ExecuteAttackWithReinforcement(targetTerritory string, reinforcement *ReinforcementInfo) error {
+	payload := protocol.ExecuteAttackPayload{
+		TargetTerritory: targetTerritory,
+	}
+	if reinforcement != nil {
+		payload.BringUnit = reinforcement.UnitType
+		payload.BringFrom = reinforcement.FromTerritory
+		payload.WaterBodyID = reinforcement.WaterBodyID
+		payload.CarryWeapon = reinforcement.CarryWeapon
+		payload.WeaponFrom = reinforcement.WeaponFrom
+		payload.CarryHorse = reinforcement.CarryHorse
+		payload.HorseFrom = reinforcement.HorseFrom
+	}
+	return g.network.SendPayload(protocol.TypeExecuteAttack, payload)
+}
+
+// ReinforcementInfo holds data about a unit to bring into battle.
+type ReinforcementInfo struct {
+	UnitType      string
+	FromTerritory string
+	WaterBodyID   string // For boats
+	CarryWeapon   bool
+	WeaponFrom    string
+	CarryHorse    bool
+	HorseFrom     string
+}
+
 // ExecuteAttack executes an attack during conquest phase.
 func (g *Game) ExecuteAttack(targetTerritory string) error {
 	payload := protocol.ExecuteAttackPayload{
@@ -420,6 +467,35 @@ func (g *Game) handleMessage(msg *protocol.Message) {
 		// Update gameplay scene with history
 		g.gameplayScene.SetHistory(payload.Events)
 		log.Printf("Received %d history events", len(payload.Events))
+
+	case protocol.TypeAttackPreview:
+		var payload protocol.AttackPreviewPayload
+		if err := msg.ParsePayload(&payload); err != nil {
+			log.Printf("Failed to parse attack preview: %v", err)
+			return
+		}
+		// Convert to client format
+		reinforcements := make([]ReinforcementData, len(payload.AvailableReinforcements))
+		for i, r := range payload.AvailableReinforcements {
+			reinforcements[i] = ReinforcementData{
+				UnitType:       r.UnitType,
+				FromTerritory:  r.From,
+				WaterBodyID:    r.WaterBodyID,
+				StrengthBonus:  r.StrengthBonus,
+				CanCarryWeapon: r.CanCarryWeapon,
+				CanCarryHorse:  r.CanCarryHorse,
+			}
+		}
+		preview := &AttackPreviewData{
+			TargetTerritory: payload.TargetTerritory,
+			AttackStrength:  payload.AttackStrength,
+			DefenseStrength: payload.DefenseStrength,
+			CanAttack:       payload.CanAttack,
+			Reinforcements:  reinforcements,
+		}
+		g.gameplayScene.ShowAttackPlan(preview)
+		log.Printf("Attack preview: %d vs %d, %d reinforcements available",
+			payload.AttackStrength, payload.DefenseStrength, len(reinforcements))
 
 	case protocol.TypeError:
 		var payload protocol.ErrorPayload

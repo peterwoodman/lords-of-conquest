@@ -94,7 +94,20 @@ func (g *GameState) CanBuild(playerID string, buildType BuildType, territoryID s
 }
 
 // Build constructs a unit or city.
+// For boats, use BuildBoatInWater instead to specify the water body.
 func (g *GameState) Build(playerID string, buildType BuildType, territoryID string, useGold bool) error {
+	// For boats, require water body specification if multiple options exist
+	if buildType == BuildBoat {
+		territory := g.Territories[territoryID]
+		if territory != nil && len(territory.WaterBodies) > 1 {
+			return ErrInvalidAction // Must use BuildBoatInWater
+		}
+		// If only one water body, auto-select it
+		if territory != nil && len(territory.WaterBodies) == 1 {
+			return g.BuildBoatInWater(playerID, territoryID, territory.WaterBodies[0], useGold)
+		}
+	}
+
 	// Validate phase
 	if g.Phase != PhaseDevelopment {
 		return ErrInvalidAction
@@ -128,10 +141,62 @@ func (g *GameState) Build(playerID string, buildType BuildType, territoryID stri
 	case BuildWeapon:
 		territory.HasWeapon = true
 	case BuildBoat:
-		territory.Boats++
+		// Should have been handled above, but fallback to first water body
+		if len(territory.WaterBodies) > 0 {
+			territory.AddBoat(territory.WaterBodies[0])
+		}
 	}
 
 	return nil
+}
+
+// BuildBoatInWater builds a boat in a specific water body.
+func (g *GameState) BuildBoatInWater(playerID string, territoryID string, waterBodyID string, useGold bool) error {
+	// Validate phase
+	if g.Phase != PhaseDevelopment {
+		return ErrInvalidAction
+	}
+
+	// Validate player turn
+	if g.CurrentPlayerID != playerID {
+		return ErrNotYourTurn
+	}
+
+	// Check if can build
+	if err := g.CanBuild(playerID, BuildBoat, territoryID, useGold); err != nil {
+		return err
+	}
+
+	player := g.Players[playerID]
+	territory := g.Territories[territoryID]
+
+	// Validate water body is adjacent to territory
+	if !territory.CanAddBoatToWater(waterBodyID) {
+		return ErrInvalidTarget
+	}
+
+	// Deduct resources
+	if useGold {
+		player.Stockpile.Gold -= GoldCost(BuildBoat)
+	} else {
+		cost := GetBuildCost(BuildBoat)
+		player.Stockpile.Subtract(cost)
+	}
+
+	// Build the boat
+	territory.AddBoat(waterBodyID)
+
+	return nil
+}
+
+// GetWaterBodiesForBoat returns water bodies where a boat can be built at a territory.
+func (g *GameState) GetWaterBodiesForBoat(territoryID string) []string {
+	territory := g.Territories[territoryID]
+	if territory == nil || !territory.IsCoastal() || !territory.CanAddBoat() {
+		return nil
+	}
+
+	return territory.WaterBodies
 }
 
 // EndDevelopment ends the development phase for a player.

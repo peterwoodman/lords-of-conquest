@@ -290,6 +290,7 @@ type AttackPreviewPayload struct {
 type ReinforcementOption struct {
 	UnitType          string `json:"unit_type"`
 	From              string `json:"from"`
+	WaterBodyID       string `json:"water_body_id,omitempty"` // For boats
 	StrengthBonus     int    `json:"strength_bonus"`
 	CanCarryWeapon    bool   `json:"can_carry_weapon,omitempty"`
 	WeaponAvailableAt string `json:"weapon_available_at,omitempty"`
@@ -323,9 +324,10 @@ type AllianceVotePayload struct {
 
 // BuildPayload builds a unit or city.
 type BuildPayload struct {
-	Type      string `json:"type"` // "city", "weapon", or "boat"
-	Territory string `json:"territory"`
-	UseGold   bool   `json:"use_gold"`
+	Type        string `json:"type"` // "city", "weapon", or "boat"
+	Territory   string `json:"territory"`
+	WaterBodyID string `json:"water_body_id,omitempty"` // Required for boats when multiple water bodies available
+	UseGold     bool   `json:"use_gold"`
 }
 
 // ExecuteAttackPayload executes a planned attack.
@@ -333,6 +335,7 @@ type ExecuteAttackPayload struct {
 	TargetTerritory string `json:"target_territory"`
 	BringUnit       string `json:"bring_unit,omitempty"`     // "horse", "weapon", or "boat"
 	BringFrom       string `json:"bring_from,omitempty"`     // Territory ID
+	WaterBodyID     string `json:"water_body_id,omitempty"`  // For boats: which water body
 	CarryWeapon     bool   `json:"carry_weapon,omitempty"`   // For horse/boat
 	WeaponFrom      string `json:"weapon_from,omitempty"`    // Territory ID
 	CarryHorse      bool   `json:"carry_horse,omitempty"`    // For boat

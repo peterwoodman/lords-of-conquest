@@ -158,8 +158,9 @@ func (g *GameState) moveWeapon(player *Player, from, to *Territory) error {
 }
 
 // moveBoat moves a boat via water to another coastal territory.
+// The boat stays in the same water body it was in.
 func (g *GameState) moveBoat(player *Player, from, to *Territory, carryWeapon bool) error {
-	if from.Boats == 0 {
+	if from.TotalBoats() == 0 {
 		return ErrInvalidTarget
 	}
 
@@ -168,8 +169,24 @@ func (g *GameState) moveBoat(player *Player, from, to *Territory, carryWeapon bo
 		return ErrCannotReach
 	}
 
-	// Must share a water body
-	if !g.shareWaterBody(from, to) {
+	// Find a shared water body that has a boat
+	sharedWaterBody := ""
+	for waterID, count := range from.Boats {
+		if count > 0 {
+			// Check if destination also borders this water body
+			for _, destWater := range to.WaterBodies {
+				if destWater == waterID {
+					sharedWaterBody = waterID
+					break
+				}
+			}
+		}
+		if sharedWaterBody != "" {
+			break
+		}
+	}
+
+	if sharedWaterBody == "" {
 		return ErrCannotReach
 	}
 
@@ -178,9 +195,9 @@ func (g *GameState) moveBoat(player *Player, from, to *Territory, carryWeapon bo
 		return ErrTerritoryOccupied
 	}
 
-	// Move boat
-	from.Boats--
-	to.Boats++
+	// Move boat (stays in same water body)
+	from.RemoveBoat(sharedWaterBody)
+	to.AddBoat(sharedWaterBody)
 
 	// Optionally carry weapon (boat can also carry horse with weapon)
 	if carryWeapon && from.HasWeapon && !to.HasWeapon {
@@ -282,16 +299,19 @@ func (g *GameState) canReachTerritory(playerID, fromID, toID string) bool {
 			}
 		}
 
-		// Check territories via shared water bodies (if we have boats)
-		if territory.IsCoastal() && territory.Boats > 0 {
+		// Check territories via shared water bodies (if we have boats in that water body)
+		if territory.IsCoastal() {
 			for _, waterID := range territory.WaterBodies {
-				water := g.WaterBodies[waterID]
-				for _, coastalID := range water.Territories {
-					if !visited[coastalID] {
-						coastal := g.Territories[coastalID]
-						if coastal.Owner == playerID {
-							visited[coastalID] = true
-							queue = append(queue, coastalID)
+				// Only use water routes if we have a boat in this water body
+				if territory.BoatsInWater(waterID) > 0 {
+					water := g.WaterBodies[waterID]
+					for _, coastalID := range water.Territories {
+						if !visited[coastalID] {
+							coastal := g.Territories[coastalID]
+							if coastal.Owner == playerID {
+								visited[coastalID] = true
+								queue = append(queue, coastalID)
+							}
 						}
 					}
 				}
@@ -392,11 +412,12 @@ func (g *GameState) GetMovableUnits(playerID string) []map[string]interface{} {
 			})
 		}
 
-		if t.Boats > 0 {
+		if t.TotalBoats() > 0 {
 			units = append(units, map[string]interface{}{
 				"type":        "boat",
 				"territory":   id,
-				"count":       t.Boats,
+				"count":       t.TotalBoats(),
+				"boats":       t.Boats, // Map of water body -> count
 				"can_carry":   t.HasWeapon || t.HasHorse,
 			})
 		}

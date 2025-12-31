@@ -39,6 +39,7 @@ type AttackPlan struct {
 type BroughtUnit struct {
 	UnitType            UnitType
 	FromTerritory       string
+	WaterBodyID         string // For boats: which water body the boat is in
 	CarryingWeapon      bool
 	WeaponFromTerritory string
 	CarryingHorse       bool
@@ -116,7 +117,7 @@ func (g *GameState) CalculateDefenseStrength(target *Territory) int {
 	if target.HasHorse {
 		strength += 1
 	}
-	strength += target.Boats * 2
+	strength += target.TotalBoats() * 2
 
 	// Adjacent territories owned by defender
 	for _, adjID := range target.Adjacent {
@@ -265,7 +266,7 @@ func (g *GameState) ExecuteAttack(attackerID string, plan *AttackPlan) *CombatRe
 			case UnitWeapon:
 				from.HasWeapon = false
 			case UnitBoat:
-				from.Boats--
+				from.RemoveBoat(plan.BroughtUnit.WaterBodyID)
 			}
 
 			// Destroy carried units too
@@ -315,8 +316,9 @@ func (g *GameState) moveBroughtUnit(brought *BroughtUnit, target *Territory) {
 		from.HasWeapon = false
 		target.HasWeapon = true
 	case UnitBoat:
-		from.Boats--
-		target.Boats++
+		// Boat stays in the same water body
+		from.RemoveBoat(brought.WaterBodyID)
+		target.AddBoat(brought.WaterBodyID)
 		if brought.CarryingHorse {
 			horseFrom := g.Territories[brought.HorseFromTerritory]
 			horseFrom.HasHorse = false

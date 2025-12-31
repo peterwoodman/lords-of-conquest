@@ -803,8 +803,10 @@ func createStatePayload(state *game.GameState, mapData *maps.Map) map[string]int
 			"hasCity":      t.HasCity,
 			"hasWeapon":    t.HasWeapon,
 			"hasHorse":     t.HasHorse,
-			"boats":        t.Boats,
+			"boats":        t.Boats,       // Map of water body ID -> count
+			"totalBoats":   t.TotalBoats(), // Total for convenience
 			"coastalTiles": t.CoastalTiles,
+			"waterBodies":  t.WaterBodies,
 		}
 	}
 
@@ -832,13 +834,25 @@ func createStatePayload(state *game.GameState, mapData *maps.Map) map[string]int
 		players[id] = playerData
 	}
 
+	// Convert water bodies with cell locations for rendering
+	waterBodies := make(map[string]interface{})
+	for id, wb := range mapData.WaterBodies {
+		waterBodies[maps.WaterIDToString(id)] = map[string]interface{}{
+			"id":          maps.WaterIDToString(id),
+			"cells":       wb.Cells,
+			"territories": wb.CoastalTerritories,
+		}
+	}
+
 	// Add map rendering data
 	mapInfo := map[string]interface{}{
-		"id":     mapData.ID,
-		"name":   mapData.Name,
-		"width":  mapData.Width,
-		"height": mapData.Height,
-		"grid":   mapData.Grid,
+		"id":          mapData.ID,
+		"name":        mapData.Name,
+		"width":       mapData.Width,
+		"height":      mapData.Height,
+		"grid":        mapData.Grid,
+		"waterGrid":   mapData.WaterGrid,
+		"waterBodies": waterBodies,
 	}
 
 	return map[string]interface{}{
@@ -1821,6 +1835,7 @@ func (h *Handlers) handlePlanAttack(client *Client, msg *protocol.Message) error
 		opt := protocol.ReinforcementOption{
 			UnitType:      r.UnitType,
 			From:          r.FromTerritory,
+			WaterBodyID:   r.WaterBodyID,
 			StrengthBonus: r.Strength,
 		}
 		for _, carry := range r.CanCarry {
@@ -1877,6 +1892,7 @@ func (h *Handlers) handleExecuteAttack(client *Client, msg *protocol.Message) er
 	if payload.BringUnit != "" && payload.BringFrom != "" {
 		brought = &game.BroughtUnit{
 			FromTerritory: payload.BringFrom,
+			WaterBodyID:   payload.WaterBodyID,
 		}
 		switch payload.BringUnit {
 		case "horse":
@@ -2022,9 +2038,15 @@ func (h *Handlers) handleBuild(client *Client, msg *protocol.Message) error {
 		terrName = terr.Name
 	}
 
-	// Execute build
-	if err := state.Build(client.PlayerID, buildType, payload.Territory, payload.UseGold); err != nil {
-		return err
+	// Execute build - use water body specific version for boats if specified
+	if buildType == game.BuildBoat && payload.WaterBodyID != "" {
+		if err := state.BuildBoatInWater(client.PlayerID, payload.Territory, payload.WaterBodyID, payload.UseGold); err != nil {
+			return err
+		}
+	} else {
+		if err := state.Build(client.PlayerID, buildType, payload.Territory, payload.UseGold); err != nil {
+			return err
+		}
 	}
 
 	// Log history event
