@@ -46,40 +46,108 @@ func Process(raw *RawMap) *Map {
 	return m
 }
 
-// fillLakes converts isolated water cells to land.
-// Loose rule: any water completely surrounded by land becomes the majority neighbor.
+// fillLakes converts isolated water cells (1-2 cell lakes) to land.
+// Any small water body completely surrounded by land becomes the majority neighbor.
 func fillLakes(m *Map) {
-	changed := true
-	for changed {
-		changed = false
-		for y := 0; y < m.Height; y++ {
-			for x := 0; x < m.Width; x++ {
-				if m.Grid[y][x] != 0 {
-					continue // Not water
-				}
+	// Find all water regions using flood fill
+	visited := make([][]bool, m.Height)
+	for y := range visited {
+		visited[y] = make([]bool, m.Width)
+	}
 
-				// Check all 4 orthogonal neighbors
-				neighbors := getOrthogonalNeighbors(m, x, y)
-				allLand := true
-				landCounts := make(map[int]int)
+	for y := 0; y < m.Height; y++ {
+		for x := 0; x < m.Width; x++ {
+			if m.Grid[y][x] != 0 || visited[y][x] {
+				continue // Not water or already visited
+			}
 
-				for _, n := range neighbors {
-					if n == 0 {
-						allLand = false
+			// Flood fill to find connected water region
+			cells := floodFillWater(m, x, y, visited)
+
+			// Only fill small lakes (1-2 cells)
+			if len(cells) > 2 {
+				continue
+			}
+
+			// Check if this water region is completely surrounded by land
+			// (no water neighbors outside the region, and all cells have 4 neighbors)
+			allSurroundedByLand := true
+			landCounts := make(map[int]int)
+
+			for _, cell := range cells {
+				cx, cy := cell[0], cell[1]
+				dirs := [][2]int{{0, -1}, {0, 1}, {-1, 0}, {1, 0}}
+
+				for _, d := range dirs {
+					nx, ny := cx+d[0], cy+d[1]
+
+					// Check if out of bounds (edge of map = not surrounded)
+					if nx < 0 || nx >= m.Width || ny < 0 || ny >= m.Height {
+						allSurroundedByLand = false
 						break
 					}
-					landCounts[n]++
+
+					neighborVal := m.Grid[ny][nx]
+					if neighborVal == 0 {
+						// Water neighbor - check if it's part of our region
+						isPartOfRegion := false
+						for _, c := range cells {
+							if c[0] == nx && c[1] == ny {
+								isPartOfRegion = true
+								break
+							}
+						}
+						if !isPartOfRegion {
+							allSurroundedByLand = false
+							break
+						}
+					} else {
+						landCounts[neighborVal]++
+					}
 				}
 
-				// If completely surrounded by land, fill with majority
-				if allLand && len(neighbors) == 4 {
-					majority := findMajority(landCounts)
-					m.Grid[y][x] = majority
-					changed = true
+				if !allSurroundedByLand {
+					break
+				}
+			}
+
+			// If completely surrounded by land, fill with majority
+			if allSurroundedByLand && len(landCounts) > 0 {
+				majority := findMajority(landCounts)
+				for _, cell := range cells {
+					m.Grid[cell[1]][cell[0]] = majority
 				}
 			}
 		}
 	}
+}
+
+// floodFillWater finds all connected water cells from a starting point.
+func floodFillWater(m *Map, startX, startY int, visited [][]bool) [][2]int {
+	cells := make([][2]int, 0)
+	queue := [][2]int{{startX, startY}}
+	visited[startY][startX] = true
+
+	for len(queue) > 0 {
+		current := queue[0]
+		queue = queue[1:]
+		x, y := current[0], current[1]
+
+		cells = append(cells, [2]int{x, y})
+
+		dirs := [][2]int{{0, -1}, {0, 1}, {-1, 0}, {1, 0}}
+		for _, d := range dirs {
+			nx, ny := x+d[0], y+d[1]
+			if nx >= 0 && nx < m.Width && ny >= 0 && ny < m.Height {
+				if m.Grid[ny][nx] == 0 && !visited[ny][nx] {
+					visited[ny][nx] = true
+					queue = append(queue, [2]int{nx, ny})
+				}
+			}
+		}
+	}
+
+	return cells
 }
 
 // getOrthogonalNeighbors returns the 4 orthogonal neighbors (up, down, left, right).
@@ -304,4 +372,3 @@ func computeAdjacencies(m *Map) {
 		}
 	}
 }
-
