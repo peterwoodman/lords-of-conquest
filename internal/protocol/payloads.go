@@ -282,6 +282,8 @@ type AttackPreviewPayload struct {
 	TargetTerritory         string                `json:"target_territory"`
 	AttackStrength          int                   `json:"attack_strength"`
 	DefenseStrength         int                   `json:"defense_strength"`
+	AttackerAllyStrength    int                   `json:"attacker_ally_strength"`  // Strength from allies
+	DefenderAllyStrength    int                   `json:"defender_ally_strength"`  // Strength from allies
 	CanAttack               bool                  `json:"can_attack"`
 	AvailableReinforcements []ReinforcementOption `json:"available_reinforcements"`
 }
@@ -306,20 +308,35 @@ type BringForcesPayload struct {
 	PickupHorseAt  string `json:"pickup_horse_at,omitempty"`
 }
 
-// AllianceRequestPayload notifies of alliance opportunity.
+// SetAlliancePayload sets the player's alliance preference.
+type SetAlliancePayload struct {
+	Setting string `json:"setting"` // "ask", "neutral", "defender", or a player_id
+}
+
+// AllianceRequestPayload notifies of alliance opportunity during combat.
 type AllianceRequestPayload struct {
-	BattleID     string `json:"battle_id"`
-	Attacker     string `json:"attacker"`
-	Defender     string `json:"defender"`
-	Territory    string `json:"territory"`
-	YourStrength int    `json:"your_strength"`
-	TimeLimit    int    `json:"time_limit"`
+	BattleID       string `json:"battle_id"`
+	AttackerID     string `json:"attacker_id"`
+	AttackerName   string `json:"attacker_name"`
+	DefenderID     string `json:"defender_id"`
+	DefenderName   string `json:"defender_name"`
+	TerritoryID    string `json:"territory_id"`
+	TerritoryName  string `json:"territory_name"`
+	YourStrength   int    `json:"your_strength"`
+	TimeLimit      int    `json:"time_limit"` // seconds
+	ExpiresAt      int64  `json:"expires_at"` // unix timestamp
 }
 
 // AllianceVotePayload is a player's alliance choice.
 type AllianceVotePayload struct {
 	BattleID string `json:"battle_id"`
 	Side     string `json:"side"` // "attacker", "defender", or "neutral"
+}
+
+// AllianceResultPayload confirms an alliance vote was received.
+type AllianceResultPayload struct {
+	BattleID string `json:"battle_id"`
+	Accepted bool   `json:"accepted"`
 }
 
 // BuildPayload builds a unit or city.

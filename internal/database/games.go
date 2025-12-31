@@ -53,16 +53,17 @@ type GameSettings struct {
 
 // GamePlayer represents a player in a game.
 type GamePlayer struct {
-	GameID        string
-	PlayerID      string
-	PlayerName    string
-	Slot          int
-	Color         string
-	IsAI          bool
-	AIPersonality string
-	IsReady       bool
-	IsConnected   bool
-	JoinedAt      time.Time
+	GameID          string
+	PlayerID        string
+	PlayerName      string
+	Slot            int
+	Color           string
+	IsAI            bool
+	AIPersonality   string
+	IsReady         bool
+	IsConnected     bool
+	JoinedAt        time.Time
+	AllianceSetting string // "ask", "neutral", "defender", or a player_id
 }
 
 // ErrGameNotFound is returned when a game is not found.
@@ -258,7 +259,8 @@ func (db *DB) LeaveGame(gameID, playerID string) error {
 func (db *DB) GetGamePlayers(gameID string) ([]*GamePlayer, error) {
 	rows, err := db.conn.Query(`
 		SELECT gp.game_id, gp.player_id, p.name, gp.slot, gp.color, 
-		       gp.is_ai, gp.ai_personality, gp.is_ready, gp.is_connected, gp.joined_at
+		       gp.is_ai, gp.ai_personality, gp.is_ready, gp.is_connected, gp.joined_at,
+		       COALESCE(gp.alliance_setting, 'ask')
 		FROM game_players gp
 		LEFT JOIN players p ON gp.player_id = p.id
 		WHERE gp.game_id = ?
@@ -275,7 +277,8 @@ func (db *DB) GetGamePlayers(gameID string) ([]*GamePlayer, error) {
 		var aiPersonality sql.NullString
 		var playerName sql.NullString
 		if err := rows.Scan(&gp.GameID, &gp.PlayerID, &playerName, &gp.Slot, &gp.Color,
-			&gp.IsAI, &aiPersonality, &gp.IsReady, &gp.IsConnected, &gp.JoinedAt); err != nil {
+			&gp.IsAI, &aiPersonality, &gp.IsReady, &gp.IsConnected, &gp.JoinedAt,
+			&gp.AllianceSetting); err != nil {
 			return nil, err
 		}
 		if aiPersonality.Valid {
@@ -305,6 +308,28 @@ func (db *DB) SetPlayerConnected(gameID, playerID string, connected bool) error 
 		UPDATE game_players SET is_connected = ? WHERE game_id = ? AND player_id = ?
 	`, connected, gameID, playerID)
 	return err
+}
+
+// SetAllianceSetting sets a player's alliance preference.
+// setting can be "ask", "neutral", "defender", or a player_id
+func (db *DB) SetAllianceSetting(gameID, playerID, setting string) error {
+	_, err := db.conn.Exec(`
+		UPDATE game_players SET alliance_setting = ? WHERE game_id = ? AND player_id = ?
+	`, setting, gameID, playerID)
+	return err
+}
+
+// GetAllianceSetting gets a player's alliance preference.
+func (db *DB) GetAllianceSetting(gameID, playerID string) (string, error) {
+	var setting string
+	err := db.conn.QueryRow(`
+		SELECT COALESCE(alliance_setting, 'ask') FROM game_players 
+		WHERE game_id = ? AND player_id = ?
+	`, gameID, playerID).Scan(&setting)
+	if err != nil {
+		return "ask", err
+	}
+	return setting, nil
 }
 
 // AddAIPlayer adds an AI player to a game.

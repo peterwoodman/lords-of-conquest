@@ -119,5 +119,13 @@ var migrations = []migration{
 			CREATE INDEX idx_game_history_game_order ON game_history(game_id, id);
 		`,
 	},
+	{
+		id:   5,
+		name: "add_alliance_setting",
+		sql: `
+			-- Add alliance_setting column to game_players
+			-- Values: "ask" (default), "neutral", "defender", or a player_id
+			ALTER TABLE game_players ADD COLUMN alliance_setting TEXT DEFAULT 'ask';
+		`,
+	},
 }
-

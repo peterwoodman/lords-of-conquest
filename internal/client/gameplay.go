@@ -74,6 +74,39 @@ type GameplayScene struct {
 	cancelAttackBtn       *Button
 	loadHorseCheckbox     bool // For boats: load horse?
 	loadWeaponCheckbox    bool // For boats: load weapon?
+
+	// Alliance UI
+	showAllyMenu        bool
+	setAllyBtn          *Button
+	allyNeutralBtn      *Button
+	allyDefenderBtn     *Button
+	allyAskBtn          *Button
+	allyPlayerBtns      []*Button // Buttons for specific player allies
+	allyPlayerIDs       []string  // Player IDs corresponding to allyPlayerBtns
+	cancelAllyMenuBtn   *Button
+	myAllianceSetting   string // Current alliance setting
+
+	// Alliance request popup (when asked to join a battle)
+	showAllyRequest       bool
+	allyRequest           *AllianceRequestData
+	allyRequestCountdown  int // Frames remaining
+	supportAttackerBtn    *Button
+	supportDefenderBtn    *Button
+	stayNeutralBtn        *Button
+}
+
+// AllianceRequestData holds data for an incoming alliance request.
+type AllianceRequestData struct {
+	BattleID      string
+	AttackerID    string
+	AttackerName  string
+	DefenderID    string
+	DefenderName  string
+	TerritoryID   string
+	TerritoryName string
+	YourStrength  int
+	TimeLimit     int
+	ExpiresAt     int64
 }
 
 // HistoryEntry represents a single game history event for display.
@@ -98,11 +131,13 @@ type CombatResultData struct {
 
 // AttackPreviewData holds attack preview info from server
 type AttackPreviewData struct {
-	TargetTerritory string
-	AttackStrength  int
-	DefenseStrength int
-	CanAttack       bool
-	Reinforcements  []ReinforcementData
+	TargetTerritory      string
+	AttackStrength       int
+	DefenseStrength      int
+	AttackerAllyStrength int
+	DefenderAllyStrength int
+	CanAttack            bool
+	Reinforcements       []ReinforcementData
 }
 
 // ReinforcementData holds info about a unit that can join an attack
@@ -186,6 +221,51 @@ func NewGameplayScene(game *Game) *GameplayScene {
 		OnClick: func() { s.cancelAttackPlan() },
 	}
 
+	// Alliance menu buttons
+	s.setAllyBtn = &Button{
+		X: 0, Y: 0, W: 180, H: 30,
+		Text:    "Set Ally",
+		OnClick: func() { s.showAllyMenu = true },
+	}
+	s.allyNeutralBtn = &Button{
+		X: 0, Y: 0, W: 200, H: 35,
+		Text:    "Always Neutral",
+		OnClick: func() { s.setAlliance("neutral") },
+	}
+	s.allyDefenderBtn = &Button{
+		X: 0, Y: 0, W: 200, H: 35,
+		Text:    "Always Defender",
+		OnClick: func() { s.setAlliance("defender") },
+	}
+	s.allyAskBtn = &Button{
+		X: 0, Y: 0, W: 200, H: 35,
+		Text:    "Ask Each Time",
+		OnClick: func() { s.setAlliance("ask") },
+	}
+	s.cancelAllyMenuBtn = &Button{
+		X: 0, Y: 0, W: 200, H: 35,
+		Text:    "Cancel",
+		OnClick: func() { s.showAllyMenu = false },
+	}
+	s.myAllianceSetting = "ask" // Default
+
+	// Alliance request popup buttons
+	s.supportAttackerBtn = &Button{
+		X: 0, Y: 0, W: 140, H: 40,
+		Text:    "Support Attacker",
+		OnClick: func() { s.voteAlliance("attacker") },
+	}
+	s.supportDefenderBtn = &Button{
+		X: 0, Y: 0, W: 140, H: 40,
+		Text:    "Support Defender",
+		OnClick: func() { s.voteAlliance("defender") },
+	}
+	s.stayNeutralBtn = &Button{
+		X: 0, Y: 0, W: 140, H: 40,
+		Text:    "Stay Neutral",
+		OnClick: func() { s.voteAlliance("neutral") },
+	}
+
 	return s
 }
 
@@ -252,6 +332,36 @@ func (s *GameplayScene) Update() error {
 		}
 		return nil // Block other input while planning
 	}
+
+	// Handle alliance menu
+	if s.showAllyMenu {
+		s.allyNeutralBtn.Update()
+		s.allyDefenderBtn.Update()
+		s.allyAskBtn.Update()
+		s.cancelAllyMenuBtn.Update()
+		for _, btn := range s.allyPlayerBtns {
+			btn.Update()
+		}
+		if inpututil.IsKeyJustPressed(ebiten.KeyEscape) {
+			s.showAllyMenu = false
+		}
+		return nil // Block other input while showing menu
+	}
+
+	// Handle alliance request popup
+	if s.showAllyRequest {
+		s.supportAttackerBtn.Update()
+		s.supportDefenderBtn.Update()
+		s.stayNeutralBtn.Update()
+		// Update countdown
+		s.allyRequestCountdown--
+		if s.allyRequestCountdown <= 0 {
+			// Timeout - auto neutral
+			s.voteAlliance("neutral")
+		}
+		return nil // Block other input while showing request
+	}
+
 	// Update hovered cell
 	mx, my := ebiten.CursorPosition()
 	s.hoveredCell = s.screenToGrid(mx, my)
@@ -330,5 +440,13 @@ func (s *GameplayScene) Draw(screen *ebiten.Image) {
 	// Draw combat result overlay
 	if s.showCombatResult {
 		s.drawCombatResult(screen)
+	}
+	// Draw alliance menu overlay
+	if s.showAllyMenu {
+		s.drawAllyMenu(screen)
+	}
+	// Draw alliance request popup overlay
+	if s.showAllyRequest {
+		s.drawAllyRequest(screen)
 	}
 }

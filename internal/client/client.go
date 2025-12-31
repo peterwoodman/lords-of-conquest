@@ -299,6 +299,23 @@ func (g *Game) ExecuteAttack(targetTerritory string) error {
 	return g.network.SendPayload(protocol.TypeExecuteAttack, payload)
 }
 
+// SetAlliance sets the player's alliance preference.
+func (g *Game) SetAlliance(setting string) error {
+	payload := protocol.SetAlliancePayload{
+		Setting: setting,
+	}
+	return g.network.SendPayload(protocol.TypeSetAlliance, payload)
+}
+
+// AllianceVote sends the player's vote for an alliance request.
+func (g *Game) AllianceVote(battleID, side string) error {
+	payload := protocol.AllianceVotePayload{
+		BattleID: battleID,
+		Side:     side,
+	}
+	return g.network.SendPayload(protocol.TypeAllianceVote, payload)
+}
+
 // handleMessage processes incoming server messages.
 func (g *Game) handleMessage(msg *protocol.Message) {
 	switch msg.Type {
@@ -487,15 +504,36 @@ func (g *Game) handleMessage(msg *protocol.Message) {
 			}
 		}
 		preview := &AttackPreviewData{
-			TargetTerritory: payload.TargetTerritory,
-			AttackStrength:  payload.AttackStrength,
-			DefenseStrength: payload.DefenseStrength,
-			CanAttack:       payload.CanAttack,
-			Reinforcements:  reinforcements,
+			TargetTerritory:      payload.TargetTerritory,
+			AttackStrength:       payload.AttackStrength,
+			DefenseStrength:      payload.DefenseStrength,
+			AttackerAllyStrength: payload.AttackerAllyStrength,
+			DefenderAllyStrength: payload.DefenderAllyStrength,
+			CanAttack:            payload.CanAttack,
+			Reinforcements:       reinforcements,
 		}
 		g.gameplayScene.ShowAttackPlan(preview)
 		log.Printf("Attack preview: %d vs %d, %d reinforcements available",
 			payload.AttackStrength, payload.DefenseStrength, len(reinforcements))
+
+	case protocol.TypeAllianceRequest:
+		var payload protocol.AllianceRequestPayload
+		if err := msg.ParsePayload(&payload); err != nil {
+			log.Printf("Failed to parse alliance request: %v", err)
+			return
+		}
+		// Show alliance request popup in gameplay scene
+		g.gameplayScene.ShowAllianceRequest(&payload)
+		log.Printf("Alliance request: battle %s, %s vs %s at %s",
+			payload.BattleID, payload.AttackerName, payload.DefenderName, payload.TerritoryName)
+
+	case protocol.TypeAllianceResult:
+		var payload protocol.AllianceResultPayload
+		if err := msg.ParsePayload(&payload); err != nil {
+			log.Printf("Failed to parse alliance result: %v", err)
+			return
+		}
+		log.Printf("Alliance vote %s: accepted=%v", payload.BattleID, payload.Accepted)
 
 	case protocol.TypeError:
 		var payload protocol.ErrorPayload

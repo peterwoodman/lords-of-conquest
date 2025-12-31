@@ -50,9 +50,9 @@ func (s *GameplayScene) drawLeftSidebar(screen *ebiten.Image) {
 	// Players list - compact height based on player count
 	playersY := sidebarY + 95
 	playerCount := len(s.playerOrder)
-	playersH := 40 + playerCount*26 // Header + per-player height
-	if playersH > 200 {
-		playersH = 200 // Cap max height
+	playersH := 40 + playerCount*26 + 40 // Header + per-player height + space for Set Ally button
+	if playersH > 240 {
+		playersH = 240 // Cap max height
 	}
 
 	if playerCount > 0 {
@@ -66,11 +66,29 @@ func (s *GameplayScene) drawLeftSidebar(screen *ebiten.Image) {
 				playerName := player["name"].(string)
 				playerColor := player["color"].(string)
 				isAI := player["isAI"].(bool)
+				isOnline := true // Default to online
+				if onlineVal, ok := player["isOnline"].(bool); ok {
+					isOnline = onlineVal
+				}
 
-				// Color indicator
+				// Online/offline indicator (small circle)
+				indicatorX := float32(sidebarX + 12)
+				indicatorY := float32(y + 8)
+				if isAI {
+					// AI is always "online" - gray indicator
+					vector.DrawFilledCircle(screen, indicatorX, indicatorY, 4, color.RGBA{128, 128, 128, 255}, false)
+				} else if isOnline {
+					// Online - green
+					vector.DrawFilledCircle(screen, indicatorX, indicatorY, 4, color.RGBA{100, 200, 100, 255}, false)
+				} else {
+					// Offline - red
+					vector.DrawFilledCircle(screen, indicatorX, indicatorY, 4, color.RGBA{200, 100, 100, 255}, false)
+				}
+
+				// Color indicator (moved right to make room for online indicator)
 				if pc, ok := PlayerColors[playerColor]; ok {
-					vector.DrawFilledRect(screen, float32(sidebarX+12), float32(y+2), 14, 14, pc, false)
-					vector.StrokeRect(screen, float32(sidebarX+12), float32(y+2), 14, 14, 1, ColorBorder, false)
+					vector.DrawFilledRect(screen, float32(sidebarX+22), float32(y+2), 14, 14, pc, false)
+					vector.StrokeRect(screen, float32(sidebarX+22), float32(y+2), 14, 14, 1, ColorBorder, false)
 				}
 
 				// Player name
@@ -82,13 +100,22 @@ func (s *GameplayScene) drawLeftSidebar(screen *ebiten.Image) {
 					nameText += " *"
 				}
 
-				DrawText(screen, nameText, sidebarX+32, y, ColorText)
+				DrawText(screen, nameText, sidebarX+42, y, ColorText)
 				y += 26
 
-				if y > playersY+playersH-20 {
-					break // Don't overflow
+				if y > playersY+playersH-50 {
+					break // Don't overflow, leave room for button
 				}
 			}
+		}
+
+		// Set Ally button at bottom of panel (only show if 3+ players)
+		if playerCount >= 3 {
+			s.setAllyBtn.X = sidebarX + 10
+			s.setAllyBtn.Y = playersY + playersH - 38
+			s.setAllyBtn.W = sidebarW - 20
+			s.setAllyBtn.Draw(screen)
+			s.setAllyBtn.Update()
 		}
 	}
 

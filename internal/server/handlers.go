@@ -63,6 +63,10 @@ func (h *Handlers) Handle(client *Client, msg *protocol.Message) {
 		err = h.handleExecuteAttack(client, msg)
 	case protocol.TypeBuild:
 		err = h.handleBuild(client, msg)
+	case protocol.TypeSetAlliance:
+		err = h.handleSetAlliance(client, msg)
+	case protocol.TypeAllianceVote:
+		err = h.handleAllianceVote(client, msg)
 	case protocol.TypeListGames:
 		err = h.handleListGames(client, msg)
 	case protocol.TypeYourGames:
@@ -645,6 +649,12 @@ func (h *Handlers) initializeGameState(gameID string, dbGame *database.Game, dbP
 		if dbp.IsAI {
 			player.IsAI = true
 			player.AIPersonality = parseAIPersonality(dbp.AIPersonality)
+			player.Alliance = game.AllianceNeutral // AI is always neutral
+		} else {
+			// Apply alliance setting from database
+			if dbp.AllianceSetting != "" {
+				player.Alliance = game.AllianceSetting(dbp.AllianceSetting)
+			}
 		}
 		gamePlayers = append(gamePlayers, player)
 	}
@@ -743,6 +753,15 @@ func (h *Handlers) broadcastGameState(gameID string) {
 		return
 	}
 
+	// Update player online status from hub
+	for playerID, player := range state.Players {
+		if player.IsAI {
+			player.IsOnline = true // AI is always "online"
+		} else {
+			player.IsOnline = h.hub.IsPlayerOnline(playerID)
+		}
+	}
+
 	// Get the map for rendering info
 	mapData := maps.Get(state.Settings.MapID)
 	if mapData == nil {
@@ -817,10 +836,12 @@ func createStatePayload(state *game.GameState, mapData *maps.Map) map[string]int
 	players := make(map[string]interface{})
 	for id, p := range state.Players {
 		playerData := map[string]interface{}{
-			"id":    id,
-			"name":  p.Name,
-			"color": string(p.Color),
-			"isAI":  p.IsAI,
+			"id":       id,
+			"name":     p.Name,
+			"color":    string(p.Color),
+			"isAI":     p.IsAI,
+			"isOnline": p.IsOnline,
+			"alliance": string(p.Alliance),
 		}
 
 		// Include stockpile information if it exists
@@ -1832,6 +1853,59 @@ func (h *Handlers) handlePlanAttack(client *Client, msg *protocol.Message) error
 		return game.ErrInvalidTarget
 	}
 
+	// Get target territory for ally calculations
+	target := state.Territories[payload.TargetTerritory]
+	defenderID := ""
+	if target != nil {
+		defenderID = target.Owner
+	}
+
+	// Calculate ally contributions for preview
+	attackerAllies := []string{}
+	defenderAllies := []string{}
+	if target != nil {
+		thirdParties := state.GetThirdPartyPlayers(client.PlayerID, target)
+		for _, tpID := range thirdParties {
+			tp := state.Players[tpID]
+			if tp == nil {
+				continue
+			}
+			alliance := string(tp.Alliance)
+			switch alliance {
+			case "neutral", "ask", "":
+				continue
+			case "defender":
+				defenderAllies = append(defenderAllies, tpID)
+			default:
+				if alliance == client.PlayerID {
+					attackerAllies = append(attackerAllies, tpID)
+				} else if alliance == defenderID {
+					defenderAllies = append(defenderAllies, tpID)
+				}
+			}
+		}
+	}
+
+	// Calculate strengths with allies
+	attackStrength := plan.AttackStrength
+	defenseStrength := plan.DefenseStrength
+	attackerAllyStrength := 0
+	defenderAllyStrength := 0
+	if target != nil {
+		// Add attacker ally strength
+		for _, allyID := range attackerAllies {
+			allyStr := state.CalculatePlayerStrengthAtTerritory(allyID, target)
+			attackerAllyStrength += allyStr
+			attackStrength += allyStr
+		}
+		// Add defender ally strength
+		for _, allyID := range defenderAllies {
+			allyStr := state.CalculatePlayerStrengthAtTerritory(allyID, target)
+			defenderAllyStrength += allyStr
+			defenseStrength += allyStr
+		}
+	}
+
 	// Convert to protocol format
 	reinforcements := make([]protocol.ReinforcementOption, 0, len(plan.Reinforcements))
 	for _, r := range plan.Reinforcements {
@@ -1855,8 +1929,10 @@ func (h *Handlers) handlePlanAttack(client *Client, msg *protocol.Message) error
 	// Send preview
 	preview := protocol.AttackPreviewPayload{
 		TargetTerritory:         plan.TargetID,
-		AttackStrength:          plan.AttackStrength,
-		DefenseStrength:         plan.DefenseStrength,
+		AttackStrength:          attackStrength,
+		DefenseStrength:         defenseStrength,
+		AttackerAllyStrength:    attackerAllyStrength,
+		DefenderAllyStrength:    defenderAllyStrength,
 		CanAttack:               plan.CanAttack,
 		AvailableReinforcements: reinforcements,
 	}
@@ -1928,14 +2004,64 @@ func (h *Handlers) handleExecuteAttack(client *Client, msg *protocol.Message) er
 		}
 	}
 
-	// Get territory name before attack
-	terrName := payload.TargetTerritory
-	if terr, ok := state.Territories[payload.TargetTerritory]; ok {
-		terrName = terr.Name
+	// Get territory info before attack
+	target := state.Territories[payload.TargetTerritory]
+	if target == nil {
+		return errors.New("target territory not found")
+	}
+	terrName := target.Name
+	defenderID := target.Owner
+
+	// Collect allies based on alliance settings
+	attackerAllies := []string{}
+	defenderAllies := []string{}
+	thirdParties := state.GetThirdPartyPlayers(client.PlayerID, target)
+
+	log.Printf("Battle at %s: Found %d third party players: %v", terrName, len(thirdParties), thirdParties)
+
+	for _, tpID := range thirdParties {
+		tp := state.Players[tpID]
+		if tp == nil {
+			log.Printf("  Third party %s: player not found in state", tpID)
+			continue
+		}
+
+		// Determine which side this player supports based on their alliance setting
+		alliance := string(tp.Alliance)
+		log.Printf("  Third party %s (%s): alliance setting = '%s'", tpID, tp.Name, alliance)
+
+		switch alliance {
+		case "neutral", "ask", "":
+			// Neutral players don't participate
+			// "Ask" players are treated as neutral in synchronous attacks
+			// Empty alliance (shouldn't happen) treated as neutral
+			log.Printf("    -> Neutral (not participating)")
+			continue
+		case "defender":
+			// Always support the defender
+			log.Printf("    -> Supporting defender")
+			defenderAllies = append(defenderAllies, tpID)
+		default:
+			// Check if it's a specific player alliance
+			if alliance == client.PlayerID {
+				// Allied with attacker
+				log.Printf("    -> Supporting attacker (allied with %s)", client.PlayerID)
+				attackerAllies = append(attackerAllies, tpID)
+			} else if alliance == defenderID {
+				// Allied with defender
+				log.Printf("    -> Supporting defender (allied with %s)", defenderID)
+				defenderAllies = append(defenderAllies, tpID)
+			} else {
+				log.Printf("    -> Allied with someone else (%s), not participating", alliance)
+			}
+			// If allied with someone else, they don't participate in this battle
+		}
 	}
 
-	// Execute attack
-	result, err := state.Attack(client.PlayerID, payload.TargetTerritory, brought)
+	log.Printf("Battle at %s: Final allies - Attacker: %v, Defender: %v", terrName, attackerAllies, defenderAllies)
+
+	// Execute attack with ally information
+	result, err := state.AttackWithAllies(client.PlayerID, payload.TargetTerritory, brought, attackerAllies, defenderAllies)
 	if err != nil {
 		return err
 	}
@@ -2120,4 +2246,133 @@ func (h *Handlers) broadcastGameHistory(gameID string) {
 	for client := range clients {
 		h.sendGameHistory(client, gameID)
 	}
+}
+
+// handleSetAlliance sets a player's alliance preference.
+func (h *Handlers) handleSetAlliance(client *Client, msg *protocol.Message) error {
+	log.Printf("handleSetAlliance called by player %s in game %s", client.PlayerID, client.GameID)
+
+	if client.GameID == "" {
+		return errors.New("not in a game")
+	}
+
+	var payload protocol.SetAlliancePayload
+	if err := msg.ParsePayload(&payload); err != nil {
+		log.Printf("Failed to parse SetAlliance payload: %v", err)
+		return err
+	}
+
+	log.Printf("Player %s wants to set alliance to: '%s'", client.PlayerID, payload.Setting)
+
+	// Validate setting
+	setting := payload.Setting
+	if setting != "ask" && setting != "neutral" && setting != "defender" {
+		// Must be a player ID - verify it exists in the game
+		players, err := h.hub.server.db.GetGamePlayers(client.GameID)
+		if err != nil {
+			return err
+		}
+		validPlayer := false
+		for _, p := range players {
+			if p.PlayerID == setting && p.PlayerID != client.PlayerID {
+				validPlayer = true
+				break
+			}
+		}
+		if !validPlayer {
+			return errors.New("invalid alliance setting")
+		}
+	}
+
+	// Save to database
+	if err := h.hub.server.db.SetAllianceSetting(client.GameID, client.PlayerID, setting); err != nil {
+		return err
+	}
+
+	// Update game state
+	stateJSON, err := h.hub.server.db.GetGameState(client.GameID)
+	if err != nil {
+		return err
+	}
+
+	var state game.GameState
+	if err := json.Unmarshal([]byte(stateJSON), &state); err != nil {
+		return err
+	}
+
+	if player := state.Players[client.PlayerID]; player != nil {
+		log.Printf("Updating player %s alliance from '%s' to '%s'", client.PlayerID, player.Alliance, setting)
+		player.Alliance = game.AllianceSetting(setting)
+	} else {
+		log.Printf("WARNING: Player %s not found in game state!", client.PlayerID)
+	}
+
+	// Save updated state
+	newStateJSON, err := json.Marshal(state)
+	if err != nil {
+		return err
+	}
+	if err := h.hub.server.db.SaveGameState(client.GameID, string(newStateJSON), state.CurrentPlayerID, state.Round, string(state.Phase)); err != nil {
+		log.Printf("Failed to save game state: %v", err)
+		return err
+	}
+
+	// Verify the save by re-reading
+	verifyJSON, _ := h.hub.server.db.GetGameState(client.GameID)
+	var verifyState game.GameState
+	json.Unmarshal([]byte(verifyJSON), &verifyState)
+	if verifyPlayer := verifyState.Players[client.PlayerID]; verifyPlayer != nil {
+		log.Printf("Verified: Player %s alliance is now '%s' in saved state", client.PlayerID, verifyPlayer.Alliance)
+	}
+
+	// Broadcast updated state to all players
+	h.broadcastGameState(client.GameID)
+
+	log.Printf("Player %s set alliance to: %s - SUCCESS", client.PlayerID, setting)
+	return nil
+}
+
+// handleAllianceVote handles a player's vote during a battle.
+func (h *Handlers) handleAllianceVote(client *Client, msg *protocol.Message) error {
+	if client.GameID == "" {
+		return errors.New("not in a game")
+	}
+
+	var payload protocol.AllianceVotePayload
+	if err := msg.ParsePayload(&payload); err != nil {
+		return err
+	}
+
+	// Validate side
+	if payload.Side != "attacker" && payload.Side != "defender" && payload.Side != "neutral" {
+		return errors.New("invalid alliance side")
+	}
+
+	// Record the vote in the pending battle
+	h.hub.mu.Lock()
+	battle := h.hub.pendingBattles[payload.BattleID]
+	if battle != nil {
+		battle.Votes[client.PlayerID] = payload.Side
+		// Signal that we received a vote
+		select {
+		case battle.VoteChan <- client.PlayerID:
+		default:
+		}
+	}
+	h.hub.mu.Unlock()
+
+	if battle == nil {
+		return errors.New("battle not found or already resolved")
+	}
+
+	// Send confirmation
+	result := protocol.AllianceResultPayload{
+		BattleID: payload.BattleID,
+		Accepted: true,
+	}
+	respMsg, _ := protocol.NewMessage(protocol.TypeAllianceResult, result)
+	client.Send(respMsg)
+
+	log.Printf("Player %s voted %s for battle %s", client.PlayerID, payload.Side, payload.BattleID)
+	return nil
 }

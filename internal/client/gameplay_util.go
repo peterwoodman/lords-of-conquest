@@ -77,6 +77,16 @@ func (s *GameplayScene) SetGameState(state map[string]interface{}) {
 		s.round = int(round)
 		log.Printf("Round: %d", s.round)
 	}
+
+	// Update our alliance setting from player data
+	if s.players != nil {
+		if myPlayer, ok := s.players[s.game.config.PlayerID]; ok {
+			player := myPlayer.(map[string]interface{})
+			if alliance, ok := player["alliance"].(string); ok {
+				s.myAllianceSetting = alliance
+			}
+		}
+	}
 }
 
 // getKeys returns the keys of a map

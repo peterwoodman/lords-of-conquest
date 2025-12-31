@@ -140,6 +140,19 @@ func (s *Server) handleListGames(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(games)
 }
 
+// PendingBattle tracks an ongoing battle waiting for alliance votes.
+type PendingBattle struct {
+	ID           string
+	GameID       string
+	AttackerID   string
+	DefenderID   string
+	TerritoryID  string
+	ThirdParties []string          // Player IDs who can vote
+	Votes        map[string]string // PlayerID -> "attacker", "defender", or "neutral"
+	VoteChan     chan string       // Signals when votes arrive
+	ExpiresAt    time.Time
+}
+
 // Hub maintains the set of active clients and broadcasts messages.
 type Hub struct {
 	server *Server
@@ -152,6 +165,9 @@ type Hub struct {
 
 	// Clients in each game
 	gameClients map[string]map[*Client]bool
+
+	// Pending battles waiting for alliance votes
+	pendingBattles map[string]*PendingBattle
 
 	// Register requests
 	register chan *Client
@@ -174,13 +190,14 @@ type ClientMessage struct {
 // NewHub creates a new Hub.
 func NewHub(server *Server) *Hub {
 	return &Hub{
-		server:        server,
-		clients:       make(map[*Client]bool),
-		playerClients: make(map[string]*Client),
-		gameClients:   make(map[string]map[*Client]bool),
-		register:      make(chan *Client, 100),
-		unregister:    make(chan *Client, 100),
-		broadcast:     make(chan *ClientMessage, 256),
+		server:         server,
+		clients:        make(map[*Client]bool),
+		playerClients:  make(map[string]*Client),
+		gameClients:    make(map[string]map[*Client]bool),
+		pendingBattles: make(map[string]*PendingBattle),
+		register:       make(chan *Client, 100),
+		unregister:     make(chan *Client, 100),
+		broadcast:      make(chan *ClientMessage, 256),
 	}
 }
 
@@ -363,6 +380,14 @@ func (h *Hub) SetClientPlayer(client *Client, playerID string) {
 
 	client.PlayerID = playerID
 	h.playerClients[playerID] = client
+}
+
+// IsPlayerOnline checks if a player is currently connected.
+func (h *Hub) IsPlayerOnline(playerID string) bool {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	_, ok := h.playerClients[playerID]
+	return ok
 }
 
 // Client represents a connected WebSocket client.

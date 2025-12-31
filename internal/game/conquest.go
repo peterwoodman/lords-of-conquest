@@ -170,6 +170,11 @@ func (g *GameState) canBoatReachTargetViaWater(fromID, targetID, waterBodyID str
 
 // Attack executes an attack during the conquest phase.
 func (g *GameState) Attack(attackerID, targetID string, brought *BroughtUnit) (*CombatResult, error) {
+	return g.AttackWithAllies(attackerID, targetID, brought, nil, nil)
+}
+
+// AttackWithAllies executes an attack with ally support.
+func (g *GameState) AttackWithAllies(attackerID, targetID string, brought *BroughtUnit, attackerAllies, defenderAllies []string) (*CombatResult, error) {
 	// Validate phase
 	if g.Phase != PhaseConquest {
 		return nil, ErrInvalidAction
@@ -193,13 +198,13 @@ func (g *GameState) Attack(attackerID, targetID string, brought *BroughtUnit) (*
 		return nil, ErrInvalidTarget
 	}
 
-	// Execute the attack
+	// Execute the attack with allies
 	plan := &AttackPlan{
 		TargetTerritory: targetID,
 		BroughtUnit:     brought,
 	}
 
-	result := g.ExecuteAttack(attackerID, plan)
+	result := g.ExecuteAttackWithAllies(attackerID, plan, attackerAllies, defenderAllies)
 
 	// Decrease attacks remaining
 	attacker.AttacksRemaining--

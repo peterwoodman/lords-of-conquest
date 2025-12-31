@@ -65,8 +65,10 @@ const (
 	TypeBringForces     MessageType = "bring_forces"
 	TypeExecuteAttack   MessageType = "execute_attack"
 	TypeCancelAttack    MessageType = "cancel_attack"
+	TypeSetAlliance     MessageType = "set_alliance"
 	TypeAllianceRequest MessageType = "alliance_request"
 	TypeAllianceVote    MessageType = "alliance_vote"
+	TypeAllianceResult  MessageType = "alliance_result"
 	TypeBuild           MessageType = "build"
 )
 

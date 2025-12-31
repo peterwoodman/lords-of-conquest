@@ -170,6 +170,81 @@ func (g *GameState) CalculateDefenseWithAllies(target *Territory, allyIDs []stri
 	return strength
 }
 
+// CalculateAttackWithAllies adds allied player strength to attack.
+func (g *GameState) CalculateAttackWithAllies(attackerID string, target *Territory, brought *BroughtUnit, allyIDs []string) int {
+	strength := g.CalculateAttackStrength(attackerID, target, brought)
+
+	// Add strength from allied territories
+	for _, adjID := range target.Adjacent {
+		adj := g.Territories[adjID]
+		for _, allyID := range allyIDs {
+			if adj.Owner == allyID {
+				strength++ // Territory contribution
+				if adj.HasCity {
+					strength += 2
+				}
+				if adj.HasWeapon {
+					strength += 3
+				}
+				if adj.HasHorse {
+					strength += 1
+				}
+				break
+			}
+		}
+	}
+
+	return strength
+}
+
+// GetThirdPartyPlayers returns players who are adjacent to a territory but not attacker/defender.
+func (g *GameState) GetThirdPartyPlayers(attackerID string, target *Territory) []string {
+	seen := make(map[string]bool)
+	thirdParties := make([]string, 0)
+
+	for _, adjID := range target.Adjacent {
+		adj := g.Territories[adjID]
+		ownerID := adj.Owner
+		
+		// Skip if no owner, or if it's attacker or defender
+		if ownerID == "" || ownerID == attackerID || ownerID == target.Owner {
+			continue
+		}
+		
+		// Skip if already seen
+		if seen[ownerID] {
+			continue
+		}
+		seen[ownerID] = true
+		thirdParties = append(thirdParties, ownerID)
+	}
+
+	return thirdParties
+}
+
+// CalculatePlayerStrengthAtTerritory calculates how much strength a player contributes adjacent to a territory.
+func (g *GameState) CalculatePlayerStrengthAtTerritory(playerID string, target *Territory) int {
+	strength := 0
+
+	for _, adjID := range target.Adjacent {
+		adj := g.Territories[adjID]
+		if adj.Owner == playerID {
+			strength++ // Territory contribution
+			if adj.HasCity {
+				strength += 2
+			}
+			if adj.HasWeapon {
+				strength += 3
+			}
+			if adj.HasHorse {
+				strength += 1
+			}
+		}
+	}
+
+	return strength
+}
+
 // ResolveCombat determines the outcome of a battle.
 func (g *GameState) ResolveCombat(attack, defense int) bool {
 	switch g.Settings.ChanceLevel {
@@ -199,11 +274,17 @@ func (g *GameState) ResolveCombat(attack, defense int) bool {
 
 // ExecuteAttack performs an attack and returns the result.
 func (g *GameState) ExecuteAttack(attackerID string, plan *AttackPlan) *CombatResult {
+	return g.ExecuteAttackWithAllies(attackerID, plan, nil, nil)
+}
+
+// ExecuteAttackWithAllies performs an attack with ally support.
+func (g *GameState) ExecuteAttackWithAllies(attackerID string, plan *AttackPlan, attackerAllies, defenderAllies []string) *CombatResult {
 	target := g.Territories[plan.TargetTerritory]
 	defenderID := target.Owner
 
-	attackStrength := g.CalculateAttackStrength(attackerID, target, plan.BroughtUnit)
-	defenseStrength := g.CalculateDefenseStrength(target)
+	// Calculate strength with allies
+	attackStrength := g.CalculateAttackWithAllies(attackerID, target, plan.BroughtUnit, attackerAllies)
+	defenseStrength := g.CalculateDefenseWithAllies(target, defenderAllies)
 
 	result := &CombatResult{
 		AttackStrength:  attackStrength,

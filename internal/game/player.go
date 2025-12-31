@@ -26,17 +26,29 @@ func AllColors() []PlayerColor {
 	}
 }
 
+// AllianceSetting represents a player's alliance preference.
+type AllianceSetting string
+
+const (
+	AllianceAsk      AllianceSetting = "ask"      // Ask each time (default)
+	AllianceNeutral  AllianceSetting = "neutral"  // Never participate
+	AllianceDefender AllianceSetting = "defender" // Always support defender
+	// Or a player ID to always support that player
+)
+
 // Player represents a player in the game.
 type Player struct {
-	ID                 string        `json:"id"`
-	Name               string        `json:"name"`
-	Color              PlayerColor   `json:"color"`
-	IsAI               bool          `json:"isAI"`
-	AIPersonality      AIPersonality `json:"aiPersonality"`
-	Stockpile          *Stockpile    `json:"stockpile"`
-	StockpileTerritory string        `json:"stockpileTerritory"` // Territory ID where stockpile is located
-	AttacksRemaining   int           `json:"attacksRemaining"`
-	Eliminated         bool          `json:"eliminated"`
+	ID                 string          `json:"id"`
+	Name               string          `json:"name"`
+	Color              PlayerColor     `json:"color"`
+	IsAI               bool            `json:"isAI"`
+	AIPersonality      AIPersonality   `json:"aiPersonality"`
+	Stockpile          *Stockpile      `json:"stockpile"`
+	StockpileTerritory string          `json:"stockpileTerritory"` // Territory ID where stockpile is located
+	AttacksRemaining   int             `json:"attacksRemaining"`
+	Eliminated         bool            `json:"eliminated"`
+	Alliance           AllianceSetting `json:"alliance"`   // Alliance preference
+	IsOnline           bool            `json:"isOnline"`   // Connection status
 }
 
 // AIPersonality defines AI behavior type.
@@ -73,6 +85,8 @@ func NewPlayer(id, name string, color PlayerColor) *Player {
 		Stockpile:        NewStockpile(),
 		AttacksRemaining: 2,
 		Eliminated:       false,
+		Alliance:         AllianceAsk, // Default to ask
+		IsOnline:         true,
 	}
 }
 
@@ -87,6 +101,8 @@ func NewAIPlayer(id, name string, color PlayerColor, personality AIPersonality) 
 		Stockpile:        NewStockpile(),
 		AttacksRemaining: 2,
 		Eliminated:       false,
+		Alliance:         AllianceNeutral, // AI is neutral by default
+		IsOnline:         true,            // AI is always "online"
 	}
 }
 

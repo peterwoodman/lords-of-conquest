@@ -5,6 +5,8 @@ import (
 	"image/color"
 	"log"
 
+	"lords-of-conquest/internal/protocol"
+
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/inpututil"
 	"github.com/hajimehoshi/ebiten/v2/vector"
@@ -301,9 +303,16 @@ func (s *GameplayScene) drawAttackPlan(screen *ebiten.Image) {
 	// Target info
 	DrawTextCentered(screen, "Attack: "+targetName, ScreenWidth/2, panelY+45, ColorText)
 
-	// Strength preview
-	strengthText := fmt.Sprintf("Your Strength: %d vs Defense: %d",
-		s.attackPreview.AttackStrength, s.attackPreview.DefenseStrength)
+	// Strength preview with ally info
+	attackStr := fmt.Sprintf("%d", s.attackPreview.AttackStrength)
+	if s.attackPreview.AttackerAllyStrength > 0 {
+		attackStr = fmt.Sprintf("%d (+%d allies)", s.attackPreview.AttackStrength, s.attackPreview.AttackerAllyStrength)
+	}
+	defenseStr := fmt.Sprintf("%d", s.attackPreview.DefenseStrength)
+	if s.attackPreview.DefenderAllyStrength > 0 {
+		defenseStr = fmt.Sprintf("%d (+%d allies)", s.attackPreview.DefenseStrength, s.attackPreview.DefenderAllyStrength)
+	}
+	strengthText := fmt.Sprintf("Attack: %s vs Defense: %s", attackStr, defenseStr)
 	DrawTextCentered(screen, strengthText, ScreenWidth/2, panelY+70, ColorTextMuted)
 
 	yPos := panelY + 100
@@ -517,4 +526,208 @@ func (s *GameplayScene) cancelAttackPlan() {
 	s.selectedReinforcement = nil
 	s.loadHorseCheckbox = false
 	s.loadWeaponCheckbox = false
+}
+
+// drawAllyMenu draws the alliance selection menu
+func (s *GameplayScene) drawAllyMenu(screen *ebiten.Image) {
+	// Semi-transparent overlay
+	vector.DrawFilledRect(screen, 0, 0, float32(ScreenWidth), float32(ScreenHeight),
+		color.RGBA{0, 0, 0, 180}, false)
+
+	// Count other players for menu sizing
+	otherPlayerCount := 0
+	for _, playerIDInterface := range s.playerOrder {
+		playerID := playerIDInterface.(string)
+		if playerID != s.game.config.PlayerID {
+			otherPlayerCount++
+		}
+	}
+
+	// Menu panel - calculate proper height
+	// Base: 60 (header + current) + 3*45 (ask/defender/neutral) + 25 (label) + players*45 + 55 (cancel + padding)
+	menuW := 280
+	menuH := 60 + 3*45 + 25 + otherPlayerCount*45 + 55
+	menuX := ScreenWidth/2 - menuW/2
+	menuY := ScreenHeight/2 - menuH/2
+
+	DrawFancyPanel(screen, menuX, menuY, menuW, menuH, "Set Alliance")
+
+	// Current setting display
+	currentText := "Current: "
+	switch s.myAllianceSetting {
+	case "neutral":
+		currentText += "Always Neutral"
+	case "defender":
+		currentText += "Always Defender"
+	case "ask":
+		currentText += "Ask Each Time"
+	default:
+		// It's a player ID - find the name
+		if playerData, ok := s.players[s.myAllianceSetting]; ok {
+			player := playerData.(map[string]interface{})
+			currentText += "Ally with " + player["name"].(string)
+		} else {
+			currentText += s.myAllianceSetting
+		}
+	}
+	DrawText(screen, currentText, menuX+20, menuY+35, ColorTextMuted)
+
+	// Position buttons
+	btnX := menuX + 40
+	btnY := menuY + 60
+
+	s.allyAskBtn.X = btnX
+	s.allyAskBtn.Y = btnY
+	s.allyAskBtn.Primary = s.myAllianceSetting == "ask"
+	s.allyAskBtn.Draw(screen)
+	btnY += 45
+
+	s.allyDefenderBtn.X = btnX
+	s.allyDefenderBtn.Y = btnY
+	s.allyDefenderBtn.Primary = s.myAllianceSetting == "defender"
+	s.allyDefenderBtn.Draw(screen)
+	btnY += 45
+
+	s.allyNeutralBtn.X = btnX
+	s.allyNeutralBtn.Y = btnY
+	s.allyNeutralBtn.Primary = s.myAllianceSetting == "neutral"
+	s.allyNeutralBtn.Draw(screen)
+	btnY += 45
+
+	// Add buttons for each other player
+	if otherPlayerCount > 0 {
+		DrawText(screen, "Ally with player:", menuX+20, btnY+5, ColorTextMuted)
+		btnY += 25
+
+		// Rebuild player buttons list
+		s.allyPlayerBtns = make([]*Button, 0, otherPlayerCount)
+		s.allyPlayerIDs = make([]string, 0, otherPlayerCount)
+
+		for _, playerIDInterface := range s.playerOrder {
+			playerID := playerIDInterface.(string)
+			if playerID == s.game.config.PlayerID {
+				continue
+			}
+			if playerData, ok := s.players[playerID]; ok {
+				player := playerData.(map[string]interface{})
+				playerName := player["name"].(string)
+
+				btn := &Button{
+					X: btnX, Y: btnY, W: 200, H: 35,
+					Text:    playerName,
+					Primary: s.myAllianceSetting == playerID,
+				}
+				// Capture playerID for closure
+				pid := playerID
+				btn.OnClick = func() { s.setAlliance(pid) }
+
+				// Update button to handle clicks (since we create it fresh each frame)
+				btn.Update()
+				btn.Draw(screen)
+
+				s.allyPlayerBtns = append(s.allyPlayerBtns, btn)
+				s.allyPlayerIDs = append(s.allyPlayerIDs, playerID)
+				btnY += 45
+			}
+		}
+	}
+
+	// Cancel button after all player buttons
+	btnY += 10 // Small gap before cancel
+	s.cancelAllyMenuBtn.X = btnX
+	s.cancelAllyMenuBtn.Y = btnY
+	s.cancelAllyMenuBtn.Draw(screen)
+}
+
+// setAlliance sends the alliance setting to the server
+func (s *GameplayScene) setAlliance(setting string) {
+	log.Printf("Setting alliance to: %s", setting)
+	s.game.SetAlliance(setting)
+	s.myAllianceSetting = setting
+	s.showAllyMenu = false
+}
+
+// drawAllyRequest draws the alliance request popup
+func (s *GameplayScene) drawAllyRequest(screen *ebiten.Image) {
+	if s.allyRequest == nil {
+		return
+	}
+
+	// Semi-transparent overlay
+	vector.DrawFilledRect(screen, 0, 0, float32(ScreenWidth), float32(ScreenHeight),
+		color.RGBA{0, 0, 0, 200}, false)
+
+	// Popup panel
+	panelW := 400
+	panelH := 220
+	panelX := ScreenWidth/2 - panelW/2
+	panelY := ScreenHeight/2 - panelH/2
+
+	DrawFancyPanel(screen, panelX, panelY, panelW, panelH, "Alliance Request")
+
+	// Battle info
+	y := panelY + 40
+	DrawText(screen, fmt.Sprintf("%s is attacking %s", s.allyRequest.AttackerName, s.allyRequest.DefenderName),
+		panelX+20, y, ColorText)
+	y += 25
+	DrawText(screen, fmt.Sprintf("at %s", s.allyRequest.TerritoryName),
+		panelX+20, y, ColorTextMuted)
+	y += 30
+	DrawText(screen, fmt.Sprintf("Your adjacent strength: %d", s.allyRequest.YourStrength),
+		panelX+20, y, ColorText)
+	y += 30
+
+	// Countdown
+	secondsLeft := s.allyRequestCountdown / 60 // Assuming 60fps
+	DrawText(screen, fmt.Sprintf("Time remaining: %d seconds", secondsLeft),
+		panelX+20, y, ColorTextMuted)
+
+	// Buttons
+	btnY := panelY + panelH - 60
+	btnW := 120
+	spacing := 10
+
+	s.supportAttackerBtn.X = panelX + 20
+	s.supportAttackerBtn.Y = btnY
+	s.supportAttackerBtn.W = btnW
+	s.supportAttackerBtn.Draw(screen)
+
+	s.stayNeutralBtn.X = panelX + 20 + btnW + spacing
+	s.stayNeutralBtn.Y = btnY
+	s.stayNeutralBtn.W = btnW
+	s.stayNeutralBtn.Draw(screen)
+
+	s.supportDefenderBtn.X = panelX + 20 + 2*(btnW+spacing)
+	s.supportDefenderBtn.Y = btnY
+	s.supportDefenderBtn.W = btnW
+	s.supportDefenderBtn.Draw(screen)
+}
+
+// ShowAllianceRequest displays the alliance request popup
+func (s *GameplayScene) ShowAllianceRequest(payload *protocol.AllianceRequestPayload) {
+	s.allyRequest = &AllianceRequestData{
+		BattleID:      payload.BattleID,
+		AttackerID:    payload.AttackerID,
+		AttackerName:  payload.AttackerName,
+		DefenderID:    payload.DefenderID,
+		DefenderName:  payload.DefenderName,
+		TerritoryID:   payload.TerritoryID,
+		TerritoryName: payload.TerritoryName,
+		YourStrength:  payload.YourStrength,
+		TimeLimit:     payload.TimeLimit,
+		ExpiresAt:     payload.ExpiresAt,
+	}
+	// Set countdown to 60 seconds (60fps * 60 seconds)
+	s.allyRequestCountdown = 60 * 60
+	s.showAllyRequest = true
+}
+
+// voteAlliance sends the alliance vote to the server
+func (s *GameplayScene) voteAlliance(side string) {
+	if s.allyRequest != nil {
+		log.Printf("Voting %s for battle %s", side, s.allyRequest.BattleID)
+		s.game.AllianceVote(s.allyRequest.BattleID, side)
+	}
+	s.showAllyRequest = false
+	s.allyRequest = nil
 }
