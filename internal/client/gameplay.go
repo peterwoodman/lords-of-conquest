@@ -31,8 +31,9 @@ type GameplayScene struct {
 	round        int
 
 	// Game history
-	history       []HistoryEntry
-	historyScroll int // Scroll offset for history panel
+	history            []HistoryEntry
+	historyScroll      int    // Scroll offset for history panel
+	historyPanelBounds [4]int // x, y, w, h for scroll detection
 
 	// Rendering
 	cellSize    int
@@ -365,6 +366,23 @@ func (s *GameplayScene) Update() error {
 	// Update hovered cell
 	mx, my := ebiten.CursorPosition()
 	s.hoveredCell = s.screenToGrid(mx, my)
+
+	// Handle mouse wheel scrolling for history panel
+	_, dy := ebiten.Wheel()
+	if dy != 0 {
+		// Check if mouse is over history panel
+		bounds := s.historyPanelBounds
+		if mx >= bounds[0] && mx <= bounds[0]+bounds[2] &&
+			my >= bounds[1] && my <= bounds[1]+bounds[3] {
+			// Scroll the history panel
+			if dy > 0 {
+				s.historyScroll-- // Scroll up (show newer)
+			} else {
+				s.historyScroll++ // Scroll down (show older)
+			}
+			// Bounds clamping is done in drawHistoryPanel
+		}
+	}
 
 	// Update buttons
 	isMyTurn := s.currentTurn == s.game.config.PlayerID

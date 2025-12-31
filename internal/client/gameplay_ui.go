@@ -22,7 +22,7 @@ func (s *GameplayScene) drawInfoPanel(screen *ebiten.Image) {
 func (s *GameplayScene) drawLeftSidebar(screen *ebiten.Image) {
 	sidebarX := 10
 	sidebarY := 10
-	sidebarW := 200
+	sidebarW := 250
 
 	// Player identity panel
 	myPlayer, ok := s.players[s.game.config.PlayerID]
@@ -74,10 +74,7 @@ func (s *GameplayScene) drawLeftSidebar(screen *ebiten.Image) {
 				// Online/offline indicator (small circle)
 				indicatorX := float32(sidebarX + 12)
 				indicatorY := float32(y + 8)
-				if isAI {
-					// AI is always "online" - gray indicator
-					vector.DrawFilledCircle(screen, indicatorX, indicatorY, 4, color.RGBA{128, 128, 128, 255}, false)
-				} else if isOnline {
+				if isOnline {
 					// Online - green
 					vector.DrawFilledCircle(screen, indicatorX, indicatorY, 4, color.RGBA{100, 200, 100, 255}, false)
 				} else {
@@ -198,16 +195,20 @@ func (s *GameplayScene) drawResourcesPanel(screen *ebiten.Image, x, y, w int) {
 	}
 }
 
-// drawHistoryPanel draws the game history log.
+// drawHistoryPanel draws the game history log (newest at top, scrollable).
 func (s *GameplayScene) drawHistoryPanel(screen *ebiten.Image, x, y, w int) {
-	// Calculate available height (fill remaining sidebar space)
-	availableH := ScreenHeight - y - 20
+	// Calculate available height (fill remaining sidebar space, stopping before bottom bar)
+	bottomBarTop := ScreenHeight - 110  // Bottom bar starts here
+	availableH := bottomBarTop - y - 10 // Leave 10px margin above bottom bar
 	if availableH < 100 {
 		availableH = 100 // Minimum height
 	}
 	if availableH > 300 {
 		availableH = 300 // Maximum height
 	}
+
+	// Store bounds for scroll detection
+	s.historyPanelBounds = [4]int{x, y, w, availableH}
 
 	DrawFancyPanel(screen, x, y, w, availableH, "History")
 
@@ -221,26 +222,26 @@ func (s *GameplayScene) drawHistoryPanel(screen *ebiten.Image, x, y, w int) {
 	headerHeight := 35
 	maxLines := (availableH - headerHeight - 10) / lineHeight
 
-	// Start from the bottom of the list (most recent), scrolling up
-	startIdx := len(s.history) - 1 - s.historyScroll
-	if startIdx < 0 {
-		startIdx = 0
+	// Clamp scroll to valid range
+	maxScroll := len(s.history) - maxLines
+	if maxScroll < 0 {
+		maxScroll = 0
+	}
+	if s.historyScroll > maxScroll {
+		s.historyScroll = maxScroll
+	}
+	if s.historyScroll < 0 {
+		s.historyScroll = 0
 	}
 
-	// Draw events from bottom to top (most recent at bottom)
+	// Draw events from newest to oldest (newest at top)
 	eventY := y + headerHeight
 	eventsDrawn := 0
 	currentRound := -1
 	currentPhase := ""
 
-	// We need to show events in chronological order with most recent at bottom
-	// So we iterate from older to newer, but start from an offset that fits our display
-	displayStart := len(s.history) - maxLines - s.historyScroll
-	if displayStart < 0 {
-		displayStart = 0
-	}
-
-	for i := displayStart; i < len(s.history) && eventsDrawn < maxLines; i++ {
+	// Iterate from newest to oldest, starting from scroll offset
+	for i := len(s.history) - 1 - s.historyScroll; i >= 0 && eventsDrawn < maxLines; i-- {
 		event := s.history[i]
 
 		// Check if we need to show a round/phase header
@@ -249,7 +250,7 @@ func (s *GameplayScene) drawHistoryPanel(screen *ebiten.Image, x, y, w int) {
 			currentPhase = event.Phase
 
 			// Draw phase header
-			phaseText := fmt.Sprintf("R%d %s", event.Round, event.Phase)
+			phaseText := fmt.Sprintf("Year %d %s", event.Round, event.Phase)
 			DrawText(screen, phaseText, x+10, eventY, ColorPrimary)
 			eventY += lineHeight
 			eventsDrawn++
@@ -272,10 +273,15 @@ func (s *GameplayScene) drawHistoryPanel(screen *ebiten.Image, x, y, w int) {
 			}
 		}
 
-		// Truncate message if too long
+		// Build message with player name
 		msg := event.Message
-		if len(msg) > 24 {
-			msg = msg[:21] + "..."
+		if event.PlayerName != "" {
+			msg = event.PlayerName + " " + msg
+		}
+
+		// Truncate message if too long
+		if len(msg) > 32 {
+			msg = msg[:29] + "..."
 		}
 
 		DrawText(screen, "  "+msg, x+10, eventY, textColor)
@@ -285,10 +291,10 @@ func (s *GameplayScene) drawHistoryPanel(screen *ebiten.Image, x, y, w int) {
 
 	// Draw scroll indicators if needed
 	if s.historyScroll > 0 {
-		DrawText(screen, "▼", x+w-20, y+availableH-15, ColorTextMuted)
-	}
-	if displayStart > 0 {
 		DrawText(screen, "▲", x+w-20, y+headerHeight, ColorTextMuted)
+	}
+	if s.historyScroll < maxScroll {
+		DrawText(screen, "▼", x+w-20, y+availableH-15, ColorTextMuted)
 	}
 }
 
@@ -320,8 +326,8 @@ func (s *GameplayScene) drawMapArea(screen *ebiten.Image) {
 	height := int(s.mapData["height"].(float64))
 
 	// Calculate available space for the map
-	sidebarWidth := 220    // Left sidebar width + margin
-	bottomBarHeight := 100 // Bottom bar height + margin
+	sidebarWidth := 270    // Left sidebar width + margin
+	bottomBarHeight := 120 // Bottom bar height + margin
 	availableWidth := ScreenWidth - sidebarWidth - 20
 	availableHeight := ScreenHeight - bottomBarHeight - 20
 
@@ -361,24 +367,84 @@ func (s *GameplayScene) drawMapArea(screen *ebiten.Image) {
 	s.drawMap(screen)
 }
 
-// drawBottomBar draws phase/turn information.
+// drawBottomBar draws phase/turn information with two sections.
 func (s *GameplayScene) drawBottomBar(screen *ebiten.Image) {
 	barX := 10
-	barY := ScreenHeight - 90
+	barY := ScreenHeight - 110
 	barW := ScreenWidth - 20
-	barH := 80
+	barH := 100
 
 	DrawFancyPanel(screen, barX, barY, barW, barH, "")
 
-	// Phase and round - larger text
-	phaseText := fmt.Sprintf("Round %d - %s", s.round, s.currentPhase)
-	DrawLargeText(screen, phaseText, barX+15, barY+15, ColorText)
+	// === LEFT SECTION: Year and Phase List ===
+	leftSectionW := 280
+
+	// Year display - large text on the left
+	DrawLargeText(screen, fmt.Sprintf("Year %d", s.round), barX+15, barY+30, ColorText)
+
+	// Phase list - vertical list to the right of Year
+	phases := []string{"Production", "Trade", "Shipment", "Conquest", "Development"}
+	phaseX := barX + 100 // Right of "Year X"
+	phaseY := barY + 12
+	lineHeight := 17
+
+	// Check if we're in Territory Selection (only in year 1)
+	if s.currentPhase == "Territory Selection" {
+		// During territory selection, show it prominently
+		DrawText(screen, "► Territory Selection", phaseX, phaseY+30, ColorSuccess)
+	} else {
+		// Draw phase list vertically
+		for _, phase := range phases {
+			textColor := ColorTextMuted
+			displayText := "  " + phase // Indent for non-current phases
+
+			if phase == s.currentPhase {
+				// Current phase - highlighted with arrow
+				textColor = ColorSuccess
+				displayText = "► " + phase
+			}
+
+			DrawText(screen, displayText, phaseX, phaseY, textColor)
+			phaseY += lineHeight
+		}
+	}
+
+	// Vertical divider between sections
+	dividerX := float32(barX + leftSectionW)
+	vector.StrokeLine(screen, dividerX, float32(barY+10), dividerX, float32(barY+barH-10), 1, ColorBorder, false)
+
+	// === RIGHT SECTION: Instructions and Controls ===
+	rightX := barX + leftSectionW + 20
+	isMyTurn := s.currentTurn == s.game.config.PlayerID
+
+	// Turn indicator at top
+	if s.currentTurn != "" {
+		if player, ok := s.players[s.currentTurn].(map[string]interface{}); ok {
+			playerName := player["name"].(string)
+			playerColor := player["color"].(string)
+
+			if isMyTurn {
+				DrawLargeText(screen, "YOUR TURN", rightX, barY+12, ColorSuccess)
+			} else {
+				turnText := fmt.Sprintf("%s's turn", playerName)
+				DrawText(screen, turnText, rightX, barY+15, ColorText)
+			}
+
+			// Color indicator next to turn text
+			if pc, ok := PlayerColors[playerColor]; ok {
+				indicatorX := rightX + 120
+				if !isMyTurn {
+					indicatorX = rightX + len(fmt.Sprintf("%s's turn", playerName))*8 + 10
+				}
+				vector.DrawFilledRect(screen, float32(indicatorX), float32(barY+12), 16, 16, pc, false)
+				vector.StrokeRect(screen, float32(indicatorX), float32(barY+12), 16, 16, 1, ColorBorder, false)
+			}
+		}
+	}
 
 	// Phase-specific instructions
 	instruction := ""
 	instruction2 := ""
-	showTurnIndicator := true
-	isMyTurn := s.currentTurn == s.game.config.PlayerID
 
 	switch s.currentPhase {
 	case "Territory Selection":
@@ -401,12 +467,10 @@ func (s *GameplayScene) drawBottomBar(screen *ebiten.Image) {
 
 			if myStockpilePlaced {
 				instruction = "Waiting for other players to place stockpiles..."
-				instruction2 = ""
 			} else {
 				instruction = "Click one of YOUR territories to place your stockpile"
 				instruction2 = "All players place stockpiles simultaneously"
 			}
-			showTurnIndicator = false
 		} else {
 			instruction = "Resources are being produced automatically"
 		}
@@ -414,7 +478,6 @@ func (s *GameplayScene) drawBottomBar(screen *ebiten.Image) {
 	case "Trade":
 		instruction = "Trade phase - negotiate trades with other players"
 		instruction2 = "Click 'End Turn' to skip trading"
-		// Trade is available to all players simultaneously, but we show turn-based for simplicity
 
 	case "Shipment":
 		if isMyTurn {
@@ -447,43 +510,16 @@ func (s *GameplayScene) drawBottomBar(screen *ebiten.Image) {
 	}
 
 	if instruction != "" {
-		DrawText(screen, instruction, barX+15, barY+45, ColorTextMuted)
+		DrawText(screen, instruction, rightX, barY+45, ColorTextMuted)
 	}
 	if instruction2 != "" {
-		DrawText(screen, instruction2, barX+15, barY+60, ColorTextMuted)
-	}
-
-	// Current turn indicator (left side)
-	if showTurnIndicator && s.currentTurn != "" {
-		if player, ok := s.players[s.currentTurn].(map[string]interface{}); ok {
-			playerName := player["name"].(string)
-			playerColor := player["color"].(string)
-
-			turnX := barX + 450
-
-			turnText := fmt.Sprintf("Turn: %s", playerName)
-			DrawText(screen, turnText, turnX, barY+15, ColorText)
-
-			// Color indicator
-			if pc, ok := PlayerColors[playerColor]; ok {
-				textWidth := len(turnText) * 8 // Approximate
-				vector.DrawFilledRect(screen, float32(turnX+textWidth+10), float32(barY+12),
-					16, 16, pc, false)
-				vector.StrokeRect(screen, float32(turnX+textWidth+10), float32(barY+12),
-					16, 16, 2, ColorBorder, false)
-			}
-
-			// Indicate if it's your turn
-			if isMyTurn {
-				DrawLargeText(screen, "YOUR TURN!", turnX, barY+35, ColorSuccess)
-			}
-		}
+		DrawText(screen, instruction2, rightX, barY+65, ColorTextMuted)
 	}
 
 	// End Turn button (right side, only during action phases and your turn)
 	if isMyTurn && s.isActionPhase() {
 		s.endPhaseBtn.X = barX + barW - 170
-		s.endPhaseBtn.Y = barY + 18
+		s.endPhaseBtn.Y = barY + 30
 		s.endPhaseBtn.Draw(screen)
 	}
 }

@@ -187,7 +187,7 @@ func (s *GameplayScene) drawMap(screen *ebiten.Image) {
 // drawTerritoryBoundaries draws lines between different territories with rounded corners
 func (s *GameplayScene) drawTerritoryBoundaries(screen *ebiten.Image, width, height int, grid []interface{}) {
 	borderColor := color.RGBA{0, 0, 0, 220}
-	cornerRadius := float32(6) // Radius for rounded corners
+	cornerRadius := float32(4) // Radius for rounded corners
 	lineWidth := float32(4)    // Thicker borders like the original game
 
 	// Helper to get territory ID at position (returns -1 for out of bounds)

@@ -2015,6 +2015,7 @@ func (h *Handlers) handleExecuteAttack(client *Client, msg *protocol.Message) er
 	// Collect allies based on alliance settings
 	attackerAllies := []string{}
 	defenderAllies := []string{}
+	askPlayers := []string{} // Players with "ask" setting who are online
 	thirdParties := state.GetThirdPartyPlayers(client.PlayerID, target)
 
 	log.Printf("Battle at %s: Found %d third party players: %v", terrName, len(thirdParties), thirdParties)
@@ -2031,12 +2032,18 @@ func (h *Handlers) handleExecuteAttack(client *Client, msg *protocol.Message) er
 		log.Printf("  Third party %s (%s): alliance setting = '%s'", tpID, tp.Name, alliance)
 
 		switch alliance {
-		case "neutral", "ask", "":
+		case "neutral", "":
 			// Neutral players don't participate
-			// "Ask" players are treated as neutral in synchronous attacks
-			// Empty alliance (shouldn't happen) treated as neutral
 			log.Printf("    -> Neutral (not participating)")
 			continue
+		case "ask":
+			// Check if player is online
+			if h.hub.IsPlayerOnline(tpID) {
+				log.Printf("    -> Ask (online, will be prompted)")
+				askPlayers = append(askPlayers, tpID)
+			} else {
+				log.Printf("    -> Ask (offline, treated as neutral)")
+			}
 		case "defender":
 			// Always support the defender
 			log.Printf("    -> Supporting defender")
@@ -2054,11 +2061,104 @@ func (h *Handlers) handleExecuteAttack(client *Client, msg *protocol.Message) er
 			} else {
 				log.Printf("    -> Allied with someone else (%s), not participating", alliance)
 			}
-			// If allied with someone else, they don't participate in this battle
 		}
 	}
 
+	// If there are "ask" players, we need to wait for their votes
+	if len(askPlayers) > 0 {
+		log.Printf("Waiting for %d alliance votes from: %v", len(askPlayers), askPlayers)
+
+		// Create a pending battle
+		battleID := fmt.Sprintf("battle-%s-%d", client.GameID, time.Now().UnixNano())
+		battle := &PendingBattle{
+			ID:           battleID,
+			GameID:       client.GameID,
+			AttackerID:   client.PlayerID,
+			DefenderID:   defenderID,
+			TerritoryID:  payload.TargetTerritory,
+			ThirdParties: askPlayers,
+			Votes:        make(map[string]string),
+			VoteChan:     make(chan string, len(askPlayers)),
+			ExpiresAt:    time.Now().Add(60 * time.Second),
+		}
+
+		h.hub.mu.Lock()
+		h.hub.pendingBattles[battleID] = battle
+		h.hub.mu.Unlock()
+
+		// Send alliance requests to all "ask" players
+		for _, askID := range askPlayers {
+			askPlayer := state.Players[askID]
+			askStrength := state.CalculatePlayerStrengthAtTerritory(askID, target)
+
+			attackerName := client.Name
+			defenderName := "Unclaimed"
+			if defender := state.Players[defenderID]; defender != nil {
+				defenderName = defender.Name
+			}
+
+			request := protocol.AllianceRequestPayload{
+				BattleID:      battleID,
+				AttackerID:    client.PlayerID,
+				AttackerName:  attackerName,
+				DefenderID:    defenderID,
+				DefenderName:  defenderName,
+				TerritoryID:   payload.TargetTerritory,
+				TerritoryName: terrName,
+				YourStrength:  askStrength,
+				TimeLimit:     60,
+				ExpiresAt:     battle.ExpiresAt.Unix(),
+			}
+
+			log.Printf("Sending alliance request to %s (%s)", askID, askPlayer.Name)
+			h.hub.sendToPlayer(askID, protocol.TypeAllianceRequest, request)
+		}
+
+		// Wait for votes or timeout
+		votesReceived := 0
+		timeout := time.After(60 * time.Second)
+
+	voteLoop:
+		for votesReceived < len(askPlayers) {
+			select {
+			case <-battle.VoteChan:
+				votesReceived++
+				log.Printf("Received vote %d/%d", votesReceived, len(askPlayers))
+			case <-timeout:
+				log.Printf("Alliance vote timeout, proceeding with %d/%d votes", votesReceived, len(askPlayers))
+				break voteLoop
+			}
+		}
+
+		// Collect the votes
+		h.hub.mu.Lock()
+		for playerID, side := range battle.Votes {
+			switch side {
+			case "attacker":
+				attackerAllies = append(attackerAllies, playerID)
+				log.Printf("  %s voted for attacker", playerID)
+			case "defender":
+				defenderAllies = append(defenderAllies, playerID)
+				log.Printf("  %s voted for defender", playerID)
+			default:
+				log.Printf("  %s voted neutral", playerID)
+			}
+		}
+		// Clean up the pending battle
+		delete(h.hub.pendingBattles, battleID)
+		h.hub.mu.Unlock()
+	}
+
 	log.Printf("Battle at %s: Final allies - Attacker: %v, Defender: %v", terrName, attackerAllies, defenderAllies)
+
+	// Re-load game state in case it changed during voting
+	stateJSON, err = h.hub.server.db.GetGameState(client.GameID)
+	if err != nil {
+		return err
+	}
+	if err := json.Unmarshal([]byte(stateJSON), &state); err != nil {
+		return err
+	}
 
 	// Execute attack with ally information
 	result, err := state.AttackWithAllies(client.PlayerID, payload.TargetTerritory, brought, attackerAllies, defenderAllies)
