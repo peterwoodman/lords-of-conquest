@@ -3,6 +3,8 @@ package client
 import (
 	"fmt"
 	"log"
+
+	"lords-of-conquest/internal/protocol"
 )
 
 func (s *GameplayScene) handleCellClick(x, y int) {
@@ -557,4 +559,226 @@ func (s *GameplayScene) isAdjacent(tid1, tid2 string) bool {
 		}
 	}
 	return false
+}
+
+// ==================== Trade Functions ====================
+
+// resetTradeForm resets the trade form to default values.
+func (s *GameplayScene) resetTradeForm() {
+	s.tradeTargetPlayer = ""
+	s.tradeOfferCoal = 0
+	s.tradeOfferGold = 0
+	s.tradeOfferIron = 0
+	s.tradeOfferTimber = 0
+	s.tradeOfferHorses = 0
+	s.tradeOfferHorseTerrs = nil
+	s.tradeRequestCoal = 0
+	s.tradeRequestGold = 0
+	s.tradeRequestIron = 0
+	s.tradeRequestTimber = 0
+	s.tradeRequestHorses = 0
+	s.tradeHorseDestTerrs = nil
+}
+
+// sendTradeOffer sends the trade offer to the server.
+func (s *GameplayScene) sendTradeOffer() {
+	if s.tradeTargetPlayer == "" {
+		log.Println("No target player selected")
+		return
+	}
+
+	// Build horse territory list from selection
+	horseTerrs := make([]string, 0)
+	for i := 0; i < s.tradeOfferHorses && i < len(s.tradeOfferHorseTerrs); i++ {
+		horseTerrs = append(horseTerrs, s.tradeOfferHorseTerrs[i])
+	}
+
+	log.Printf("Sending trade offer to %s", s.tradeTargetPlayer)
+	s.game.ProposeTrade(
+		s.tradeTargetPlayer,
+		s.tradeOfferCoal, s.tradeOfferGold, s.tradeOfferIron, s.tradeOfferTimber,
+		s.tradeOfferHorses, horseTerrs,
+		s.tradeRequestCoal, s.tradeRequestGold, s.tradeRequestIron, s.tradeRequestTimber,
+		s.tradeRequestHorses,
+	)
+	s.showTradePropose = false
+	s.waitingForTrade = true // Show waiting indicator
+}
+
+// acceptTrade accepts an incoming trade proposal.
+func (s *GameplayScene) acceptTrade() {
+	if s.tradeProposal == nil {
+		return
+	}
+
+	// Build horse destination list
+	horseDests := make([]string, 0)
+	if s.tradeProposal.OfferHorses > 0 {
+		// Need to select destinations
+		for i := 0; i < s.tradeProposal.OfferHorses && i < len(s.tradeHorseDestTerrs); i++ {
+			horseDests = append(horseDests, s.tradeHorseDestTerrs[i])
+		}
+	}
+
+	log.Printf("Accepting trade %s", s.tradeProposal.TradeID)
+	s.game.RespondTrade(s.tradeProposal.TradeID, true, horseDests)
+	s.showTradeIncoming = false
+	s.tradeProposal = nil
+}
+
+// rejectTrade rejects an incoming trade proposal.
+func (s *GameplayScene) rejectTrade() {
+	if s.tradeProposal == nil {
+		return
+	}
+
+	log.Printf("Rejecting trade %s", s.tradeProposal.TradeID)
+	s.game.RespondTrade(s.tradeProposal.TradeID, false, nil)
+	s.showTradeIncoming = false
+	s.tradeProposal = nil
+}
+
+// ShowTradeProposal shows an incoming trade proposal popup.
+func (s *GameplayScene) ShowTradeProposal(payload *protocol.TradeProposalPayload) {
+	s.tradeProposal = &TradeProposalData{
+		TradeID:        payload.TradeID,
+		FromPlayerID:   payload.FromPlayerID,
+		FromPlayerName: payload.FromPlayerName,
+		OfferCoal:      payload.OfferCoal,
+		OfferGold:      payload.OfferGold,
+		OfferIron:      payload.OfferIron,
+		OfferTimber:    payload.OfferTimber,
+		OfferHorses:    payload.OfferHorses,
+		RequestCoal:    payload.RequestCoal,
+		RequestGold:    payload.RequestGold,
+		RequestIron:    payload.RequestIron,
+		RequestTimber:  payload.RequestTimber,
+		RequestHorses:  payload.RequestHorses,
+	}
+	s.showTradeIncoming = true
+	s.tradeHorseDestTerrs = nil // Reset horse destinations
+}
+
+// ShowTradeResult shows the result of a trade proposal.
+func (s *GameplayScene) ShowTradeResult(payload *protocol.TradeResultPayload) {
+	s.tradeResultAccepted = payload.Accepted
+	s.tradeResultMessage = payload.Message
+	s.showTradeResult = true
+	s.waitingForTrade = false // Clear waiting indicator
+}
+
+// getOnlinePlayers returns a list of online player IDs (excluding self and AI).
+func (s *GameplayScene) getOnlinePlayers() []string {
+	players := make([]string, 0)
+	for id, pData := range s.players {
+		if id == s.game.config.PlayerID {
+			continue // Skip self
+		}
+		player := pData.(map[string]interface{})
+		isAI, _ := player["isAI"].(bool)
+		if isAI {
+			continue // Skip AI
+		}
+		isOnline, _ := player["isOnline"].(bool)
+		if !isOnline {
+			continue // Skip offline
+		}
+		players = append(players, id)
+	}
+	return players
+}
+
+// getPlayerHorseTerritories returns territories where the player has horses.
+func (s *GameplayScene) getPlayerHorseTerritories() []string {
+	terrs := make([]string, 0)
+	for id, tData := range s.territories {
+		terr := tData.(map[string]interface{})
+		owner, _ := terr["owner"].(string)
+		if owner != s.game.config.PlayerID {
+			continue
+		}
+		hasHorse, _ := terr["hasHorse"].(bool)
+		if hasHorse {
+			terrs = append(terrs, id)
+		}
+	}
+	return terrs
+}
+
+// getMyStockpile returns the current player's stockpile resources.
+func (s *GameplayScene) getMyStockpile() (coal, gold, iron, timber int) {
+	if myPlayer, ok := s.players[s.game.config.PlayerID]; ok {
+		player := myPlayer.(map[string]interface{})
+		if stockpile, ok := player["stockpile"].(map[string]interface{}); ok {
+			if v, ok := stockpile["coal"].(float64); ok {
+				coal = int(v)
+			}
+			if v, ok := stockpile["gold"].(float64); ok {
+				gold = int(v)
+			}
+			if v, ok := stockpile["iron"].(float64); ok {
+				iron = int(v)
+			}
+			if v, ok := stockpile["timber"].(float64); ok {
+				timber = int(v)
+			}
+		}
+	}
+	return
+}
+
+// getPlayerStockpile returns a player's stockpile resources.
+func (s *GameplayScene) getPlayerStockpile(playerID string) (coal, gold, iron, timber int) {
+	if pData, ok := s.players[playerID]; ok {
+		player := pData.(map[string]interface{})
+		if stockpile, ok := player["stockpile"].(map[string]interface{}); ok {
+			if v, ok := stockpile["coal"].(float64); ok {
+				coal = int(v)
+			}
+			if v, ok := stockpile["gold"].(float64); ok {
+				gold = int(v)
+			}
+			if v, ok := stockpile["iron"].(float64); ok {
+				iron = int(v)
+			}
+			if v, ok := stockpile["timber"].(float64); ok {
+				timber = int(v)
+			}
+		}
+	}
+	return
+}
+
+// countPlayerHorses returns the number of horses a player has.
+func (s *GameplayScene) countPlayerHorses(playerID string) int {
+	count := 0
+	for _, tData := range s.territories {
+		terr := tData.(map[string]interface{})
+		owner, _ := terr["owner"].(string)
+		if owner != playerID {
+			continue
+		}
+		hasHorse, _ := terr["hasHorse"].(bool)
+		if hasHorse {
+			count++
+		}
+	}
+	return count
+}
+
+// getTerritoriesWithoutHorses returns territories owned by the player that don't have horses.
+func (s *GameplayScene) getTerritoriesWithoutHorses() []string {
+	terrs := make([]string, 0)
+	for id, tData := range s.territories {
+		terr := tData.(map[string]interface{})
+		owner, _ := terr["owner"].(string)
+		if owner != s.game.config.PlayerID {
+			continue
+		}
+		hasHorse, _ := terr["hasHorse"].(bool)
+		if !hasHorse {
+			terrs = append(terrs, id)
+		}
+	}
+	return terrs
 }

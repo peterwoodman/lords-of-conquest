@@ -482,8 +482,13 @@ func (s *GameplayScene) drawBottomBar(screen *ebiten.Image) {
 		}
 
 	case "Trade":
-		instruction = "Trade phase - negotiate trades with other players"
-		instruction2 = "Click 'End Turn' to skip trading"
+		if isMyTurn {
+			// Draw trade-specific controls
+			s.drawTradeControls(screen, rightX, barY, barX+barW)
+			return // Exit early - we draw our own instructions and buttons
+		} else {
+			instruction = "Waiting for other player to trade..."
+		}
 
 	case "Shipment":
 		if isMyTurn {
@@ -680,6 +685,24 @@ func (s *GameplayScene) drawShipmentControls(screen *ebiten.Image, startX, barY,
 	}
 
 	// End Turn button (always visible)
+	s.endPhaseBtn.X = endX - 170
+	s.endPhaseBtn.Y = barY + 30
+	s.endPhaseBtn.Draw(screen)
+}
+
+// drawTradeControls draws the trade phase controls in the status bar.
+func (s *GameplayScene) drawTradeControls(screen *ebiten.Image, startX, barY, endX int) {
+	// Instruction text
+	DrawLargeText(screen, "YOUR TURN", startX, barY+12, ColorSuccess)
+	DrawText(screen, "Propose trades to other players, or skip trading", startX, barY+45, ColorTextMuted)
+	DrawText(screen, "Resources are traded from/to stockpiles", startX, barY+62, ColorTextMuted)
+
+	// Propose Trade button
+	s.proposeTradeBtn.X = startX + 20
+	s.proposeTradeBtn.Y = barY + 55
+	s.proposeTradeBtn.Draw(screen)
+
+	// End Turn button
 	s.endPhaseBtn.X = endX - 170
 	s.endPhaseBtn.Y = barY + 30
 	s.endPhaseBtn.Draw(screen)

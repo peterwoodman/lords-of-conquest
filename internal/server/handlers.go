@@ -69,6 +69,10 @@ func (h *Handlers) Handle(client *Client, msg *protocol.Message) {
 		err = h.handleSetAlliance(client, msg)
 	case protocol.TypeAllianceVote:
 		err = h.handleAllianceVote(client, msg)
+	case protocol.TypeProposeTrade:
+		err = h.handleProposeTrade(client, msg)
+	case protocol.TypeRespondTrade:
+		err = h.handleRespondTrade(client, msg)
 	case protocol.TypeListGames:
 		err = h.handleListGames(client, msg)
 	case protocol.TypeYourGames:
@@ -897,6 +901,7 @@ func createStatePayload(state *game.GameState, mapData *maps.Map) map[string]int
 			"totalBoats":   t.TotalBoats(), // Total for convenience
 			"coastalTiles": t.CoastalTiles,
 			"waterBodies":  t.WaterBodies,
+			"adjacent":     t.Adjacent, // Adjacent territory IDs for city influence check
 		}
 	}
 
@@ -1845,6 +1850,296 @@ func (h *Handlers) handleMoveUnit(client *Client, msg *protocol.Message) error {
 
 	// Check if next player is AI
 	go h.checkAndTriggerAI(client.GameID)
+
+	return nil
+}
+
+// PendingTrade tracks an ongoing trade waiting for response.
+type PendingTrade struct {
+	ID              string
+	GameID          string
+	FromPlayerID    string
+	ToPlayerID      string
+	OfferCoal       int
+	OfferGold       int
+	OfferIron       int
+	OfferTimber     int
+	OfferHorses     int
+	OfferHorseTerrs []string
+	RequestCoal     int
+	RequestGold     int
+	RequestIron     int
+	RequestTimber   int
+	RequestHorses   int
+	ResponseChan    chan bool
+}
+
+// handleProposeTrade handles a player proposing a trade to another player.
+func (h *Handlers) handleProposeTrade(client *Client, msg *protocol.Message) error {
+	if client.GameID == "" {
+		return errors.New("not in a game")
+	}
+
+	var payload protocol.ProposeTradePayload
+	if err := msg.ParsePayload(&payload); err != nil {
+		return err
+	}
+
+	// Load game state
+	stateJSON, err := h.hub.server.db.GetGameState(client.GameID)
+	if err != nil {
+		return err
+	}
+
+	var state game.GameState
+	if err := json.Unmarshal([]byte(stateJSON), &state); err != nil {
+		return err
+	}
+
+	// Check it's trade phase and player's turn
+	if state.Phase != game.PhaseTrade {
+		return game.ErrInvalidAction
+	}
+	if state.CurrentPlayerID != client.PlayerID {
+		return game.ErrNotYourTurn
+	}
+
+	// Create trade offer
+	offer := &game.TradeOffer{
+		FromPlayerID:    client.PlayerID,
+		ToPlayerID:      payload.TargetPlayer,
+		OfferCoal:       payload.OfferCoal,
+		OfferGold:       payload.OfferGold,
+		OfferIron:       payload.OfferIron,
+		OfferTimber:     payload.OfferTimber,
+		OfferHorses:     payload.OfferHorses,
+		OfferHorseTerrs: payload.OfferHorseTerrs,
+		RequestCoal:     payload.RequestCoal,
+		RequestGold:     payload.RequestGold,
+		RequestIron:     payload.RequestIron,
+		RequestTimber:   payload.RequestTimber,
+		RequestHorses:   payload.RequestHorses,
+	}
+
+	// Validate the trade
+	if err := state.ValidateTrade(offer); err != nil {
+		return err
+	}
+
+	// Check if target player is online
+	if !h.hub.IsPlayerOnline(payload.TargetPlayer) {
+		result := protocol.TradeResultPayload{
+			TradeID:  msg.ID,
+			Accepted: false,
+			Message:  "Player is offline",
+		}
+		respMsg, _ := protocol.NewMessage(protocol.TypeTradeResult, result)
+		client.Send(respMsg)
+		return nil
+	}
+
+	// Check if target is AI - AI always rejects
+	targetPlayer := state.Players[payload.TargetPlayer]
+	if targetPlayer != nil && targetPlayer.IsAI {
+		result := protocol.TradeResultPayload{
+			TradeID:  msg.ID,
+			Accepted: false,
+			Message:  "AI declined the trade",
+		}
+		respMsg, _ := protocol.NewMessage(protocol.TypeTradeResult, result)
+		client.Send(respMsg)
+		return nil
+	}
+
+	// Create pending trade
+	tradeID := fmt.Sprintf("trade-%s-%d", client.GameID, time.Now().UnixNano())
+	trade := &PendingTrade{
+		ID:              tradeID,
+		GameID:          client.GameID,
+		FromPlayerID:    client.PlayerID,
+		ToPlayerID:      payload.TargetPlayer,
+		OfferCoal:       payload.OfferCoal,
+		OfferGold:       payload.OfferGold,
+		OfferIron:       payload.OfferIron,
+		OfferTimber:     payload.OfferTimber,
+		OfferHorses:     payload.OfferHorses,
+		OfferHorseTerrs: payload.OfferHorseTerrs,
+		RequestCoal:     payload.RequestCoal,
+		RequestGold:     payload.RequestGold,
+		RequestIron:     payload.RequestIron,
+		RequestTimber:   payload.RequestTimber,
+		RequestHorses:   payload.RequestHorses,
+		ResponseChan:    make(chan bool, 1),
+	}
+
+	// Store pending trade
+	h.hub.mu.Lock()
+	if h.hub.pendingTrades == nil {
+		h.hub.pendingTrades = make(map[string]*PendingTrade)
+	}
+	h.hub.pendingTrades[tradeID] = trade
+	h.hub.mu.Unlock()
+
+	// Send proposal to target player
+	proposerName := client.Name
+	proposal := protocol.TradeProposalPayload{
+		TradeID:        tradeID,
+		FromPlayerID:   client.PlayerID,
+		FromPlayerName: proposerName,
+		OfferCoal:      payload.OfferCoal,
+		OfferGold:      payload.OfferGold,
+		OfferIron:      payload.OfferIron,
+		OfferTimber:    payload.OfferTimber,
+		OfferHorses:    payload.OfferHorses,
+		RequestCoal:    payload.RequestCoal,
+		RequestGold:    payload.RequestGold,
+		RequestIron:    payload.RequestIron,
+		RequestTimber:  payload.RequestTimber,
+		RequestHorses:  payload.RequestHorses,
+	}
+
+	h.hub.sendToPlayer(payload.TargetPlayer, protocol.TypeTradeProposal, proposal)
+	log.Printf("Trade proposal %s sent from %s to %s", tradeID, client.Name, payload.TargetPlayer)
+
+	// Wait for response (synchronous - blocks until response or timeout)
+	// Timeout after 60 seconds
+	select {
+	case <-trade.ResponseChan:
+		// Response received, handled in handleRespondTrade
+	case <-time.After(60 * time.Second):
+		// Timeout - reject trade
+		h.hub.mu.Lock()
+		delete(h.hub.pendingTrades, tradeID)
+		h.hub.mu.Unlock()
+
+		result := protocol.TradeResultPayload{
+			TradeID:  tradeID,
+			Accepted: false,
+			Message:  "Trade timed out",
+		}
+		respMsg, _ := protocol.NewMessage(protocol.TypeTradeResult, result)
+		client.Send(respMsg)
+		log.Printf("Trade %s timed out", tradeID)
+	}
+
+	return nil
+}
+
+// handleRespondTrade handles a player responding to a trade proposal.
+func (h *Handlers) handleRespondTrade(client *Client, msg *protocol.Message) error {
+	var payload protocol.RespondTradePayload
+	if err := msg.ParsePayload(&payload); err != nil {
+		return err
+	}
+
+	// Get the pending trade
+	h.hub.mu.Lock()
+	trade, exists := h.hub.pendingTrades[payload.TradeID]
+	if exists {
+		delete(h.hub.pendingTrades, payload.TradeID)
+	}
+	h.hub.mu.Unlock()
+
+	if !exists {
+		return errors.New("trade not found or expired")
+	}
+
+	// Verify this is the target player
+	if trade.ToPlayerID != client.PlayerID {
+		return errors.New("not the trade target")
+	}
+
+	if payload.Accepted {
+		// Load game state
+		stateJSON, err := h.hub.server.db.GetGameState(trade.GameID)
+		if err != nil {
+			trade.ResponseChan <- false
+			return err
+		}
+
+		var state game.GameState
+		if err := json.Unmarshal([]byte(stateJSON), &state); err != nil {
+			trade.ResponseChan <- false
+			return err
+		}
+
+		// Build the offer
+		offer := &game.TradeOffer{
+			FromPlayerID:    trade.FromPlayerID,
+			ToPlayerID:      trade.ToPlayerID,
+			OfferCoal:       trade.OfferCoal,
+			OfferGold:       trade.OfferGold,
+			OfferIron:       trade.OfferIron,
+			OfferTimber:     trade.OfferTimber,
+			OfferHorses:     trade.OfferHorses,
+			OfferHorseTerrs: trade.OfferHorseTerrs,
+			RequestCoal:     trade.RequestCoal,
+			RequestGold:     trade.RequestGold,
+			RequestIron:     trade.RequestIron,
+			RequestTimber:   trade.RequestTimber,
+			RequestHorses:   trade.RequestHorses,
+		}
+
+		// Get horse source territories from the target player
+		// For requested horses, the target needs to specify which territories
+		horseSourceTerrs := make([]string, 0)
+		if trade.RequestHorses > 0 {
+			// For simplicity, auto-select horses from any owned territories
+			for id, terr := range state.Territories {
+				if terr.Owner == trade.ToPlayerID && terr.HasHorse {
+					horseSourceTerrs = append(horseSourceTerrs, id)
+					if len(horseSourceTerrs) >= trade.RequestHorses {
+						break
+					}
+				}
+			}
+		}
+
+		// Execute the trade
+		if err := state.ExecuteTrade(offer, horseSourceTerrs, payload.HorseDestinations); err != nil {
+			trade.ResponseChan <- false
+			return err
+		}
+
+		// Save state
+		stateJSON2, err := json.Marshal(state)
+		if err != nil {
+			trade.ResponseChan <- false
+			return err
+		}
+
+		if err := h.hub.server.db.SaveGameState(trade.GameID, string(stateJSON2),
+			state.CurrentPlayerID, state.Round, state.Phase.String()); err != nil {
+			trade.ResponseChan <- false
+			return err
+		}
+
+		// Send success to proposer
+		result := protocol.TradeResultPayload{
+			TradeID:  payload.TradeID,
+			Accepted: true,
+			Message:  "Trade accepted!",
+		}
+		h.hub.sendToPlayer(trade.FromPlayerID, protocol.TypeTradeResult, result)
+
+		// Broadcast updated state
+		h.broadcastGameState(trade.GameID)
+
+		log.Printf("Trade %s accepted by %s", payload.TradeID, client.Name)
+	} else {
+		// Send rejection to proposer
+		result := protocol.TradeResultPayload{
+			TradeID:  payload.TradeID,
+			Accepted: false,
+			Message:  "Trade declined",
+		}
+		h.hub.sendToPlayer(trade.FromPlayerID, protocol.TypeTradeResult, result)
+
+		log.Printf("Trade %s rejected by %s", payload.TradeID, client.Name)
+	}
+
+	// Signal that we got a response
+	trade.ResponseChan <- payload.Accepted
 
 	return nil
 }

@@ -265,6 +265,35 @@ func (g *Game) EndPhase() error {
 	return g.network.SendPayload(protocol.TypeEndPhase, struct{}{})
 }
 
+// ProposeTrade proposes a trade to another player.
+func (g *Game) ProposeTrade(targetPlayer string, offerCoal, offerGold, offerIron, offerTimber, offerHorses int, offerHorseTerrs []string, requestCoal, requestGold, requestIron, requestTimber, requestHorses int) error {
+	payload := protocol.ProposeTradePayload{
+		TargetPlayer:    targetPlayer,
+		OfferCoal:       offerCoal,
+		OfferGold:       offerGold,
+		OfferIron:       offerIron,
+		OfferTimber:     offerTimber,
+		OfferHorses:     offerHorses,
+		OfferHorseTerrs: offerHorseTerrs,
+		RequestCoal:     requestCoal,
+		RequestGold:     requestGold,
+		RequestIron:     requestIron,
+		RequestTimber:   requestTimber,
+		RequestHorses:   requestHorses,
+	}
+	return g.network.SendPayload(protocol.TypeProposeTrade, payload)
+}
+
+// RespondTrade responds to a trade proposal.
+func (g *Game) RespondTrade(tradeID string, accepted bool, horseDestinations []string) error {
+	payload := protocol.RespondTradePayload{
+		TradeID:           tradeID,
+		Accepted:          accepted,
+		HorseDestinations: horseDestinations,
+	}
+	return g.network.SendPayload(protocol.TypeRespondTrade, payload)
+}
+
 // Build builds a unit or city during development phase.
 func (g *Game) Build(buildType, territoryID string, useGold bool) error {
 	payload := protocol.BuildPayload{
@@ -565,6 +594,26 @@ func (g *Game) handleMessage(msg *protocol.Message) {
 			return
 		}
 		log.Printf("Alliance vote %s: accepted=%v", payload.BattleID, payload.Accepted)
+
+	case protocol.TypeTradeProposal:
+		var payload protocol.TradeProposalPayload
+		if err := msg.ParsePayload(&payload); err != nil {
+			log.Printf("Failed to parse trade proposal: %v", err)
+			return
+		}
+		// Show trade proposal popup
+		g.gameplayScene.ShowTradeProposal(&payload)
+		log.Printf("Trade proposal from %s", payload.FromPlayerName)
+
+	case protocol.TypeTradeResult:
+		var payload protocol.TradeResultPayload
+		if err := msg.ParsePayload(&payload); err != nil {
+			log.Printf("Failed to parse trade result: %v", err)
+			return
+		}
+		// Show trade result
+		g.gameplayScene.ShowTradeResult(&payload)
+		log.Printf("Trade result: accepted=%v - %s", payload.Accepted, payload.Message)
 
 	case protocol.TypePhaseSkipped:
 		var payload protocol.PhaseSkippedPayload

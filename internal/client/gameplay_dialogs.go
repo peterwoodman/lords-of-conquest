@@ -908,3 +908,375 @@ func (s *GameplayScene) drawVictoryScreen(screen *ebiten.Image) {
 		DrawTextCentered(screen, "Congratulations! You are victorious!", centerX, frameY+frameH+20, ColorSuccess)
 	}
 }
+
+// drawTradePropose draws the popup for proposing a trade.
+func (s *GameplayScene) drawTradePropose(screen *ebiten.Image) {
+	panelW, panelH := 500, 450
+	centerX, centerY := ScreenWidth/2, ScreenHeight/2
+	panelX, panelY := centerX-panelW/2, centerY-panelH/2
+
+	DrawFancyPanel(screen, panelX, panelY, panelW, panelH, "Propose Trade")
+
+	y := panelY + 50
+
+	// Get online players
+	onlinePlayers := s.getOnlinePlayers()
+	if len(onlinePlayers) == 0 {
+		DrawTextCentered(screen, "No players available to trade with", centerX, y+100, ColorTextMuted)
+		s.tradeCancelBtn.X = centerX - 50
+		s.tradeCancelBtn.Y = panelY + panelH - 60
+		s.tradeCancelBtn.Draw(screen)
+		return
+	}
+
+	// Target player selection
+	DrawText(screen, "Trade with:", panelX+20, y, ColorText)
+	y += 25
+
+	// Draw player buttons
+	for i, playerID := range onlinePlayers {
+		pData := s.players[playerID].(map[string]interface{})
+		playerName := pData["name"].(string)
+
+		btnX := panelX + 20 + (i%3)*150
+		btnY := y + (i/3)*35
+
+		isSelected := s.tradeTargetPlayer == playerID
+		btnColor := ColorPanel
+		if isSelected {
+			btnColor = ColorSuccess
+		}
+
+		// Draw player button
+		vector.DrawFilledRect(screen, float32(btnX), float32(btnY), 140, 30, btnColor, false)
+		vector.StrokeRect(screen, float32(btnX), float32(btnY), 140, 30, 1, ColorBorder, false)
+		DrawTextCentered(screen, playerName, btnX+70, btnY+8, ColorText)
+
+		// Handle click
+		mx, my := ebiten.CursorPosition()
+		if inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) {
+			if mx >= btnX && mx < btnX+140 && my >= btnY && my < btnY+30 {
+				s.tradeTargetPlayer = playerID
+			}
+		}
+	}
+
+	// Calculate rows for players
+	playerRows := (len(onlinePlayers) + 2) / 3
+	y += playerRows*35 + 20
+
+	// My resources section
+	DrawText(screen, "I OFFER:", panelX+20, y, ColorSuccess)
+	myCoal, myGold, myIron, myTimber := s.getMyStockpile()
+	myHorses := s.countPlayerHorses(s.game.config.PlayerID)
+
+	y += 25
+	s.drawResourceAdjuster(screen, panelX+20, y, "Coal", &s.tradeOfferCoal, 0, myCoal)
+	s.drawResourceAdjuster(screen, panelX+120, y, "Gold", &s.tradeOfferGold, 0, myGold)
+	s.drawResourceAdjuster(screen, panelX+220, y, "Iron", &s.tradeOfferIron, 0, myIron)
+	s.drawResourceAdjuster(screen, panelX+320, y, "Timber", &s.tradeOfferTimber, 0, myTimber)
+	s.drawResourceAdjuster(screen, panelX+420, y, "Horses", &s.tradeOfferHorses, 0, myHorses)
+
+	// I want section
+	y += 70
+	DrawText(screen, "I WANT:", panelX+20, y, ColorWarning)
+
+	if s.tradeTargetPlayer != "" {
+		targetCoal, targetGold, targetIron, targetTimber := s.getPlayerStockpile(s.tradeTargetPlayer)
+		targetHorses := s.countPlayerHorses(s.tradeTargetPlayer)
+
+		y += 25
+		s.drawResourceAdjuster(screen, panelX+20, y, "Coal", &s.tradeRequestCoal, 0, targetCoal)
+		s.drawResourceAdjuster(screen, panelX+120, y, "Gold", &s.tradeRequestGold, 0, targetGold)
+		s.drawResourceAdjuster(screen, panelX+220, y, "Iron", &s.tradeRequestIron, 0, targetIron)
+		s.drawResourceAdjuster(screen, panelX+320, y, "Timber", &s.tradeRequestTimber, 0, targetTimber)
+		s.drawResourceAdjuster(screen, panelX+420, y, "Horses", &s.tradeRequestHorses, 0, targetHorses)
+	} else {
+		y += 25
+		DrawText(screen, "Select a player first", panelX+20, y, ColorTextMuted)
+	}
+
+	// Horse territory selection (if offering horses)
+	if s.tradeOfferHorses > 0 {
+		y += 60
+		DrawText(screen, "Select territories for horses:", panelX+20, y, ColorText)
+		horseTerrs := s.getPlayerHorseTerritories()
+		y += 20
+		// Show up to 6 territories
+		for i, terrID := range horseTerrs {
+			if i >= 6 {
+				break
+			}
+			tData := s.territories[terrID].(map[string]interface{})
+			terrName := tData["name"].(string)
+
+			btnX := panelX + 20 + (i%3)*150
+			btnY := y + (i/3)*25
+
+			// Check if selected
+			isSelected := false
+			for _, t := range s.tradeOfferHorseTerrs {
+				if t == terrID {
+					isSelected = true
+					break
+				}
+			}
+
+			btnColor := ColorPanel
+			if isSelected {
+				btnColor = ColorSuccess
+			}
+
+			vector.DrawFilledRect(screen, float32(btnX), float32(btnY), 140, 22, btnColor, false)
+			DrawText(screen, terrName, btnX+5, btnY+4, ColorText)
+
+			// Handle click
+			mx, my := ebiten.CursorPosition()
+			if inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) {
+				if mx >= btnX && mx < btnX+140 && my >= btnY && my < btnY+22 {
+					if isSelected {
+						// Remove from selection
+						newTerrs := make([]string, 0)
+						for _, t := range s.tradeOfferHorseTerrs {
+							if t != terrID {
+								newTerrs = append(newTerrs, t)
+							}
+						}
+						s.tradeOfferHorseTerrs = newTerrs
+					} else if len(s.tradeOfferHorseTerrs) < s.tradeOfferHorses {
+						// Add to selection
+						s.tradeOfferHorseTerrs = append(s.tradeOfferHorseTerrs, terrID)
+					}
+				}
+			}
+		}
+	}
+
+	// Buttons
+	canSend := s.tradeTargetPlayer != "" &&
+		(s.tradeOfferCoal > 0 || s.tradeOfferGold > 0 || s.tradeOfferIron > 0 ||
+			s.tradeOfferTimber > 0 || s.tradeOfferHorses > 0) &&
+		(s.tradeRequestCoal > 0 || s.tradeRequestGold > 0 || s.tradeRequestIron > 0 ||
+			s.tradeRequestTimber > 0 || s.tradeRequestHorses > 0)
+
+	// Validate horse territories selected
+	if s.tradeOfferHorses > 0 && len(s.tradeOfferHorseTerrs) < s.tradeOfferHorses {
+		canSend = false
+	}
+
+	s.tradeSendBtn.X = centerX - 130
+	s.tradeSendBtn.Y = panelY + panelH - 60
+	s.tradeSendBtn.Disabled = !canSend
+	s.tradeSendBtn.Draw(screen)
+
+	s.tradeCancelBtn.X = centerX + 30
+	s.tradeCancelBtn.Y = panelY + panelH - 60
+	s.tradeCancelBtn.Draw(screen)
+}
+
+// drawResourceAdjuster draws a resource adjuster (+/- buttons with value).
+func (s *GameplayScene) drawResourceAdjuster(screen *ebiten.Image, x, y int, label string, value *int, min, max int) {
+	DrawText(screen, label, x, y, ColorTextMuted)
+	y += 18
+
+	// Minus button
+	minusBtnX, minusBtnY := x, y
+	vector.DrawFilledRect(screen, float32(minusBtnX), float32(minusBtnY), 20, 20, ColorPanel, false)
+	vector.StrokeRect(screen, float32(minusBtnX), float32(minusBtnY), 20, 20, 1, ColorBorder, false)
+	DrawTextCentered(screen, "-", minusBtnX+10, minusBtnY+3, ColorText)
+
+	// Value
+	DrawTextCentered(screen, fmt.Sprintf("%d", *value), x+40, y+3, ColorText)
+
+	// Plus button
+	plusBtnX := x + 60
+	vector.DrawFilledRect(screen, float32(plusBtnX), float32(minusBtnY), 20, 20, ColorPanel, false)
+	vector.StrokeRect(screen, float32(plusBtnX), float32(minusBtnY), 20, 20, 1, ColorBorder, false)
+	DrawTextCentered(screen, "+", plusBtnX+10, minusBtnY+3, ColorText)
+
+	// Handle clicks
+	mx, my := ebiten.CursorPosition()
+	if inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) {
+		if my >= minusBtnY && my < minusBtnY+20 {
+			if mx >= minusBtnX && mx < minusBtnX+20 && *value > min {
+				*value--
+			}
+			if mx >= plusBtnX && mx < plusBtnX+20 && *value < max {
+				*value++
+			}
+		}
+	}
+}
+
+// drawTradeIncoming draws the popup for an incoming trade proposal.
+func (s *GameplayScene) drawTradeIncoming(screen *ebiten.Image) {
+	if s.tradeProposal == nil {
+		return
+	}
+
+	// Calculate panel height based on whether horses need destinations
+	needsHorseDest := s.tradeProposal.OfferHorses > 0
+	panelH := 300
+	if needsHorseDest {
+		panelH = 400
+	}
+
+	panelW := 400
+	centerX, centerY := ScreenWidth/2, ScreenHeight/2
+	panelX, panelY := centerX-panelW/2, centerY-panelH/2
+
+	DrawFancyPanel(screen, panelX, panelY, panelW, panelH, "Trade Proposal")
+
+	y := panelY + 50
+	DrawTextCentered(screen, fmt.Sprintf("%s wants to trade with you", s.tradeProposal.FromPlayerName), centerX, y, ColorText)
+
+	y += 40
+	DrawText(screen, "They Offer:", panelX+20, y, ColorSuccess)
+	y += 20
+	offerText := s.formatTradeResources(s.tradeProposal.OfferCoal, s.tradeProposal.OfferGold,
+		s.tradeProposal.OfferIron, s.tradeProposal.OfferTimber, s.tradeProposal.OfferHorses)
+	DrawText(screen, offerText, panelX+30, y, ColorText)
+
+	y += 40
+	DrawText(screen, "They Want:", panelX+20, y, ColorWarning)
+	y += 20
+	requestText := s.formatTradeResources(s.tradeProposal.RequestCoal, s.tradeProposal.RequestGold,
+		s.tradeProposal.RequestIron, s.tradeProposal.RequestTimber, s.tradeProposal.RequestHorses)
+	DrawText(screen, requestText, panelX+30, y, ColorText)
+
+	// Horse destination selection if receiving horses
+	if needsHorseDest {
+		y += 40
+		DrawText(screen, fmt.Sprintf("Select territories for %d horse(s):", s.tradeProposal.OfferHorses), panelX+20, y, ColorText)
+		y += 20
+
+		// Get our territories without horses
+		availableTerrs := s.getTerritoriesWithoutHorses()
+		for i, terrID := range availableTerrs {
+			if i >= 6 {
+				break
+			}
+			tData := s.territories[terrID].(map[string]interface{})
+			terrName := tData["name"].(string)
+
+			btnX := panelX + 20 + (i%3)*125
+			btnY := y + (i/3)*25
+
+			// Check if selected
+			isSelected := false
+			for _, t := range s.tradeHorseDestTerrs {
+				if t == terrID {
+					isSelected = true
+					break
+				}
+			}
+
+			btnColor := ColorPanel
+			if isSelected {
+				btnColor = ColorSuccess
+			}
+
+			vector.DrawFilledRect(screen, float32(btnX), float32(btnY), 120, 22, btnColor, false)
+			DrawText(screen, terrName, btnX+5, btnY+4, ColorText)
+
+			// Handle click
+			mx, my := ebiten.CursorPosition()
+			if inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) {
+				if mx >= btnX && mx < btnX+120 && my >= btnY && my < btnY+22 {
+					if isSelected {
+						// Remove from selection
+						newTerrs := make([]string, 0)
+						for _, t := range s.tradeHorseDestTerrs {
+							if t != terrID {
+								newTerrs = append(newTerrs, t)
+							}
+						}
+						s.tradeHorseDestTerrs = newTerrs
+					} else if len(s.tradeHorseDestTerrs) < s.tradeProposal.OfferHorses {
+						// Add to selection
+						s.tradeHorseDestTerrs = append(s.tradeHorseDestTerrs, terrID)
+					}
+				}
+			}
+		}
+	}
+
+	// Buttons
+	canAccept := !needsHorseDest || len(s.tradeHorseDestTerrs) >= s.tradeProposal.OfferHorses
+
+	s.tradeAcceptBtn.X = centerX - 110
+	s.tradeAcceptBtn.Y = panelY + panelH - 60
+	s.tradeAcceptBtn.Disabled = !canAccept
+	s.tradeAcceptBtn.Draw(screen)
+
+	s.tradeRejectBtn.X = centerX + 10
+	s.tradeRejectBtn.Y = panelY + panelH - 60
+	s.tradeRejectBtn.Draw(screen)
+}
+
+// formatTradeResources formats trade resources for display.
+func (s *GameplayScene) formatTradeResources(coal, gold, iron, timber, horses int) string {
+	parts := make([]string, 0)
+	if coal > 0 {
+		parts = append(parts, fmt.Sprintf("%d Coal", coal))
+	}
+	if gold > 0 {
+		parts = append(parts, fmt.Sprintf("%d Gold", gold))
+	}
+	if iron > 0 {
+		parts = append(parts, fmt.Sprintf("%d Iron", iron))
+	}
+	if timber > 0 {
+		parts = append(parts, fmt.Sprintf("%d Timber", timber))
+	}
+	if horses > 0 {
+		parts = append(parts, fmt.Sprintf("%d Horse(s)", horses))
+	}
+	if len(parts) == 0 {
+		return "Nothing"
+	}
+	result := ""
+	for i, p := range parts {
+		if i > 0 {
+			result += ", "
+		}
+		result += p
+	}
+	return result
+}
+
+// drawTradeResult draws the trade result popup.
+func (s *GameplayScene) drawTradeResult(screen *ebiten.Image) {
+	panelW, panelH := 300, 150
+	centerX, centerY := ScreenWidth/2, ScreenHeight/2
+	panelX, panelY := centerX-panelW/2, centerY-panelH/2
+
+	title := "Trade Result"
+	DrawFancyPanel(screen, panelX, panelY, panelW, panelH, title)
+
+	y := panelY + 60
+	if s.tradeResultAccepted {
+		DrawTextCentered(screen, "Trade Accepted!", centerX, y, ColorSuccess)
+	} else {
+		DrawTextCentered(screen, "Trade Declined", centerX, y, ColorWarning)
+	}
+
+	if s.tradeResultMessage != "" {
+		DrawTextCentered(screen, s.tradeResultMessage, centerX, y+25, ColorTextMuted)
+	}
+
+	s.tradeResultOkBtn.X = centerX - 50
+	s.tradeResultOkBtn.Y = panelY + panelH - 50
+	s.tradeResultOkBtn.Draw(screen)
+}
+
+// drawTradeWaiting draws the waiting for trade response indicator.
+func (s *GameplayScene) drawTradeWaiting(screen *ebiten.Image) {
+	panelW, panelH := 300, 100
+	centerX, centerY := ScreenWidth/2, ScreenHeight/2
+	panelX, panelY := centerX-panelW/2, centerY-panelH/2
+
+	DrawFancyPanel(screen, panelX, panelY, panelW, panelH, "")
+	DrawTextCentered(screen, "Waiting for response...", centerX, centerY-10, ColorText)
+	DrawTextCentered(screen, "(60 second timeout)", centerX, centerY+15, ColorTextMuted)
+}

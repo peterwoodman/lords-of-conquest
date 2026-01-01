@@ -54,12 +54,15 @@ const (
 
 // Action message types
 const (
-	TypeSelectTerritory MessageType = "select_territory"
-	TypePlaceStockpile  MessageType = "place_stockpile"
-	TypeEndPhase        MessageType = "end_phase"
-	TypeProposeTrade    MessageType = "propose_trade"
-	TypeRespondTrade    MessageType = "respond_trade"
-	TypeMoveStockpile   MessageType = "move_stockpile"
+	TypeSelectTerritory  MessageType = "select_territory"
+	TypePlaceStockpile   MessageType = "place_stockpile"
+	TypeEndPhase         MessageType = "end_phase"
+	TypeProposeTrade     MessageType = "propose_trade"
+	TypeTradeProposal    MessageType = "trade_proposal"    // Sent to target player
+	TypeRespondTrade     MessageType = "respond_trade"     // Target's response
+	TypeTradeResult      MessageType = "trade_result"      // Result sent to proposer
+	TypeSelectHorseDest  MessageType = "select_horse_dest" // Where to place received horses
+	TypeMoveStockpile    MessageType = "move_stockpile"
 	TypeMoveUnit        MessageType = "move_unit"
 	TypePlanAttack      MessageType = "plan_attack"
 	TypeAttackPreview   MessageType = "attack_preview"

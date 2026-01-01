@@ -122,6 +122,51 @@ type GameplayScene struct {
 	moveBoatBtn           *Button
 	cancelShipmentBtn     *Button
 	shipmentConfirmBtn    *Button
+
+	// Trade phase UI
+	proposeTradeBtn     *Button
+	showTradePropose    bool                         // Show propose trade popup
+	showTradeIncoming   bool                         // Show incoming trade popup
+	showTradeResult     bool                         // Show trade result popup
+	waitingForTrade     bool                         // Waiting for trade response
+	tradeProposal       *TradeProposalData           // Incoming proposal
+	tradeResultAccepted bool
+	tradeResultMessage  string
+	tradeTargetPlayer   string                       // Selected target player for trade
+	tradeOfferCoal      int
+	tradeOfferGold      int
+	tradeOfferIron      int
+	tradeOfferTimber    int
+	tradeOfferHorses    int
+	tradeOfferHorseTerrs []string                    // Territories for horses being offered
+	tradeRequestCoal    int
+	tradeRequestGold    int
+	tradeRequestIron    int
+	tradeRequestTimber  int
+	tradeRequestHorses  int
+	tradeHorseDestTerrs []string                     // Where to place received horses
+	tradeSendBtn        *Button
+	tradeCancelBtn      *Button
+	tradeAcceptBtn      *Button
+	tradeRejectBtn      *Button
+	tradeResultOkBtn    *Button
+}
+
+// TradeProposalData holds data for an incoming trade proposal.
+type TradeProposalData struct {
+	TradeID        string
+	FromPlayerID   string
+	FromPlayerName string
+	OfferCoal      int
+	OfferGold      int
+	OfferIron      int
+	OfferTimber    int
+	OfferHorses    int
+	RequestCoal    int
+	RequestGold    int
+	RequestIron    int
+	RequestTimber  int
+	RequestHorses  int
 }
 
 // AllianceRequestData holds data for an incoming alliance request.
@@ -351,6 +396,41 @@ func NewGameplayScene(game *Game) *GameplayScene {
 		OnClick: func() { s.confirmShipment() },
 	}
 
+	// Trade phase buttons
+	s.proposeTradeBtn = &Button{
+		X: 0, Y: 0, W: 150, H: 40,
+		Text:    "Propose Trade",
+		OnClick: func() { s.showTradePropose = true; s.resetTradeForm() },
+	}
+	s.tradeSendBtn = &Button{
+		X: 0, Y: 0, W: 120, H: 40,
+		Text:    "Send Offer",
+		Primary: true,
+		OnClick: func() { s.sendTradeOffer() },
+	}
+	s.tradeCancelBtn = &Button{
+		X: 0, Y: 0, W: 100, H: 40,
+		Text:    "Cancel",
+		OnClick: func() { s.showTradePropose = false },
+	}
+	s.tradeAcceptBtn = &Button{
+		X: 0, Y: 0, W: 100, H: 40,
+		Text:    "Accept",
+		Primary: true,
+		OnClick: func() { s.acceptTrade() },
+	}
+	s.tradeRejectBtn = &Button{
+		X: 0, Y: 0, W: 100, H: 40,
+		Text:    "Reject",
+		OnClick: func() { s.rejectTrade() },
+	}
+	s.tradeResultOkBtn = &Button{
+		X: 0, Y: 0, W: 100, H: 40,
+		Text:    "OK",
+		Primary: true,
+		OnClick: func() { s.showTradeResult = false },
+	}
+
 	return s
 }
 
@@ -393,6 +473,41 @@ func (s *GameplayScene) Update() error {
 			s.showNextPhaseSkip() // Show next in queue or close
 		}
 		return nil // Block other input while showing popup
+	}
+
+	// Handle trade result popup
+	if s.showTradeResult {
+		s.tradeResultOkBtn.Update()
+		if inpututil.IsKeyJustPressed(ebiten.KeyEscape) || inpututil.IsKeyJustPressed(ebiten.KeyEnter) {
+			s.showTradeResult = false
+		}
+		return nil
+	}
+
+	// Handle incoming trade proposal popup
+	if s.showTradeIncoming {
+		s.tradeAcceptBtn.Update()
+		s.tradeRejectBtn.Update()
+		if inpututil.IsKeyJustPressed(ebiten.KeyEscape) {
+			s.rejectTrade()
+		}
+		return nil
+	}
+
+	// Handle trade proposal popup
+	if s.showTradePropose {
+		s.tradeSendBtn.Update()
+		s.tradeCancelBtn.Update()
+		if inpututil.IsKeyJustPressed(ebiten.KeyEscape) {
+			s.showTradePropose = false
+		}
+		return nil
+	}
+
+	// Handle waiting for trade response
+	if s.waitingForTrade {
+		// Block all input while waiting
+		return nil
 	}
 
 	// Handle build menu
@@ -510,6 +625,11 @@ func (s *GameplayScene) Update() error {
 		s.endPhaseBtn.Update()
 	}
 
+	// Update trade button during trade phase
+	if isMyTurn && s.currentPhase == "Trade" {
+		s.proposeTradeBtn.Update()
+	}
+
 	// Handle click
 	if inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) {
 		if s.hoveredCell[0] >= 0 {
@@ -584,6 +704,19 @@ func (s *GameplayScene) Draw(screen *ebiten.Image) {
 	// Draw alliance request popup overlay
 	if s.showAllyRequest {
 		s.drawAllyRequest(screen)
+	}
+	// Draw trade popups
+	if s.showTradePropose {
+		s.drawTradePropose(screen)
+	}
+	if s.showTradeIncoming {
+		s.drawTradeIncoming(screen)
+	}
+	if s.showTradeResult {
+		s.drawTradeResult(screen)
+	}
+	if s.waitingForTrade {
+		s.drawTradeWaiting(screen)
 	}
 	// Draw phase skip popup overlay
 	if s.showPhaseSkip {

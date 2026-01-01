@@ -169,6 +169,9 @@ type Hub struct {
 	// Pending battles waiting for alliance votes
 	pendingBattles map[string]*PendingBattle
 
+	// Pending trades waiting for responses
+	pendingTrades map[string]*PendingTrade
+
 	// Register requests
 	register chan *Client
 

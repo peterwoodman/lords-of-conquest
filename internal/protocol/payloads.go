@@ -251,24 +251,49 @@ type PlaceStockpilePayload struct {
 
 // ProposeTradePayload proposes a trade.
 type ProposeTradePayload struct {
-	TargetPlayer string        `json:"target_player"`
-	Offer        ResourceCount `json:"offer"`
-	Request      ResourceCount `json:"request"`
+	TargetPlayer       string   `json:"target_player"`
+	OfferCoal          int      `json:"offer_coal"`
+	OfferGold          int      `json:"offer_gold"`
+	OfferIron          int      `json:"offer_iron"`
+	OfferTimber        int      `json:"offer_timber"`
+	OfferHorses        int      `json:"offer_horses"`
+	OfferHorseTerrs    []string `json:"offer_horse_territories"` // Which territories horses come from
+	RequestCoal        int      `json:"request_coal"`
+	RequestGold        int      `json:"request_gold"`
+	RequestIron        int      `json:"request_iron"`
+	RequestTimber      int      `json:"request_timber"`
+	RequestHorses      int      `json:"request_horses"`
 }
 
-// ResourceCount represents amounts of each resource.
-type ResourceCount struct {
-	Coal   int `json:"coal"`
-	Gold   int `json:"gold"`
-	Iron   int `json:"iron"`
-	Timber int `json:"timber"`
-	Horses int `json:"horses"`
+// TradeProposalPayload is sent to the target player showing a trade offer.
+type TradeProposalPayload struct {
+	TradeID            string `json:"trade_id"`
+	FromPlayerID       string `json:"from_player_id"`
+	FromPlayerName     string `json:"from_player_name"`
+	OfferCoal          int    `json:"offer_coal"`
+	OfferGold          int    `json:"offer_gold"`
+	OfferIron          int    `json:"offer_iron"`
+	OfferTimber        int    `json:"offer_timber"`
+	OfferHorses        int    `json:"offer_horses"`
+	RequestCoal        int    `json:"request_coal"`
+	RequestGold        int    `json:"request_gold"`
+	RequestIron        int    `json:"request_iron"`
+	RequestTimber      int    `json:"request_timber"`
+	RequestHorses      int    `json:"request_horses"`
 }
 
 // RespondTradePayload responds to a trade offer.
 type RespondTradePayload struct {
+	TradeID            string   `json:"trade_id"`
+	Accepted           bool     `json:"accepted"`
+	HorseDestinations  []string `json:"horse_destinations,omitempty"` // Where to place received horses
+}
+
+// TradeResultPayload tells the proposer the result of their trade.
+type TradeResultPayload struct {
 	TradeID  string `json:"trade_id"`
 	Accepted bool   `json:"accepted"`
+	Message  string `json:"message,omitempty"`
 }
 
 // MoveStockpilePayload moves the stockpile.

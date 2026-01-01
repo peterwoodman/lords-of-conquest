@@ -404,8 +404,15 @@ func (s *GameplayScene) drawTerritoryIcons(screen *ebiten.Image) {
 			icons = append(icons, iconInfo{"horse", ""})
 		}
 
-		// Resource
-		if resource, ok := terr["resource"].(string); ok && resource != "None" && resource != "" {
+		// Resource - show two icons if there's city influence (doubles production)
+		if resource, ok := terr["resource"].(string); ok && resource != "None" && resource != "" && resource != "Grassland" {
+			icons = append(icons, iconInfo{"resource", resource})
+			// Check for city influence (has city or adjacent to city)
+			if s.hasCityInfluence(terrID, terr) {
+				icons = append(icons, iconInfo{"resource", resource})
+			}
+		} else if resource == "Grassland" {
+			// Grassland doesn't get doubled by cities
 			icons = append(icons, iconInfo{"resource", resource})
 		}
 
@@ -678,4 +685,35 @@ func (s *GameplayScene) drawBoatIconFallbackColored(screen *ebiten.Image, x, y, 
 		lineRight := mastX + sailWidth*progress
 		vector.StrokeLine(screen, mastX, lineY, lineRight, lineY, 1.5, sailColor, false)
 	}
+}
+
+// hasCityInfluence checks if a territory has a city or is adjacent to a city owned by the same player.
+// This indicates the territory gets doubled production.
+func (s *GameplayScene) hasCityInfluence(terrID string, terr map[string]interface{}) bool {
+	// Check if territory itself has a city
+	if hasCity, ok := terr["hasCity"].(bool); ok && hasCity {
+		return true
+	}
+
+	// Check adjacent territories
+	owner, _ := terr["owner"].(string)
+	if owner == "" {
+		return false
+	}
+
+	if adjacent, ok := terr["adjacent"].([]interface{}); ok {
+		for _, adjID := range adjacent {
+			adjIDStr := adjID.(string)
+			if adjTerr, ok := s.territories[adjIDStr].(map[string]interface{}); ok {
+				adjOwner, _ := adjTerr["owner"].(string)
+				adjHasCity, _ := adjTerr["hasCity"].(bool)
+				// Must be owned by same player and have a city
+				if adjOwner == owner && adjHasCity {
+					return true
+				}
+			}
+		}
+	}
+
+	return false
 }
