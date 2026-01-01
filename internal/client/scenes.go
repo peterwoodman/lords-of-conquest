@@ -19,21 +19,31 @@ type TitleScene struct {
 	game *Game
 
 	timer       int     // Frame counter
-	phase       int     // 0=8bit, 1=fading, 2=modern, 3=done
+	phase       int     // Current phase
 	fadeAlpha   float64 // 0.0 to 1.0 for fade transition
+	zoomLevel   float64 // Current zoom level (1.0 = normal, 5.0 = 500%)
 	skipPressed bool
 }
 
 // Title screen timing (at 60fps)
 const (
 	titlePhase8Bit    = 0
-	titlePhaseFading  = 1
-	titlePhaseModern  = 2
-	titlePhaseDone    = 3
+	titlePhaseZoomIn  = 1
+	titlePhaseFading  = 2
+	titlePhaseZoomOut = 3
+	titlePhaseModern  = 4
+	titlePhaseDone    = 5
 
-	title8BitDuration  = 120 // 2 seconds of 8-bit
-	titleFadeDuration  = 60  // 1 second fade
-	titleModernDuration = 120 // 2 seconds of modern before connect
+	title8BitDuration    = 10 // 1 second of 8-bit before zoom
+	titleZoomInDuration  = 160 // 1.5 seconds to zoom in
+	titleFadeDuration    = 90 // 1 second fade while zoomed
+	titleZoomOutDuration = 160 // 1.5 seconds to zoom out
+	titleModernDuration  = 60 // 1 second of modern before connect
+
+	// Zoom parameters
+	titleZoomFocusX = 0.75 // 80% on X axis
+	titleZoomFocusY = 0.35 // 39% on Y axis
+	titleZoomMax    = 5.0  // 500% zoom
 )
 
 // NewTitleScene creates a new title scene.
@@ -45,6 +55,7 @@ func (s *TitleScene) OnEnter() {
 	s.timer = 0
 	s.phase = titlePhase8Bit
 	s.fadeAlpha = 0
+	s.zoomLevel = 1.0
 	s.skipPressed = false
 }
 
@@ -71,14 +82,38 @@ func (s *TitleScene) Update() error {
 	// Phase transitions based on timer
 	switch s.phase {
 	case titlePhase8Bit:
+		// Static 8-bit display before zoom
 		if s.timer >= title8BitDuration {
+			s.phase = titlePhaseZoomIn
+			s.timer = 0
+		}
+	case titlePhaseZoomIn:
+		// Zoom in on the 8-bit image
+		progress := float64(s.timer) / float64(titleZoomInDuration)
+		// Ease-out curve for smooth zoom
+		eased := 1 - (1-progress)*(1-progress)
+		s.zoomLevel = 1.0 + (titleZoomMax-1.0)*eased
+		if s.timer >= titleZoomInDuration {
+			s.zoomLevel = titleZoomMax
 			s.phase = titlePhaseFading
 			s.timer = 0
 		}
 	case titlePhaseFading:
+		// Crossfade while zoomed
 		s.fadeAlpha = float64(s.timer) / float64(titleFadeDuration)
 		if s.fadeAlpha >= 1.0 {
 			s.fadeAlpha = 1.0
+			s.phase = titlePhaseZoomOut
+			s.timer = 0
+		}
+	case titlePhaseZoomOut:
+		// Zoom out on the modern image
+		progress := float64(s.timer) / float64(titleZoomOutDuration)
+		// Ease-in curve for smooth zoom out
+		eased := progress * progress
+		s.zoomLevel = titleZoomMax - (titleZoomMax-1.0)*eased
+		if s.timer >= titleZoomOutDuration {
+			s.zoomLevel = 1.0
 			s.phase = titlePhaseModern
 			s.timer = 0
 		}
@@ -104,7 +139,7 @@ func (s *TitleScene) Draw(screen *ebiten.Image) {
 
 	switch s.phase {
 	case titlePhase8Bit:
-		// Show only 8-bit version
+		// Show only 8-bit version (no zoom yet)
 		if img8Bit != nil {
 			s.drawImageFullScreen(screen, img8Bit)
 		} else {
@@ -114,18 +149,30 @@ func (s *TitleScene) Draw(screen *ebiten.Image) {
 			DrawTextCentered(screen, "(8-bit title screen)", int(screenW)/2, int(screenH)/2+20, ColorTextMuted)
 		}
 
-	case titlePhaseFading:
-		// Crossfade between 8-bit and modern
+	case titlePhaseZoomIn:
+		// Zooming in on 8-bit image
 		if img8Bit != nil {
-			s.drawImageFullScreen(screen, img8Bit)
+			s.drawImageZoomed(screen, img8Bit, s.zoomLevel, 1.0)
+		}
+
+	case titlePhaseFading:
+		// Crossfade between 8-bit and modern while zoomed
+		if img8Bit != nil {
+			s.drawImageZoomed(screen, img8Bit, s.zoomLevel, 1.0)
 		}
 		if imgModern != nil {
 			// Draw modern on top with increasing alpha
-			s.drawImageFullScreenWithAlpha(screen, imgModern, s.fadeAlpha)
+			s.drawImageZoomed(screen, imgModern, s.zoomLevel, s.fadeAlpha)
+		}
+
+	case titlePhaseZoomOut:
+		// Zooming out on modern image
+		if imgModern != nil {
+			s.drawImageZoomed(screen, imgModern, s.zoomLevel, 1.0)
 		}
 
 	case titlePhaseModern, titlePhaseDone:
-		// Show only modern version
+		// Show only modern version (no zoom)
 		if imgModern != nil {
 			s.drawImageFullScreen(screen, imgModern)
 		} else {
@@ -192,6 +239,65 @@ func (s *TitleScene) drawImageFullScreenWithAlpha(screen *ebiten.Image, img *ebi
 	op.GeoM.Scale(scale, scale)
 	op.GeoM.Translate(offsetX, offsetY)
 	op.ColorScale.ScaleAlpha(float32(alpha))
+	screen.DrawImage(img, op)
+}
+
+// drawImageZoomed draws an image zoomed around a focal point (titleZoomFocusX, titleZoomFocusY)
+// The focal point in the image will be centered on screen when zoomed.
+func (s *TitleScene) drawImageZoomed(screen *ebiten.Image, img *ebiten.Image, zoom float64, alpha float64) {
+	if img == nil {
+		return
+	}
+
+	imgW := float64(img.Bounds().Dx())
+	imgH := float64(img.Bounds().Dy())
+	screenW := float64(ScreenWidth)
+	screenH := float64(ScreenHeight)
+
+	// Base scale to cover screen
+	scaleX := screenW / imgW
+	scaleY := screenH / imgH
+	baseScale := scaleX
+	if scaleY > scaleX {
+		baseScale = scaleY
+	}
+
+	// Total scale including zoom
+	totalScale := baseScale * zoom
+
+	// The focal point in image coordinates
+	focalImgX := imgW * titleZoomFocusX
+	focalImgY := imgH * titleZoomFocusY
+
+	// Where the focal point ends up after base scaling (centered image)
+	baseOffsetX := (screenW - imgW*baseScale) / 2
+	baseOffsetY := (screenH - imgH*baseScale) / 2
+	focalScreenX := baseOffsetX + focalImgX*baseScale
+	focalScreenY := baseOffsetY + focalImgY*baseScale
+
+	// For zoom > 1, we want the focal point to move toward screen center
+	// Interpolate the focal point position from its base position to screen center
+	targetX := screenW / 2
+	targetY := screenH / 2
+
+	// How much to interpolate (0 = no zoom effect, 1 = fully centered)
+	t := (zoom - 1.0) / (titleZoomMax - 1.0)
+
+	// Current focal point target position (interpolated)
+	currentFocalX := focalScreenX + (targetX-focalScreenX)*t
+	currentFocalY := focalScreenY + (targetY-focalScreenY)*t
+
+	// Calculate offset so that after scaling, the focal point lands at currentFocalX/Y
+	// After scaling: focalImgX * totalScale + offsetX = currentFocalX
+	offsetX := currentFocalX - focalImgX*totalScale
+	offsetY := currentFocalY - focalImgY*totalScale
+
+	op := &ebiten.DrawImageOptions{}
+	op.GeoM.Scale(totalScale, totalScale)
+	op.GeoM.Translate(offsetX, offsetY)
+	if alpha < 1.0 {
+		op.ColorScale.ScaleAlpha(float32(alpha))
+	}
 	screen.DrawImage(img, op)
 }
 
@@ -285,24 +391,24 @@ func (s *ConnectScene) Draw(screen *ebiten.Image) {
 		for i := 0; i < 50; i++ {
 			x := float32((i * 137) % ScreenWidth)
 			y := float32((i * 97) % ScreenHeight)
-			size := float32(1 + (i%3))
+			size := float32(1 + (i % 3))
 			alpha := uint8(100 + (i % 155))
 			starColor := color.RGBA{100, 150, 255, alpha}
 			vector.DrawFilledCircle(screen, x, y, size, starColor, false)
 		}
 	}
-	
+
 	// Main panel
 	panelW := 600
 	panelH := 450
 	panelX := ScreenWidth/2 - panelW/2
 	panelY := ScreenHeight/2 - panelH/2
 	DrawFancyPanel(screen, panelX, panelY, panelW, panelH, "")
-	
+
 	// Huge title - centered
 	titleY := panelY + 40
 	DrawHugeTitleCentered(screen, "LORDS OF CONQUEST", ScreenWidth/2, titleY)
-	
+
 	// Subtitle
 	DrawTextCentered(screen, "Again", ScreenWidth/2, titleY+55, ColorTextMuted)
 
@@ -425,28 +531,28 @@ type LobbyScene struct {
 	createPublic     bool
 
 	// Map generation options
-	mapSizeBtn      [3]*Button // S, M, L
-	mapSize         int        // 0=S, 1=M, 2=L
-	territoriesBtn  [3]*Button // L, M, H
-	territories     int        // 0=L, 1=M, 2=H
-	waterBorderBtn  *Button
-	waterBorder     bool
-	islandsBtn      [3]*Button // L, M, H
-	islands         int        // 0=L, 1=M, 2=H
-	resourcesBtn    [3]*Button // L, M, H
-	resources       int        // 0=L, 1=M, 2=H
-	generateBtn     *Button
-	regenerateBtn   *Button
+	mapSizeBtn     [3]*Button // S, M, L
+	mapSize        int        // 0=S, 1=M, 2=L
+	territoriesBtn [3]*Button // L, M, H
+	territories    int        // 0=L, 1=M, 2=H
+	waterBorderBtn *Button
+	waterBorder    bool
+	islandsBtn     [3]*Button // L, M, H
+	islands        int        // 0=L, 1=M, 2=H
+	resourcesBtn   [3]*Button // L, M, H
+	resources      int        // 0=L, 1=M, 2=H
+	generateBtn    *Button
+	regenerateBtn  *Button
 
 	// Map preview
-	generatedMap    *maps.Map
-	generatedSteps  []maps.GeneratorStep
-	previewGrid     [][]int
-	previewWidth    int
-	previewHeight   int
-	animStep        int
-	animTicker      int
-	animating       bool
+	generatedMap   *maps.Map
+	generatedSteps []maps.GeneratorStep
+	previewGrid    [][]int
+	previewWidth   int
+	previewHeight  int
+	animStep       int
+	animTicker     int
+	animating      bool
 
 	// Auto-refresh timer (5 seconds at 60fps = 300 frames)
 	refreshTimer int
@@ -718,19 +824,19 @@ func (s *LobbyScene) Draw(screen *ebiten.Image) {
 		starColor := color.RGBA{100, 150, 255, alpha}
 		vector.DrawFilledCircle(screen, x, y, 1, starColor, false)
 	}
-	
+
 	// Title panel
 	titlePanel := DrawFancyPanel
 	titlePanel(screen, 20, 20, ScreenWidth-40, 80, "")
-	
+
 	// Large title
 	DrawLargeText(screen, "GAME LOBBY", 45, 35, ColorText)
-	
+
 	DrawText(screen, fmt.Sprintf("Welcome, %s!", s.game.config.PlayerName), 45, 65, ColorTextMuted)
 
 	listY := 120
 	hasYourGames := len(s.yourGames) > 0
-	
+
 	// Your games list (only if there are games)
 	if hasYourGames {
 		DrawFancyPanel(screen, 20, listY, 600, 220, "Your Active Games")
@@ -745,7 +851,7 @@ func (s *LobbyScene) Draw(screen *ebiten.Image) {
 	if !hasYourGames {
 		publicGamesH = ScreenHeight - listY - 20
 	}
-	
+
 	DrawFancyPanel(screen, 20, listY, 600, publicGamesH, "Public Games")
 	s.gameList.Y = listY + 40
 	s.gameList.H = publicGamesH - 50
@@ -755,17 +861,17 @@ func (s *LobbyScene) Draw(screen *ebiten.Image) {
 	rightX := 640
 	rightY := 120
 	DrawFancyPanel(screen, rightX, rightY, 340, ScreenHeight-rightY-20, "Actions")
-	
+
 	// Buttons inside right panel
 	buttonX := rightX + 20
 	buttonY := rightY + 50
-	
+
 	s.createBtn.X = buttonX
 	s.createBtn.Y = buttonY
 	s.createBtn.W = 300
 	s.createBtn.H = 50
 	s.createBtn.Draw(screen)
-	
+
 	buttonY += 80
 	DrawText(screen, "Join by code:", buttonX, buttonY, ColorTextMuted)
 	s.codeInput.X = buttonX
@@ -773,27 +879,27 @@ func (s *LobbyScene) Draw(screen *ebiten.Image) {
 	s.codeInput.W = 200
 	s.codeInput.H = 45
 	s.codeInput.Draw(screen)
-	
+
 	s.joinCodeBtn.X = buttonX + 210
 	s.joinCodeBtn.Y = buttonY + 20
 	s.joinCodeBtn.W = 90
 	s.joinCodeBtn.H = 45
 	s.joinCodeBtn.Draw(screen)
-	
+
 	buttonY += 100
 	s.refreshBtn.X = buttonX
 	s.refreshBtn.Y = buttonY
 	s.refreshBtn.W = 300
 	s.refreshBtn.H = 50
 	s.refreshBtn.Draw(screen)
-	
+
 	buttonY += 70
 	s.joinBtn.X = buttonX
 	s.joinBtn.Y = buttonY
 	s.joinBtn.W = 300
 	s.joinBtn.H = 50
 	s.joinBtn.Draw(screen)
-	
+
 	buttonY += 70
 	s.deleteBtn.X = buttonX
 	s.deleteBtn.Y = buttonY
@@ -804,22 +910,22 @@ func (s *LobbyScene) Draw(screen *ebiten.Image) {
 	// Create dialog overlay
 	if s.showCreate {
 		// Semi-transparent overlay
-		vector.DrawFilledRect(screen, 0, 0, float32(ScreenWidth), float32(ScreenHeight), 
+		vector.DrawFilledRect(screen, 0, 0, float32(ScreenWidth), float32(ScreenHeight),
 			color.RGBA{0, 0, 0, 200}, false)
-		
+
 		// Larger dialog for map generation
 		dialogW := 900
 		dialogH := 600
 		dialogX := (ScreenWidth - dialogW) / 2
 		dialogY := (ScreenHeight - dialogH) / 2
-		
+
 		DrawFancyPanel(screen, dialogX, dialogY, dialogW, dialogH, "Create New Game")
 
 		// Left side: Options
 		optX := dialogX + 30
 		optY := dialogY + 50
 		optW := 280
-		
+
 		// Game name
 		DrawText(screen, "Game Name:", optX, optY, ColorTextMuted)
 		s.createNameInput.X = optX
@@ -914,10 +1020,10 @@ func (s *LobbyScene) Draw(screen *ebiten.Image) {
 		previewY := dialogY + 50
 		previewW := dialogW - 370
 		previewH := dialogH - 150
-		
+
 		// Preview frame
 		DrawPanel(screen, previewX, previewY, previewW, previewH)
-		
+
 		// Draw map preview
 		if s.previewGrid != nil && s.previewWidth > 0 && s.previewHeight > 0 {
 			cellSize := previewW / s.previewWidth
@@ -931,12 +1037,12 @@ func (s *LobbyScene) Draw(screen *ebiten.Image) {
 			if cellSize > 15 {
 				cellSize = 15
 			}
-			
+
 			mapDrawW := s.previewWidth * cellSize
 			mapDrawH := s.previewHeight * cellSize
 			mapOffX := previewX + (previewW-mapDrawW)/2
 			mapOffY := previewY + (previewH-mapDrawH)/2
-			
+
 			for y := 0; y < s.previewHeight; y++ {
 				for x := 0; x < s.previewWidth; x++ {
 					tid := s.previewGrid[y][x]
@@ -948,13 +1054,13 @@ func (s *LobbyScene) Draw(screen *ebiten.Image) {
 						// Territory - use ID for color
 						cellColor = s.territoryColor(tid)
 					}
-					
+
 					cx := float32(mapOffX + x*cellSize)
 					cy := float32(mapOffY + y*cellSize)
 					vector.DrawFilledRect(screen, cx, cy, float32(cellSize), float32(cellSize), cellColor, false)
 				}
 			}
-			
+
 			// Show territory count
 			if s.generatedMap != nil {
 				infoText := fmt.Sprintf("%d territories", len(s.generatedMap.Territories))
@@ -997,10 +1103,10 @@ func (s *LobbyScene) onGenerateMap() {
 		Islands:     maps.IslandAmount(s.islands),
 		Resources:   maps.ResourceAmount(s.resources),
 	}
-	
+
 	gen := maps.NewGenerator(opts)
 	s.generatedMap, s.generatedSteps = gen.Generate()
-	
+
 	// Initialize preview grid for animation - starts as all water (0)
 	s.previewWidth = s.generatedMap.Width
 	s.previewHeight = s.generatedMap.Height
@@ -1009,7 +1115,7 @@ func (s *LobbyScene) onGenerateMap() {
 		s.previewGrid[y] = make([]int, s.previewWidth)
 		// All cells start as water (0) - territories will be added on top
 	}
-	
+
 	// Start animation
 	s.animStep = 0
 	s.animTicker = 0
@@ -1037,7 +1143,7 @@ func (s *LobbyScene) territoryColor(id int) color.RGBA {
 		{90, 130, 170, 255},  // Steel
 		{170, 90, 130, 255},  // Rose
 	}
-	
+
 	return colors[id%len(colors)]
 }
 
@@ -1116,7 +1222,7 @@ func (s *LobbyScene) onCreateConfirm() {
 	if s.generatedMap == nil {
 		return
 	}
-	
+
 	name := s.createNameInput.Text
 	if name == "" {
 		name = s.game.config.PlayerName + "'s Game"
@@ -1139,7 +1245,7 @@ func (s *LobbyScene) onCreateConfirm() {
 		Grid:        s.generatedMap.Grid,
 		Territories: make(map[string]protocol.TerritoryInfo),
 	}
-	
+
 	// Add territory info
 	for id, t := range s.generatedMap.Territories {
 		mapData.Territories[fmt.Sprintf("%d", id)] = protocol.TerritoryInfo{
@@ -1171,11 +1277,11 @@ type WaitingScene struct {
 	settingsBtn *Button
 
 	// Settings dialog
-	showSettings     bool
-	chanceLevelBtns  [3]*Button // Low, Medium, High
+	showSettings      bool
+	chanceLevelBtns   [3]*Button // Low, Medium, High
 	victoryCitiesBtns [4]*Button // 3, 4, 5, 6
-	maxPlayersBtns   [3]*Button // 2, 3, 4
-	settingsCloseBtn *Button
+	maxPlayersBtns    [3]*Button // 2, 3, 4
+	settingsCloseBtn  *Button
 }
 
 // NewWaitingScene creates a new waiting scene.
