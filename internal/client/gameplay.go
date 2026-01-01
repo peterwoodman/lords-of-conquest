@@ -72,6 +72,7 @@ type GameplayScene struct {
 	combatAnimTimer         int                    // Frames remaining
 	combatAnimMaxDuration   int                    // Total animation duration
 	combatPendingResult     *CombatResultData      // Result to show after animation
+	combatPendingState      map[string]interface{} // Game state to apply after animation
 
 	// Attack planning (Conquest phase)
 	showAttackPlan        bool

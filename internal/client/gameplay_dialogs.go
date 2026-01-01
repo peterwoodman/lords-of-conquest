@@ -471,12 +471,12 @@ func (s *GameplayScene) ShowCombatResult(result *CombatResultData) {
 	s.combatPendingResult = result
 	s.combatAnimTerritory = result.TargetTerritory
 	s.combatAnimExplosions = make([]CombatExplosion, 0)
-	
+
 	// Calculate animation duration based on combat strength
 	// Base: 60 frames (1 second), plus more for higher strength battles
 	totalStrength := result.AttackStrength + result.DefenseStrength
 	s.combatAnimMaxDuration = 60 + (totalStrength * 10) // More intense = longer animation
-	if s.combatAnimMaxDuration > 300 { // Cap at 5 seconds
+	if s.combatAnimMaxDuration > 300 {                  // Cap at 5 seconds
 		s.combatAnimMaxDuration = 300
 	}
 	s.combatAnimTimer = s.combatAnimMaxDuration
@@ -486,7 +486,7 @@ func (s *GameplayScene) ShowCombatResult(result *CombatResultData) {
 // updateCombatAnimation updates the combat animation state each frame
 func (s *GameplayScene) updateCombatAnimation() {
 	s.combatAnimTimer--
-	
+
 	// Update existing explosions
 	for i := len(s.combatAnimExplosions) - 1; i >= 0; i-- {
 		s.combatAnimExplosions[i].Frame++
@@ -495,7 +495,7 @@ func (s *GameplayScene) updateCombatAnimation() {
 			s.combatAnimExplosions = append(s.combatAnimExplosions[:i], s.combatAnimExplosions[i+1:]...)
 		}
 	}
-	
+
 	// Spawn new explosions based on combat intensity
 	// Higher strength = more explosions
 	totalStrength := s.combatPendingResult.AttackStrength + s.combatPendingResult.DefenseStrength
@@ -503,7 +503,7 @@ func (s *GameplayScene) updateCombatAnimation() {
 	if spawnRate < 2 {
 		spawnRate = 2
 	}
-	
+
 	// Get territory cells
 	if s.combatAnimTimer > 0 && s.combatAnimTimer%spawnRate == 0 {
 		cells := s.getCombatTerritoryCells()
@@ -513,21 +513,27 @@ func (s *GameplayScene) updateCombatAnimation() {
 			explosion := CombatExplosion{
 				X:         cell[0],
 				Y:         cell[1],
-				OffsetX:   rand.Float32() * float32(s.cellSize-8) + 4,
-				OffsetY:   rand.Float32() * float32(s.cellSize-8) + 4,
+				OffsetX:   rand.Float32()*float32(s.cellSize-8) + 4,
+				OffsetY:   rand.Float32()*float32(s.cellSize-8) + 4,
 				Frame:     0,
 				MaxFrames: 15 + rand.Intn(10), // 15-25 frames per explosion
 			}
 			s.combatAnimExplosions = append(s.combatAnimExplosions, explosion)
 		}
 	}
-	
+
 	// End animation
 	if s.combatAnimTimer <= 0 {
 		s.showCombatAnimation = false
 		s.combatResult = s.combatPendingResult
 		s.showCombatResult = true
 		s.combatAnimExplosions = nil
+
+		// Apply any queued game state update now that animation is done
+		if s.combatPendingState != nil {
+			s.applyGameState(s.combatPendingState)
+			s.combatPendingState = nil
+		}
 	}
 }
 
@@ -536,7 +542,7 @@ func (s *GameplayScene) getCombatTerritoryCells() [][2]int {
 	if s.mapData == nil || s.combatAnimTerritory == "" {
 		return nil
 	}
-	
+
 	grid := s.mapData["grid"].([]interface{})
 	return s.findTerritoryCells(s.combatAnimTerritory, grid)
 }
@@ -554,21 +560,21 @@ func (s *GameplayScene) drawExplosion(screen *ebiten.Image, exp CombatExplosion)
 	sx, sy := s.gridToScreen(exp.X, exp.Y)
 	centerX := float32(sx) + exp.OffsetX
 	centerY := float32(sy) + exp.OffsetY
-	
+
 	// Animation progress (0 to 1)
 	progress := float32(exp.Frame) / float32(exp.MaxFrames)
-	
+
 	// Explosion phases:
 	// 0-0.3: Expanding bright flash
 	// 0.3-0.7: Debris/sparks
 	// 0.7-1.0: Fade out
-	
+
 	if progress < 0.3 {
 		// Expanding flash
 		expandProgress := progress / 0.3
 		radius := 3 + expandProgress*6
 		alpha := uint8(255 - expandProgress*100)
-		
+
 		// Bright center
 		vector.DrawFilledCircle(screen, centerX, centerY, radius,
 			color.RGBA{255, 255, 200, alpha}, false)
@@ -579,14 +585,14 @@ func (s *GameplayScene) drawExplosion(screen *ebiten.Image, exp CombatExplosion)
 		// Debris phase - draw scattered pixels
 		debrisProgress := (progress - 0.3) / 0.4
 		alpha := uint8(255 - debrisProgress*150)
-		
+
 		// Multiple debris particles
 		for i := 0; i < 6; i++ {
 			angle := float64(i) * (3.14159 * 2 / 6)
 			dist := float64(4 + debrisProgress*8)
 			px := centerX + float32(cosApprox(angle)*dist)
 			py := centerY + float32(sinApprox(angle)*dist)
-			
+
 			// Debris colors: orange/red/yellow
 			colors := []color.RGBA{
 				{255, 100, 50, alpha},
@@ -600,7 +606,7 @@ func (s *GameplayScene) drawExplosion(screen *ebiten.Image, exp CombatExplosion)
 		// Fade out - small smoke puffs
 		fadeProgress := (progress - 0.7) / 0.3
 		alpha := uint8(100 - fadeProgress*100)
-		
+
 		// Gray smoke
 		vector.DrawFilledCircle(screen, centerX, centerY, 4,
 			color.RGBA{100, 100, 100, alpha}, false)
