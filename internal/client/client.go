@@ -247,6 +247,19 @@ func (g *Game) MoveStockpile(destinationID string) error {
 	return g.network.SendPayload(protocol.TypeMoveStockpile, payload)
 }
 
+// MoveUnit moves a unit (horse, boat) during shipment phase.
+func (g *Game) MoveUnit(unitType, fromID, toID, waterBodyID string, carryHorse, carryWeapon bool) error {
+	payload := protocol.MoveUnitPayload{
+		UnitType:    unitType,
+		From:        fromID,
+		To:          toID,
+		WaterBodyID: waterBodyID,
+		CarryHorse:  carryHorse,
+		CarryWeapon: carryWeapon,
+	}
+	return g.network.SendPayload(protocol.TypeMoveUnit, payload)
+}
+
 // EndPhase ends the current phase for this player.
 func (g *Game) EndPhase() error {
 	return g.network.SendPayload(protocol.TypeEndPhase, struct{}{})

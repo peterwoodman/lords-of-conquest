@@ -109,6 +109,19 @@ type GameplayScene struct {
 	victoryReason    string
 	victoryTimer     int // Frames since victory started (for message transition)
 	returnToLobbyBtn *Button
+
+	// Shipment phase UI
+	showShipmentMenu      bool
+	shipmentMode          string // "", "stockpile", "horse", "boat"
+	shipmentFromTerritory string // Source territory for unit movement
+	shipmentWaterBodyID   string // For boats: which water body
+	shipmentCarryHorse    bool   // For boats: carry horse?
+	shipmentCarryWeapon   bool   // For boats/horses: carry weapon?
+	moveStockpileBtn      *Button
+	moveHorseBtn          *Button
+	moveBoatBtn           *Button
+	cancelShipmentBtn     *Button
+	shipmentConfirmBtn    *Button
 }
 
 // AllianceRequestData holds data for an incoming alliance request.
@@ -304,6 +317,34 @@ func NewGameplayScene(game *Game) *GameplayScene {
 		},
 	}
 
+	// Shipment phase buttons
+	s.moveStockpileBtn = &Button{
+		X: 0, Y: 0, W: 200, H: 40,
+		Text:    "Move Stockpile",
+		OnClick: func() { s.startShipmentMode("stockpile") },
+	}
+	s.moveHorseBtn = &Button{
+		X: 0, Y: 0, W: 200, H: 40,
+		Text:    "Move Horse",
+		OnClick: func() { s.startShipmentMode("horse") },
+	}
+	s.moveBoatBtn = &Button{
+		X: 0, Y: 0, W: 200, H: 40,
+		Text:    "Move Boat",
+		OnClick: func() { s.startShipmentMode("boat") },
+	}
+	s.cancelShipmentBtn = &Button{
+		X: 0, Y: 0, W: 200, H: 40,
+		Text:    "Cancel",
+		OnClick: func() { s.cancelShipmentMode() },
+	}
+	s.shipmentConfirmBtn = &Button{
+		X: 0, Y: 0, W: 200, H: 40,
+		Text:    "Confirm Move",
+		Primary: true,
+		OnClick: func() { s.confirmShipment() },
+	}
+
 	return s
 }
 
@@ -420,6 +461,33 @@ func (s *GameplayScene) Update() error {
 		return nil // Block other input while showing request
 	}
 
+	// Handle shipment menu
+	if s.showShipmentMenu {
+		s.moveStockpileBtn.Update()
+		s.moveHorseBtn.Update()
+		s.moveBoatBtn.Update()
+		s.cancelShipmentBtn.Update()
+		if s.shipmentMode != "" {
+			s.shipmentConfirmBtn.Update()
+		}
+		if inpututil.IsKeyJustPressed(ebiten.KeyEscape) {
+			if s.shipmentMode != "" {
+				s.cancelShipmentMode()
+			} else {
+				s.showShipmentMenu = false
+			}
+		}
+		// Handle click for destination selection when in a mode
+		if s.shipmentMode != "" && inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) {
+			mx, my := ebiten.CursorPosition()
+			cell := s.screenToGrid(mx, my)
+			if cell[0] >= 0 {
+				s.handleShipmentDestinationClick(cell[0], cell[1])
+			}
+		}
+		return nil // Block other input while showing menu
+	}
+
 	// Update hovered cell
 	mx, my := ebiten.CursorPosition()
 	s.hoveredCell = s.screenToGrid(mx, my)
@@ -501,6 +569,11 @@ func (s *GameplayScene) Draw(screen *ebiten.Image) {
 	// Draw build menu overlay
 	if s.showBuildMenu {
 		s.drawBuildMenu(screen)
+	}
+
+	// Draw shipment menu overlay
+	if s.showShipmentMenu {
+		s.drawShipmentMenu(screen)
 	}
 
 	// Draw water body selection overlay

@@ -54,7 +54,7 @@ func (g *GameState) MoveStockpile(playerID, destinationID string) error {
 }
 
 // MoveUnit moves a unit from one territory to another (Expert level only).
-func (g *GameState) MoveUnit(playerID, unitType, fromID, toID string, carryWeapon bool) error {
+func (g *GameState) MoveUnit(playerID, unitType, fromID, toID, waterBodyID string, carryHorse, carryWeapon bool) error {
 	// Validate phase
 	if g.Phase != PhaseShipment {
 		return ErrInvalidAction
@@ -97,7 +97,7 @@ func (g *GameState) MoveUnit(playerID, unitType, fromID, toID string, carryWeapo
 	case "weapon":
 		return g.moveWeapon(player, from, to)
 	case "boat":
-		return g.moveBoat(player, from, to, carryWeapon)
+		return g.moveBoat(player, from, to, waterBodyID, carryHorse, carryWeapon)
 	default:
 		return ErrInvalidTarget
 	}
@@ -159,7 +159,7 @@ func (g *GameState) moveWeapon(player *Player, from, to *Territory) error {
 
 // moveBoat moves a boat via water to another coastal territory.
 // The boat stays in the same water body it was in.
-func (g *GameState) moveBoat(player *Player, from, to *Territory, carryWeapon bool) error {
+func (g *GameState) moveBoat(player *Player, from, to *Territory, waterBodyID string, carryHorse, carryWeapon bool) error {
 	if from.TotalBoats() == 0 {
 		return ErrInvalidTarget
 	}
@@ -169,24 +169,44 @@ func (g *GameState) moveBoat(player *Player, from, to *Territory, carryWeapon bo
 		return ErrCannotReach
 	}
 
-	// Find a shared water body that has a boat
-	sharedWaterBody := ""
-	for waterID, count := range from.Boats {
-		if count > 0 {
-			// Check if destination also borders this water body
-			for _, destWater := range to.WaterBodies {
-				if destWater == waterID {
-					sharedWaterBody = waterID
-					break
+	// If waterBodyID specified, use that; otherwise find a shared one
+	sharedWaterBody := waterBodyID
+	if sharedWaterBody == "" {
+		// Find a shared water body that has a boat
+		for wID, count := range from.Boats {
+			if count > 0 {
+				// Check if destination also borders this water body
+				for _, destWater := range to.WaterBodies {
+					if destWater == wID {
+						sharedWaterBody = wID
+						break
+					}
 				}
 			}
-		}
-		if sharedWaterBody != "" {
-			break
+			if sharedWaterBody != "" {
+				break
+			}
 		}
 	}
 
 	if sharedWaterBody == "" {
+		return ErrCannotReach
+	}
+
+	// Verify the boat exists in the specified water body
+	if from.BoatsInWater(sharedWaterBody) == 0 {
+		return ErrInvalidTarget
+	}
+
+	// Verify destination borders this water body
+	destBordersWater := false
+	for _, wb := range to.WaterBodies {
+		if wb == sharedWaterBody {
+			destBordersWater = true
+			break
+		}
+	}
+	if !destBordersWater {
 		return ErrCannotReach
 	}
 
@@ -199,10 +219,22 @@ func (g *GameState) moveBoat(player *Player, from, to *Territory, carryWeapon bo
 	from.RemoveBoat(sharedWaterBody)
 	to.AddBoat(sharedWaterBody)
 
-	// Optionally carry weapon (boat can also carry horse with weapon)
-	if carryWeapon && from.HasWeapon && !to.HasWeapon {
+	// Optionally carry horse (lost if destination already has one)
+	if carryHorse && from.HasHorse {
+		from.HasHorse = false
+		if !to.HasHorse {
+			to.HasHorse = true
+		}
+		// If destination already has horse, the carried one is lost
+	}
+
+	// Optionally carry weapon (lost if destination already has one)
+	if carryWeapon && from.HasWeapon {
 		from.HasWeapon = false
-		to.HasWeapon = true
+		if !to.HasWeapon {
+			to.HasWeapon = true
+		}
+		// If destination already has weapon, the carried one is lost
 	}
 
 	g.advanceShipmentTurn()

@@ -79,51 +79,193 @@ func (s *GameplayScene) handleShipment(territoryID string) {
 		return
 	}
 
-	// Get our player data
+	// If shipment menu not shown, show it
+	if !s.showShipmentMenu {
+		s.showShipmentMenu = true
+		s.shipmentMode = ""
+		s.shipmentFromTerritory = ""
+		s.selectedTerritory = ""
+		return
+	}
+}
+
+// startShipmentMode begins a specific type of shipment move.
+func (s *GameplayScene) startShipmentMode(mode string) {
+	s.shipmentMode = mode
+	s.shipmentFromTerritory = ""
+	s.selectedTerritory = ""
+	s.shipmentCarryHorse = false
+	s.shipmentCarryWeapon = false
+	s.shipmentWaterBodyID = ""
+	log.Printf("Started shipment mode: %s", mode)
+}
+
+// cancelShipmentMode cancels the current shipment selection.
+func (s *GameplayScene) cancelShipmentMode() {
+	if s.shipmentMode != "" {
+		s.shipmentMode = ""
+		s.shipmentFromTerritory = ""
+		s.selectedTerritory = ""
+		s.shipmentCarryHorse = false
+		s.shipmentCarryWeapon = false
+		s.shipmentWaterBodyID = ""
+	} else {
+		s.showShipmentMenu = false
+	}
+}
+
+// handleShipmentDestinationClick handles clicks when selecting shipment source/destination.
+func (s *GameplayScene) handleShipmentDestinationClick(x, y int) {
+	if s.mapData == nil {
+		return
+	}
+
+	grid := s.mapData["grid"].([]interface{})
+	row := grid[y].([]interface{})
+	territoryID := int(row[x].(float64))
+
+	if territoryID == 0 {
+		return // Water clicked
+	}
+
+	tid := fmt.Sprintf("t%d", territoryID)
+
+	// Check if we own this territory
+	terr, ok := s.territories[tid].(map[string]interface{})
+	if !ok {
+		return
+	}
+	owner := terr["owner"].(string)
+	if owner != s.game.config.PlayerID {
+		return
+	}
+
+	switch s.shipmentMode {
+	case "stockpile":
+		s.handleStockpileMove(tid)
+	case "horse":
+		s.handleHorseMove(tid, terr)
+	case "boat":
+		s.handleBoatMove(tid, terr)
+	}
+}
+
+// handleStockpileMove handles stockpile movement selection.
+func (s *GameplayScene) handleStockpileMove(tid string) {
+	// Get player's stockpile location
 	myPlayer, ok := s.players[s.game.config.PlayerID]
 	if !ok {
 		return
 	}
 	player := myPlayer.(map[string]interface{})
-
-	// Get stockpile territory
 	stockpileTerr, hasStockpile := player["stockpileTerritory"]
 	if !hasStockpile || stockpileTerr == nil || stockpileTerr == "" {
 		log.Printf("No stockpile to move")
 		return
 	}
-	stockpileID := stockpileTerr.(string)
 
-	// If no selection yet, check if clicking on stockpile
-	if s.selectedTerritory == "" {
-		if territoryID == stockpileID {
-			s.selectedTerritory = territoryID
-			log.Printf("Selected stockpile at %s - click destination to move", territoryID)
-		} else {
-			// Check if clicked on own territory - could be destination
-			if terr, ok := s.territories[territoryID].(map[string]interface{}); ok {
-				owner := terr["owner"].(string)
-				if owner == s.game.config.PlayerID {
-					// Move directly to this territory
-					log.Printf("Moving stockpile to %s", territoryID)
-					s.game.MoveStockpile(territoryID)
-					s.selectedTerritory = ""
+	// Set destination directly (stockpile can move to any connected territory)
+	s.selectedTerritory = tid
+}
+
+// handleHorseMove handles horse movement selection.
+func (s *GameplayScene) handleHorseMove(tid string, terr map[string]interface{}) {
+	if s.shipmentFromTerritory == "" {
+		// First click - select source territory with horse
+		hasHorse, _ := terr["hasHorse"].(bool)
+		if !hasHorse {
+			log.Printf("No horse in %s", tid)
+			return
+		}
+		s.shipmentFromTerritory = tid
+		// Check if we can carry weapon
+		hasWeapon, _ := terr["hasWeapon"].(bool)
+		if hasWeapon {
+			s.shipmentCarryWeapon = true // Default to carrying if available
+		}
+		log.Printf("Selected horse from %s", tid)
+	} else {
+		// Second click - select destination
+		s.selectedTerritory = tid
+	}
+}
+
+// handleBoatMove handles boat movement selection.
+func (s *GameplayScene) handleBoatMove(tid string, terr map[string]interface{}) {
+	if s.shipmentFromTerritory == "" {
+		// First click - select source territory with boat
+		totalBoats, _ := terr["totalBoats"].(float64)
+		if totalBoats == 0 {
+			log.Printf("No boats in %s", tid)
+			return
+		}
+		s.shipmentFromTerritory = tid
+
+		// Get the water body ID for the boat
+		boats, ok := terr["boats"].(map[string]interface{})
+		if ok {
+			for waterID, count := range boats {
+				if c, _ := count.(float64); c > 0 {
+					s.shipmentWaterBodyID = waterID
+					break
 				}
 			}
 		}
+
+		// Check cargo options
+		hasHorse, _ := terr["hasHorse"].(bool)
+		hasWeapon, _ := terr["hasWeapon"].(bool)
+		s.shipmentCarryHorse = hasHorse
+		s.shipmentCarryWeapon = hasWeapon
+		log.Printf("Selected boat from %s (water body: %s)", tid, s.shipmentWaterBodyID)
 	} else {
-		// Already selected stockpile, this click is destination
-		if terr, ok := s.territories[territoryID].(map[string]interface{}); ok {
-			owner := terr["owner"].(string)
-			if owner == s.game.config.PlayerID {
-				log.Printf("Moving stockpile from %s to %s", s.selectedTerritory, territoryID)
-				s.game.MoveStockpile(territoryID)
-				s.selectedTerritory = ""
-			} else {
-				log.Printf("Cannot move stockpile to enemy territory")
-			}
-		}
+		// Second click - select destination
+		s.selectedTerritory = tid
 	}
+}
+
+// confirmShipment executes the selected shipment move.
+func (s *GameplayScene) confirmShipment() {
+	if s.selectedTerritory == "" {
+		log.Printf("No destination selected")
+		return
+	}
+
+	switch s.shipmentMode {
+	case "stockpile":
+		log.Printf("Moving stockpile to %s", s.selectedTerritory)
+		s.game.MoveStockpile(s.selectedTerritory)
+
+	case "horse":
+		if s.shipmentFromTerritory == "" {
+			log.Printf("No source territory selected")
+			return
+		}
+		log.Printf("Moving horse from %s to %s (carry weapon: %v)",
+			s.shipmentFromTerritory, s.selectedTerritory, s.shipmentCarryWeapon)
+		s.game.MoveUnit("horse", s.shipmentFromTerritory, s.selectedTerritory,
+			"", false, s.shipmentCarryWeapon)
+
+	case "boat":
+		if s.shipmentFromTerritory == "" {
+			log.Printf("No source territory selected")
+			return
+		}
+		log.Printf("Moving boat from %s to %s (water: %s, carry horse: %v, weapon: %v)",
+			s.shipmentFromTerritory, s.selectedTerritory, s.shipmentWaterBodyID,
+			s.shipmentCarryHorse, s.shipmentCarryWeapon)
+		s.game.MoveUnit("boat", s.shipmentFromTerritory, s.selectedTerritory,
+			s.shipmentWaterBodyID, s.shipmentCarryHorse, s.shipmentCarryWeapon)
+	}
+
+	// Reset shipment state
+	s.showShipmentMenu = false
+	s.shipmentMode = ""
+	s.shipmentFromTerritory = ""
+	s.selectedTerritory = ""
+	s.shipmentCarryHorse = false
+	s.shipmentCarryWeapon = false
+	s.shipmentWaterBodyID = ""
 }
 
 func (s *GameplayScene) handleConquest(territoryID string) {

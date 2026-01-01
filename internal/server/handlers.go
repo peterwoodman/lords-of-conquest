@@ -1804,7 +1804,7 @@ func (h *Handlers) handleMoveUnit(client *Client, msg *protocol.Message) error {
 	}
 
 	// Execute move
-	if err := state.MoveUnit(client.PlayerID, payload.UnitType, payload.From, payload.To, payload.CarryWeapon); err != nil {
+	if err := state.MoveUnit(client.PlayerID, payload.UnitType, payload.From, payload.To, payload.WaterBodyID, payload.CarryHorse, payload.CarryWeapon); err != nil {
 		return err
 	}
 

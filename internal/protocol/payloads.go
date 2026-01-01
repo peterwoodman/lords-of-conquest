@@ -278,10 +278,12 @@ type MoveStockpilePayload struct {
 
 // MoveUnitPayload moves a unit.
 type MoveUnitPayload struct {
-	UnitType    string `json:"unit_type"`
-	From        string `json:"from"`
-	To          string `json:"to"`
-	CarryWeapon bool   `json:"carry_weapon,omitempty"`
+	UnitType     string `json:"unit_type"`
+	From         string `json:"from"`
+	To           string `json:"to"`
+	WaterBodyID  string `json:"water_body_id,omitempty"` // For boats: which water body
+	CarryHorse   bool   `json:"carry_horse,omitempty"`   // For boats: load horse
+	CarryWeapon  bool   `json:"carry_weapon,omitempty"`  // For boats/horses: load weapon
 }
 
 // PlanAttackPayload begins attack planning.

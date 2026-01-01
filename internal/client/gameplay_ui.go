@@ -487,12 +487,12 @@ func (s *GameplayScene) drawBottomBar(screen *ebiten.Image) {
 
 	case "Shipment":
 		if isMyTurn {
-			if s.selectedTerritory != "" {
-				instruction = "Click a connected territory to move stockpile there"
-				instruction2 = "Press ESC to cancel, or click 'End Turn' to skip"
+			if s.showShipmentMenu {
+				instruction = "Select what to move: stockpile, horse, or boat"
+				instruction2 = "Then click source and destination territories"
 			} else {
-				instruction = "Click your stockpile territory, then click destination"
-				instruction2 = "Or click 'End Turn' to skip this phase"
+				instruction = "Click anywhere on the map to open shipment menu"
+				instruction2 = "Move stockpile, horse, or boat - or click 'End Turn' to skip"
 			}
 		} else {
 			instruction = "Waiting for other player to move units..."
