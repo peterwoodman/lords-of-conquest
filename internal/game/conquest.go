@@ -194,7 +194,18 @@ func (g *GameState) AttackWithAllies(attackerID, targetID string, brought *Broug
 		return nil, ErrNoAttacksRemaining
 	}
 
-	if !g.CanAttack(attackerID, targetID) {
+	// Check if attack is valid - either has adjacent territory OR is bringing a boat
+	canAttack := g.CanAttack(attackerID, targetID)
+	if !canAttack && brought != nil && brought.UnitType == UnitBoat {
+		// Attacking via boat - verify the boat can reach the target
+		from := g.Territories[brought.FromTerritory]
+		if from != nil && from.TotalBoats() > 0 {
+			if g.canBoatReachTargetViaWater(brought.FromTerritory, targetID, brought.WaterBodyID) {
+				canAttack = true
+			}
+		}
+	}
+	if !canAttack {
 		return nil, ErrInvalidTarget
 	}
 

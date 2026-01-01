@@ -2582,7 +2582,7 @@ func (h *Handlers) handleExecuteAttack(client *Client, msg *protocol.Message) er
 		unitsCaptured = append(unitsCaptured, u.TerritoryID)
 	}
 
-	// Send result to attacker
+	// Broadcast combat result to ALL players so everyone sees the animation
 	combatResult := protocol.CombatResultPayload{
 		Success:         true,
 		AttackerWins:    result.AttackerWins,
@@ -2593,9 +2593,7 @@ func (h *Handlers) handleExecuteAttack(client *Client, msg *protocol.Message) er
 		UnitsCaptured:   unitsCaptured,
 	}
 
-	respMsg, _ := protocol.NewMessage(protocol.TypeActionResult, combatResult)
-	respMsg.ID = msg.ID
-	client.Send(respMsg)
+	h.hub.notifyGamePlayers(client.GameID, protocol.TypeActionResult, combatResult)
 
 	if result.AttackerWins {
 		log.Printf("Player %s conquered %s", client.Name, payload.TargetTerritory)

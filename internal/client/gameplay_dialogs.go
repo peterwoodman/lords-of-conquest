@@ -410,15 +410,21 @@ func (s *GameplayScene) drawAttackPlan(screen *ebiten.Image) {
 	// Buttons at bottom of panel
 	btnY := panelY + panelH - 55
 
-	// Attack button (text depends on whether reinforcements are available)
-	if reinforceCount == 0 {
-		s.attackNoReinfBtn.Text = "Attack"
-	} else {
-		s.attackNoReinfBtn.Text = "Attack Without"
+	// Attack button - only show if base attack strength > 0
+	// (if strength is 0, player must bring reinforcements to attack)
+	if s.attackPreview.AttackStrength > 0 {
+		if reinforceCount == 0 {
+			s.attackNoReinfBtn.Text = "Attack"
+		} else {
+			s.attackNoReinfBtn.Text = "Attack Without"
+		}
+		s.attackNoReinfBtn.X = panelX + 20
+		s.attackNoReinfBtn.Y = btnY
+		s.attackNoReinfBtn.Draw(screen)
+	} else if s.selectedReinforcement == nil {
+		// Show message that reinforcement is required
+		DrawText(screen, "Bring forces to attack", panelX+20, btnY+10, ColorWarning)
 	}
-	s.attackNoReinfBtn.X = panelX + 20
-	s.attackNoReinfBtn.Y = btnY
-	s.attackNoReinfBtn.Draw(screen)
 
 	// Cancel button (always on the right)
 	s.cancelAttackBtn.X = panelX + panelW - 120

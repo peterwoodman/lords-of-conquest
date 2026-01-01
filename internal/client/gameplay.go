@@ -566,7 +566,10 @@ func (s *GameplayScene) Update() error {
 
 	// Handle attack planning dialog
 	if s.showAttackPlan {
-		s.attackNoReinfBtn.Update()
+		// Only allow attack without reinforcement if base strength > 0
+		if s.attackPreview != nil && s.attackPreview.AttackStrength > 0 {
+			s.attackNoReinfBtn.Update()
+		}
 		s.cancelAttackBtn.Update()
 		if s.selectedReinforcement != nil {
 			s.attackWithReinfBtn.Update()
@@ -634,7 +637,7 @@ func (s *GameplayScene) Update() error {
 			// Scroll the history panel
 			if dy > 0 {
 				s.historyScroll-- // Scroll up (show newer)
-			} else {
+	} else {
 				s.historyScroll++ // Scroll down (show older)
 			}
 			// Bounds clamping is done in drawHistoryPanel

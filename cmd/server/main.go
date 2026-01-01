@@ -13,7 +13,7 @@ import (
 )
 
 func main() {
-	port := flag.String("port", "8080", "Server port")
+	port := flag.String("port", "30000", "Server port")
 	dbPath := flag.String("db", "data/lords.db", "Database path")
 	flag.Parse()
 

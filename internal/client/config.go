@@ -32,7 +32,7 @@ type Config struct {
 // DefaultConfig returns a config with default values.
 func DefaultConfig() *Config {
 	return &Config{
-		LastServer:   "localhost:8080",
+		LastServer:   "localhost:30000",
 		SoundEnabled: true,
 		MusicVolume:  0.7,
 		SFXVolume:    0.8,
