@@ -396,7 +396,7 @@ func (db *DB) AddAIPlayer(gameID, color, personality string) error {
 	aiID := fmt.Sprintf("ai-%s", uuid.New().String()[:8])
 	aiName := fmt.Sprintf("AI (%s)", personality)
 	aiToken := uuid.New().String()
-	
+
 	_, err = db.conn.Exec(`
 		INSERT INTO players (id, token, name, created_at, last_seen_at)
 		VALUES (?, ?, ?, ?, ?)
@@ -556,10 +556,11 @@ func (db *DB) GetPlayerGames(playerID string) ([]*GameInfo, error) {
 	var games []*GameInfo
 	for rows.Next() {
 		game := &GameInfo{}
+		var joinCode sql.NullString
 		err := rows.Scan(
 			&game.ID,
 			&game.Name,
-			&game.JoinCode,
+			&joinCode,
 			&game.IsPublic,
 			&game.Status,
 			&game.HostPlayerID,
@@ -569,6 +570,9 @@ func (db *DB) GetPlayerGames(playerID string) ([]*GameInfo, error) {
 		)
 		if err != nil {
 			return nil, err
+		}
+		if joinCode.Valid {
+			game.JoinCode = joinCode.String
 		}
 		games = append(games, game)
 	}
@@ -589,4 +593,3 @@ func generateJoinCode() string {
 	// Format as XXXX-XXXX
 	return string(code[:4]) + "-" + string(code[4:])
 }
-

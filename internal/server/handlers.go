@@ -893,7 +893,7 @@ func createStatePayload(state *game.GameState, mapData *maps.Map) map[string]int
 			"hasCity":      t.HasCity,
 			"hasWeapon":    t.HasWeapon,
 			"hasHorse":     t.HasHorse,
-			"boats":        t.Boats,       // Map of water body ID -> count
+			"boats":        t.Boats,        // Map of water body ID -> count
 			"totalBoats":   t.TotalBoats(), // Total for convenience
 			"coastalTiles": t.CoastalTiles,
 			"waterBodies":  t.WaterBodies,
@@ -1139,18 +1139,37 @@ func (h *Handlers) handleYourGames(client *Client, msg *protocol.Message) error 
 		return err
 	}
 
-	gameList := make([]protocol.GameListItem, len(games))
-	for i, g := range games {
-		// Check if it's this player's turn
+	gameList := make([]protocol.GameListItem, 0, len(games))
+	for _, g := range games {
+		// Check if it's this player's turn and if game is actually over
 		isYourTurn := false
+		isGameOver := false
 		if g.Status == database.GameStatusStarted {
 			stateJSON, err := h.hub.server.db.GetGameState(g.ID)
 			if err == nil && stateJSON != "" {
 				var state game.GameState
 				if err := json.Unmarshal([]byte(stateJSON), &state); err == nil {
 					isYourTurn = state.CurrentPlayerID == client.PlayerID
+					// Check if game is actually over but wasn't marked in DB
+					if state.IsGameOver() {
+						isGameOver = true
+						// Fix the database status
+						winner := state.GetWinner()
+						if winner != nil {
+							reason := "elimination"
+							if state.CountCities(winner.ID) >= state.Settings.VictoryCities {
+								reason = "cities"
+							}
+							h.hub.server.db.EndGame(g.ID, winner.ID, reason)
+						}
+					}
 				}
 			}
+		}
+
+		// Skip games that are actually over
+		if isGameOver {
+			continue
 		}
 
 		// Get host player name
@@ -1159,7 +1178,7 @@ func (h *Handlers) handleYourGames(client *Client, msg *protocol.Message) error 
 			hostName = host.Name
 		}
 
-		gameList[i] = protocol.GameListItem{
+		gameList = append(gameList, protocol.GameListItem{
 			ID:          g.ID,
 			Name:        g.Name,
 			JoinCode:    g.JoinCode,
@@ -1168,7 +1187,7 @@ func (h *Handlers) handleYourGames(client *Client, msg *protocol.Message) error 
 			MaxPlayers:  g.MaxPlayers,
 			IsYourTurn:  isYourTurn,
 			HostName:    hostName,
-		}
+		})
 	}
 
 	response := protocol.YourGamesPayload{Games: gameList}
@@ -2571,8 +2590,10 @@ func (h *Handlers) handleGameOver(gameID string, state *game.GameState) {
 
 	log.Printf("Game %s ended! Winner: %s (%s) by %s", gameID, winner.Name, winner.ID, reason)
 
-	// Update game status in database
-	h.hub.server.db.EndGame(gameID, winner.ID, reason)
+	// Update game status in database - log error if it fails
+	if err := h.hub.server.db.EndGame(gameID, winner.ID, reason); err != nil {
+		log.Printf("ERROR: Failed to mark game %s as finished: %v", gameID, err)
+	}
 
 	// Log the victory
 	h.logHistory(gameID, state.Round, state.Phase.String(), winner.ID, winner.Name,
