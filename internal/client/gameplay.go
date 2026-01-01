@@ -65,6 +65,14 @@ type GameplayScene struct {
 	combatResult     *CombatResultData
 	dismissResultBtn *Button
 
+	// Combat animation
+	showCombatAnimation     bool
+	combatAnimTerritory     string                 // Territory being attacked
+	combatAnimExplosions    []CombatExplosion      // Active explosions
+	combatAnimTimer         int                    // Frames remaining
+	combatAnimMaxDuration   int                    // Total animation duration
+	combatPendingResult     *CombatResultData      // Result to show after animation
+
 	// Attack planning (Conquest phase)
 	showAttackPlan        bool
 	attackPlanTarget      string             // Territory ID being attacked
@@ -192,6 +200,15 @@ type HistoryEntry struct {
 	PlayerName string
 	EventType  string
 	Message    string
+}
+
+// CombatExplosion represents a single explosion effect in the combat animation.
+type CombatExplosion struct {
+	X, Y      int     // Grid position
+	OffsetX   float32 // Random offset within cell
+	OffsetY   float32 // Random offset within cell
+	Frame     int     // Current animation frame
+	MaxFrames int     // Total frames for this explosion
 }
 
 // CombatResultData holds the result of a combat for display
@@ -453,6 +470,12 @@ func (s *GameplayScene) Update() error {
 		return nil // Block all other input
 	}
 
+	// Handle combat animation
+	if s.showCombatAnimation {
+		s.updateCombatAnimation()
+		return nil // Block all input during animation
+	}
+
 	// Handle combat result dialog
 	if s.showCombatResult {
 		s.dismissResultBtn.Update()
@@ -692,6 +715,10 @@ func (s *GameplayScene) Draw(screen *ebiten.Image) {
 	// Draw attack planning overlay
 	if s.showAttackPlan {
 		s.drawAttackPlan(screen)
+	}
+	// Draw combat animation
+	if s.showCombatAnimation {
+		s.drawCombatAnimation(screen)
 	}
 	// Draw combat result overlay
 	if s.showCombatResult {

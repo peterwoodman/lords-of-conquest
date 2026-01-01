@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"image/color"
 	"log"
+	"math/rand"
 
 	"lords-of-conquest/internal/protocol"
 
@@ -120,17 +121,17 @@ func (s *GameplayScene) drawCombatResult(screen *ebiten.Image) {
 	vector.DrawFilledRect(screen, 0, 0, float32(ScreenWidth), float32(ScreenHeight),
 		color.RGBA{0, 0, 0, 200}, false)
 
-	// Result panel
-	panelW := 320
-	panelH := 160
+	// Result panel - increased height to prevent overlap
+	panelW := 340
+	panelH := 200
 	panelX := ScreenWidth/2 - panelW/2
 	panelY := ScreenHeight/2 - panelH/2
 
 	// Panel color based on result
 	if s.combatResult.AttackerWins {
-		DrawFancyPanel(screen, panelX, panelY, panelW, panelH, "⚔ VICTORY!")
+		DrawFancyPanel(screen, panelX, panelY, panelW, panelH, "VICTORY!")
 	} else {
-		DrawFancyPanel(screen, panelX, panelY, panelW, panelH, "⚔ DEFEAT")
+		DrawFancyPanel(screen, panelX, panelY, panelW, panelH, "DEFEAT")
 	}
 
 	// Result text
@@ -143,10 +144,10 @@ func (s *GameplayScene) drawCombatResult(screen *ebiten.Image) {
 		resultText = "Attack Failed!"
 		resultColor = ColorDanger
 	}
-	DrawLargeTextCentered(screen, resultText, ScreenWidth/2, panelY+55, resultColor)
+	DrawLargeTextCentered(screen, resultText, ScreenWidth/2, panelY+60, resultColor)
 
 	// Territory name
-	DrawTextCentered(screen, s.combatResult.TargetName, ScreenWidth/2, panelY+80, ColorText)
+	DrawTextCentered(screen, s.combatResult.TargetName, ScreenWidth/2, panelY+90, ColorText)
 
 	// Outcome description
 	var outcomeText string
@@ -155,9 +156,9 @@ func (s *GameplayScene) drawCombatResult(screen *ebiten.Image) {
 	} else {
 		outcomeText = "Your forces were repelled."
 	}
-	DrawTextCentered(screen, outcomeText, ScreenWidth/2, panelY+100, ColorTextMuted)
+	DrawTextCentered(screen, outcomeText, ScreenWidth/2, panelY+115, ColorTextMuted)
 
-	// OK button
+	// OK button - positioned with proper spacing
 	s.dismissResultBtn.X = ScreenWidth/2 - 60
 	s.dismissResultBtn.Y = panelY + panelH - 55
 	s.dismissResultBtn.Draw(screen)
@@ -464,10 +465,146 @@ func (s *GameplayScene) drawCheckbox(screen *ebiten.Image, x, y int, label strin
 	}
 }
 
-// ShowCombatResult displays the combat result popup
+// ShowCombatResult starts the combat animation before displaying the result
 func (s *GameplayScene) ShowCombatResult(result *CombatResultData) {
-	s.combatResult = result
-	s.showCombatResult = true
+	// Start the combat animation
+	s.combatPendingResult = result
+	s.combatAnimTerritory = result.TargetTerritory
+	s.combatAnimExplosions = make([]CombatExplosion, 0)
+	
+	// Calculate animation duration based on combat strength
+	// Base: 60 frames (1 second), plus more for higher strength battles
+	totalStrength := result.AttackStrength + result.DefenseStrength
+	s.combatAnimMaxDuration = 60 + (totalStrength * 10) // More intense = longer animation
+	if s.combatAnimMaxDuration > 300 { // Cap at 5 seconds
+		s.combatAnimMaxDuration = 300
+	}
+	s.combatAnimTimer = s.combatAnimMaxDuration
+	s.showCombatAnimation = true
+}
+
+// updateCombatAnimation updates the combat animation state each frame
+func (s *GameplayScene) updateCombatAnimation() {
+	s.combatAnimTimer--
+	
+	// Update existing explosions
+	for i := len(s.combatAnimExplosions) - 1; i >= 0; i-- {
+		s.combatAnimExplosions[i].Frame++
+		// Remove finished explosions
+		if s.combatAnimExplosions[i].Frame >= s.combatAnimExplosions[i].MaxFrames {
+			s.combatAnimExplosions = append(s.combatAnimExplosions[:i], s.combatAnimExplosions[i+1:]...)
+		}
+	}
+	
+	// Spawn new explosions based on combat intensity
+	// Higher strength = more explosions
+	totalStrength := s.combatPendingResult.AttackStrength + s.combatPendingResult.DefenseStrength
+	spawnRate := 8 - totalStrength // Faster spawning for stronger battles
+	if spawnRate < 2 {
+		spawnRate = 2
+	}
+	
+	// Get territory cells
+	if s.combatAnimTimer > 0 && s.combatAnimTimer%spawnRate == 0 {
+		cells := s.getCombatTerritoryCells()
+		if len(cells) > 0 {
+			// Pick random cell
+			cell := cells[rand.Intn(len(cells))]
+			explosion := CombatExplosion{
+				X:         cell[0],
+				Y:         cell[1],
+				OffsetX:   rand.Float32() * float32(s.cellSize-8) + 4,
+				OffsetY:   rand.Float32() * float32(s.cellSize-8) + 4,
+				Frame:     0,
+				MaxFrames: 15 + rand.Intn(10), // 15-25 frames per explosion
+			}
+			s.combatAnimExplosions = append(s.combatAnimExplosions, explosion)
+		}
+	}
+	
+	// End animation
+	if s.combatAnimTimer <= 0 {
+		s.showCombatAnimation = false
+		s.combatResult = s.combatPendingResult
+		s.showCombatResult = true
+		s.combatAnimExplosions = nil
+	}
+}
+
+// getCombatTerritoryCells returns all cells of the combat target territory
+func (s *GameplayScene) getCombatTerritoryCells() [][2]int {
+	if s.mapData == nil || s.combatAnimTerritory == "" {
+		return nil
+	}
+	
+	grid := s.mapData["grid"].([]interface{})
+	return s.findTerritoryCells(s.combatAnimTerritory, grid)
+}
+
+// drawCombatAnimation draws the combat animation effects
+func (s *GameplayScene) drawCombatAnimation(screen *ebiten.Image) {
+	// Draw explosions
+	for _, exp := range s.combatAnimExplosions {
+		s.drawExplosion(screen, exp)
+	}
+}
+
+// drawExplosion draws a single explosion effect
+func (s *GameplayScene) drawExplosion(screen *ebiten.Image, exp CombatExplosion) {
+	sx, sy := s.gridToScreen(exp.X, exp.Y)
+	centerX := float32(sx) + exp.OffsetX
+	centerY := float32(sy) + exp.OffsetY
+	
+	// Animation progress (0 to 1)
+	progress := float32(exp.Frame) / float32(exp.MaxFrames)
+	
+	// Explosion phases:
+	// 0-0.3: Expanding bright flash
+	// 0.3-0.7: Debris/sparks
+	// 0.7-1.0: Fade out
+	
+	if progress < 0.3 {
+		// Expanding flash
+		expandProgress := progress / 0.3
+		radius := 3 + expandProgress*6
+		alpha := uint8(255 - expandProgress*100)
+		
+		// Bright center
+		vector.DrawFilledCircle(screen, centerX, centerY, radius,
+			color.RGBA{255, 255, 200, alpha}, false)
+		// Orange glow
+		vector.DrawFilledCircle(screen, centerX, centerY, radius*0.7,
+			color.RGBA{255, 150, 50, alpha}, false)
+	} else if progress < 0.7 {
+		// Debris phase - draw scattered pixels
+		debrisProgress := (progress - 0.3) / 0.4
+		alpha := uint8(255 - debrisProgress*150)
+		
+		// Multiple debris particles
+		for i := 0; i < 6; i++ {
+			angle := float64(i) * (3.14159 * 2 / 6)
+			dist := float64(4 + debrisProgress*8)
+			px := centerX + float32(cosApprox(angle)*dist)
+			py := centerY + float32(sinApprox(angle)*dist)
+			
+			// Debris colors: orange/red/yellow
+			colors := []color.RGBA{
+				{255, 100, 50, alpha},
+				{255, 200, 50, alpha},
+				{255, 50, 50, alpha},
+			}
+			c := colors[i%3]
+			vector.DrawFilledRect(screen, px-1, py-1, 3, 3, c, false)
+		}
+	} else {
+		// Fade out - small smoke puffs
+		fadeProgress := (progress - 0.7) / 0.3
+		alpha := uint8(100 - fadeProgress*100)
+		
+		// Gray smoke
+		vector.DrawFilledCircle(screen, centerX, centerY, 4,
+			color.RGBA{100, 100, 100, alpha}, false)
+	}
 }
 
 // ShowAttackPlan displays the attack planning dialog

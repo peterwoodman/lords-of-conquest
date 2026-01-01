@@ -77,13 +77,6 @@ func (s *GameplayScene) drawMap(screen *ebiten.Image) {
 				cellColor.B = min(cellColor.B+60, 255)
 			}
 
-			// Highlight hovered cell
-			if x == s.hoveredCell[0] && y == s.hoveredCell[1] {
-				cellColor.R = min(cellColor.R+40, 255)
-				cellColor.G = min(cellColor.G+40, 255)
-				cellColor.B = min(cellColor.B+40, 255)
-			}
-
 			// Calculate insets based on borders with different territories
 			leftInset := float32(0)
 			topInset := float32(0)
