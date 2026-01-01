@@ -987,13 +987,17 @@ func (h *Handlers) handleSelectTerritory(client *Client, msg *protocol.Message) 
 		terrName = terr.Name
 	}
 
+	// Capture round and phase BEFORE selection (it may advance after the last territory)
+	historyRound := state.Round
+	historyPhase := state.Phase.String()
+
 	// Execute selection
 	if err := state.SelectTerritory(client.PlayerID, payload.TerritoryID); err != nil {
 		return err
 	}
 
-	// Log history event
-	h.logHistory(client.GameID, state.Round, state.Phase.String(), client.PlayerID, client.Name,
+	// Log history event with the round/phase from BEFORE the selection
+	h.logHistory(client.GameID, historyRound, historyPhase, client.PlayerID, client.Name,
 		database.EventTerritorySelected, fmt.Sprintf("Selected %s", terrName))
 
 	// Save updated state
