@@ -31,7 +31,7 @@ const (
 	titlePhaseModern  = 2
 	titlePhaseDone    = 3
 
-	title8BitDuration  = 180 // 3 seconds of 8-bit
+	title8BitDuration  = 120 // 2 seconds of 8-bit
 	titleFadeDuration  = 60  // 1 second fade
 	titleModernDuration = 120 // 2 seconds of modern before connect
 )
