@@ -1625,14 +1625,37 @@ func (h *Handlers) aiConquest(gameID string, state *game.GameState) {
 		if err != nil {
 			log.Printf("AI: Attack failed: %v", err)
 			state.EndConquest(state.CurrentPlayerID)
-		} else if result.AttackerWins {
-			log.Printf("AI: Attack successful!")
-			h.logHistory(gameID, state.Round, state.Phase.String(), state.CurrentPlayerID, playerName,
-				database.EventAttackSuccess, fmt.Sprintf("Captured %s", terrName))
 		} else {
-			log.Printf("AI: Attack failed, lost the battle")
-			h.logHistory(gameID, state.Round, state.Phase.String(), state.CurrentPlayerID, playerName,
-				database.EventAttackFailed, fmt.Sprintf("Attack on %s failed", terrName))
+			// Broadcast combat result to all players so everyone sees the animation
+			unitsDestroyed := make([]string, 0)
+			for _, u := range result.UnitsDestroyed {
+				unitsDestroyed = append(unitsDestroyed, u.TerritoryID)
+			}
+			unitsCaptured := make([]string, 0)
+			for _, u := range result.UnitsCaptured {
+				unitsCaptured = append(unitsCaptured, u.TerritoryID)
+			}
+
+			combatResult := protocol.CombatResultPayload{
+				Success:         true,
+				AttackerWins:    result.AttackerWins,
+				AttackStrength:  result.AttackStrength,
+				DefenseStrength: result.DefenseStrength,
+				TargetTerritory: bestTarget,
+				UnitsDestroyed:  unitsDestroyed,
+				UnitsCaptured:   unitsCaptured,
+			}
+			h.hub.notifyGamePlayers(gameID, protocol.TypeActionResult, combatResult)
+
+			if result.AttackerWins {
+				log.Printf("AI: Attack successful!")
+				h.logHistory(gameID, state.Round, state.Phase.String(), state.CurrentPlayerID, playerName,
+					database.EventAttackSuccess, fmt.Sprintf("Captured %s", terrName))
+			} else {
+				log.Printf("AI: Attack failed, lost the battle")
+				h.logHistory(gameID, state.Round, state.Phase.String(), state.CurrentPlayerID, playerName,
+					database.EventAttackFailed, fmt.Sprintf("Attack on %s failed", terrName))
+			}
 		}
 	} else {
 		log.Printf("AI: No favorable attacks (best odds: %.2f), ending conquest", bestOdds)

@@ -644,12 +644,37 @@ func (g *Generator) assignResources(raw *RawMap) {
 	g.rng.Shuffle(len(ids), func(i, j int) { ids[i], ids[j] = ids[j], ids[i] })
 
 	numWithRes := int(float64(len(ids)) * ratio)
-	resources := []string{"coal", "gold", "iron", "timber", "grassland"}
+	if numWithRes < 5 {
+		numWithRes = 5 // Minimum to guarantee one of each type
+	}
+	if numWithRes > len(ids) {
+		numWithRes = len(ids)
+	}
 
+	// Build guaranteed resources list
+	// Always include at least one of each critical resource
+	guaranteed := []string{"coal", "gold", "iron", "timber", "grassland"}
+	
+	// On island maps, add extra timber and gold for boat building
+	if g.options.Islands == IslandAmountHigh {
+		guaranteed = append(guaranteed, "timber", "gold", "timber") // Extra boat resources
+	} else if g.options.Islands == IslandAmountMedium {
+		guaranteed = append(guaranteed, "timber", "gold") // Some extra
+	}
+
+	// Assign resources
+	resources := []string{"coal", "gold", "iron", "timber", "grassland"}
+	
 	for i, tid := range ids {
 		res := ""
 		if i < numWithRes {
-			res = resources[g.rng.Intn(len(resources))]
+			if i < len(guaranteed) {
+				// First territories get guaranteed resources
+				res = guaranteed[i]
+			} else {
+				// Rest are random
+				res = resources[g.rng.Intn(len(resources))]
+			}
 		}
 		raw.Territories[fmt.Sprintf("%d", tid)] = RawTerritory{
 			Name:     g.genName(tid),
