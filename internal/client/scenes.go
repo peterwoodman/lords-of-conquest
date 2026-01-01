@@ -503,7 +503,6 @@ type LobbyScene struct {
 	createBtn    *Button
 	joinBtn      *Button
 	joinCodeBtn  *Button
-	refreshBtn   *Button
 	deleteBtn    *Button
 	games        []protocol.GameListItem
 	yourGames    []protocol.GameListItem
@@ -593,12 +592,6 @@ func NewLobbyScene(game *Game) *LobbyScene {
 		X: 810, Y: 150, W: 100, H: 40,
 		Text:    "Join",
 		OnClick: s.onJoinByCode,
-	}
-
-	s.refreshBtn = &Button{
-		X: 600, Y: 200, W: 200, H: 40,
-		Text:    "Refresh",
-		OnClick: s.onRefresh,
 	}
 
 	// Create dialog
@@ -777,7 +770,6 @@ func (s *LobbyScene) Update() error {
 	s.joinBtn.Update()
 	s.deleteBtn.Update()
 	s.joinCodeBtn.Update()
-	s.refreshBtn.Update()
 
 	// Auto-refresh every 5 seconds (300 frames at 60fps)
 	s.refreshTimer++
@@ -874,26 +866,25 @@ func (s *LobbyScene) Draw(screen *ebiten.Image) {
 	s.joinCodeBtn.H = 45
 	s.joinCodeBtn.Draw(screen)
 
-	buttonY += 100
-	s.refreshBtn.X = buttonX
-	s.refreshBtn.Y = buttonY
-	s.refreshBtn.W = 300
-	s.refreshBtn.H = 50
-	s.refreshBtn.Draw(screen)
+	// Only show Join button if a game is selected
+	if s.selectedGame != "" {
+		buttonY += 100
+		s.joinBtn.X = buttonX
+		s.joinBtn.Y = buttonY
+		s.joinBtn.W = 300
+		s.joinBtn.H = 50
+		s.joinBtn.Draw(screen)
 
-	buttonY += 70
-	s.joinBtn.X = buttonX
-	s.joinBtn.Y = buttonY
-	s.joinBtn.W = 300
-	s.joinBtn.H = 50
-	s.joinBtn.Draw(screen)
-
-	buttonY += 70
-	s.deleteBtn.X = buttonX
-	s.deleteBtn.Y = buttonY
-	s.deleteBtn.W = 300
-	s.deleteBtn.H = 50
-	s.deleteBtn.Draw(screen)
+		// Only show Delete button if user owns the selected game
+		if s.isCreator(s.selectedGame) {
+			buttonY += 70
+			s.deleteBtn.X = buttonX
+			s.deleteBtn.Y = buttonY
+			s.deleteBtn.W = 300
+			s.deleteBtn.H = 50
+			s.deleteBtn.Draw(screen)
+		}
+	}
 
 	// Create dialog overlay
 	if s.showCreate {
@@ -1177,12 +1168,6 @@ func (s *LobbyScene) isCreator(gameID string) bool {
 	return false
 }
 
-func (s *LobbyScene) onRefresh() {
-	s.refreshTimer = 0 // Reset auto-refresh timer
-	s.game.ListGames()
-	s.game.ListYourGames()
-}
-
 func (s *LobbyScene) onJoinSelected() {
 	if s.selectedGame != "" {
 		s.game.JoinGame(s.selectedGame)
@@ -1194,7 +1179,9 @@ func (s *LobbyScene) onDeleteGame() {
 		s.game.DeleteGame(s.selectedGame)
 		s.selectedGame = ""
 		// Refresh lists
-		s.onRefresh()
+		s.refreshTimer = 0
+		s.game.ListGames()
+		s.game.ListYourGames()
 	}
 }
 
