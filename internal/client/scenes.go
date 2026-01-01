@@ -38,7 +38,7 @@ const (
 	titleStartFade    = 130 // Start fading (overlaps with end of zoom-in)
 	titleStartZoomOut = 190 // Start zooming out (overlaps with end of fade)
 	titleStartModern  = 320 // Fully zoomed out, show modern
-	titleEnd          = 330 // Transition to connect scene
+	titleEnd          = 350 // Transition to connect scene
 
 	// Durations for smooth interpolation
 	titleZoomInFrames  = 160 // How long zoom-in takes

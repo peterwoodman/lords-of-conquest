@@ -941,10 +941,30 @@ func (s *GameplayScene) voteAlliance(side string) {
 	s.allyRequest = nil
 }
 
-// ShowPhaseSkipped displays the phase skip popup.
+// ShowPhaseSkipped queues a phase skip popup for display.
 func (s *GameplayScene) ShowPhaseSkipped(phase, reason string) {
-	s.phaseSkipPhase = phase
-	s.phaseSkipReason = reason
+	// Add to queue
+	s.phaseSkipQueue = append(s.phaseSkipQueue, PhaseSkipData{Phase: phase, Reason: reason})
+
+	// If not currently showing a skip, start showing the first one
+	if !s.showPhaseSkip {
+		s.showNextPhaseSkip()
+	}
+}
+
+// showNextPhaseSkip displays the next queued phase skip.
+func (s *GameplayScene) showNextPhaseSkip() {
+	if len(s.phaseSkipQueue) == 0 {
+		s.showPhaseSkip = false
+		return
+	}
+
+	// Pop from queue
+	skip := s.phaseSkipQueue[0]
+	s.phaseSkipQueue = s.phaseSkipQueue[1:]
+
+	s.phaseSkipPhase = skip.Phase
+	s.phaseSkipReason = skip.Reason
 	s.phaseSkipCountdown = 30 * 60 // 30 seconds at 60fps
 	s.showPhaseSkip = true
 }

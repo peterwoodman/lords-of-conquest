@@ -95,11 +95,12 @@ type GameplayScene struct {
 	supportDefenderBtn    *Button
 	stayNeutralBtn        *Button
 
-	// Phase skip popup
+	// Phase skip popup (queue to handle multiple skips)
 	showPhaseSkip      bool
 	phaseSkipPhase     string
 	phaseSkipReason    string
 	phaseSkipCountdown int // Frames remaining (30 seconds at 60fps = 1800)
+	phaseSkipQueue     []PhaseSkipData // Queue for pending skip messages
 	dismissSkipBtn     *Button
 
 	// Victory screen
@@ -177,6 +178,12 @@ type ReinforcementData struct {
 	StrengthBonus  int
 	CanCarryWeapon bool
 	CanCarryHorse  bool
+}
+
+// PhaseSkipData holds info about a skipped phase for the popup queue
+type PhaseSkipData struct {
+	Phase  string
+	Reason string
 }
 
 // Panel is a UI panel.
@@ -300,7 +307,7 @@ func NewGameplayScene(game *Game) *GameplayScene {
 		X: 0, Y: 0, W: 100, H: 40,
 		Text: "OK",
 		OnClick: func() {
-			s.showPhaseSkip = false
+			s.showNextPhaseSkip() // Show next in queue or close
 		},
 	}
 
@@ -381,10 +388,10 @@ func (s *GameplayScene) Update() error {
 		s.dismissSkipBtn.Update()
 		s.phaseSkipCountdown--
 		if s.phaseSkipCountdown <= 0 {
-			s.showPhaseSkip = false
+			s.showNextPhaseSkip() // Show next in queue or close
 		}
 		if inpututil.IsKeyJustPressed(ebiten.KeyEscape) || inpututil.IsKeyJustPressed(ebiten.KeyEnter) {
-			s.showPhaseSkip = false
+			s.showNextPhaseSkip() // Show next in queue or close
 		}
 		return nil // Block other input while showing popup
 	}
