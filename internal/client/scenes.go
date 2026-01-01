@@ -3,6 +3,7 @@ package client
 import (
 	"fmt"
 	"image/color"
+	"math"
 
 	"lords-of-conquest/internal/protocol"
 	"lords-of-conquest/pkg/maps"
@@ -25,24 +26,28 @@ type TitleScene struct {
 	skipPressed bool
 }
 
-// Title screen timing (at 60fps)
+// Title screen timing (at 60fps) - using absolute frame positions on timeline
 const (
-	titlePhase8Bit    = 0
-	titlePhaseZoomIn  = 1
-	titlePhaseFading  = 2
-	titlePhaseZoomOut = 3
-	titlePhaseModern  = 4
-	titlePhaseDone    = 5
+	titlePhaseAnimating = 0
+	titlePhaseDone      = 1
 
-	title8BitDuration    = 10 // 1 second of 8-bit before zoom
-	titleZoomInDuration  = 160 // 1.5 seconds to zoom in
-	titleFadeDuration    = 90 // 1 second fade while zoomed
-	titleZoomOutDuration = 160 // 1.5 seconds to zoom out
-	titleModernDuration  = 60 // 1 second of modern before connect
+	// Timeline: [8bit] -> [zoom in] -> [fade+hold] -> [zoom out] -> [modern] -> done
+	// With overlap, fade starts before zoom-in ends, zoom-out starts before fade ends
+	titleStart8Bit    = 0
+	titleStartZoomIn  = 10  // Start zooming in
+	titleStartFade    = 130 // Start fading (overlaps with end of zoom-in)
+	titleStartZoomOut = 190 // Start zooming out (overlaps with end of fade)
+	titleStartModern  = 320 // Fully zoomed out, show modern
+	titleEnd          = 330 // Transition to connect scene
+
+	// Durations for smooth interpolation
+	titleZoomInFrames  = 160 // How long zoom-in takes
+	titleFadeFrames    = 100 // How long fade takes
+	titleZoomOutFrames = 160 // How long zoom-out takes
 
 	// Zoom parameters
-	titleZoomFocusX = 0.75 // 80% on X axis
-	titleZoomFocusY = 0.35 // 39% on Y axis
+	titleZoomFocusX = 0.75 // 75% on X axis
+	titleZoomFocusY = 0.35 // 35% on Y axis
 	titleZoomMax    = 5.0  // 500% zoom
 )
 
@@ -53,7 +58,7 @@ func NewTitleScene(game *Game) *TitleScene {
 
 func (s *TitleScene) OnEnter() {
 	s.timer = 0
-	s.phase = titlePhase8Bit
+	s.phase = titlePhaseAnimating
 	s.fadeAlpha = 0
 	s.zoomLevel = 1.0
 	s.skipPressed = false
@@ -79,50 +84,51 @@ func (s *TitleScene) Update() error {
 		return nil
 	}
 
-	// Phase transitions based on timer
-	switch s.phase {
-	case titlePhase8Bit:
-		// Static 8-bit display before zoom
-		if s.timer >= title8BitDuration {
-			s.phase = titlePhaseZoomIn
-			s.timer = 0
-		}
-	case titlePhaseZoomIn:
-		// Zoom in on the 8-bit image
-		progress := float64(s.timer) / float64(titleZoomInDuration)
-		// Ease-out curve for smooth zoom
-		eased := 1 - (1-progress)*(1-progress)
-		s.zoomLevel = 1.0 + (titleZoomMax-1.0)*eased
-		if s.timer >= titleZoomInDuration {
-			s.zoomLevel = titleZoomMax
-			s.phase = titlePhaseFading
-			s.timer = 0
-		}
-	case titlePhaseFading:
-		// Crossfade while zoomed
-		s.fadeAlpha = float64(s.timer) / float64(titleFadeDuration)
-		if s.fadeAlpha >= 1.0 {
-			s.fadeAlpha = 1.0
-			s.phase = titlePhaseZoomOut
-			s.timer = 0
-		}
-	case titlePhaseZoomOut:
-		// Zoom out on the modern image
-		progress := float64(s.timer) / float64(titleZoomOutDuration)
-		// Ease-in curve for smooth zoom out
-		eased := progress * progress
-		s.zoomLevel = titleZoomMax - (titleZoomMax-1.0)*eased
-		if s.timer >= titleZoomOutDuration {
-			s.zoomLevel = 1.0
-			s.phase = titlePhaseModern
-			s.timer = 0
-		}
-	case titlePhaseModern:
-		if s.timer >= titleModernDuration {
-			s.phase = titlePhaseDone
-			s.game.connectScene.showTitleBackground = true
-			s.game.SetScene(s.game.connectScene)
-		}
+	// Single timeline approach - calculate zoom and fade based on current frame
+	t := s.timer
+	logMin := math.Log(1.0)
+	logMax := math.Log(titleZoomMax)
+
+	// Calculate zoom level based on timeline position
+	if t < titleStartZoomIn {
+		// Before zoom starts
+		s.zoomLevel = 1.0
+	} else if t < titleStartZoomIn+titleZoomInFrames {
+		// Zooming in
+		progress := float64(t-titleStartZoomIn) / float64(titleZoomInFrames)
+		eased := progress * progress * (3 - 2*progress) // smoothstep
+		s.zoomLevel = math.Exp(logMin + (logMax-logMin)*eased)
+	} else if t < titleStartZoomOut {
+		// Holding at max zoom
+		s.zoomLevel = titleZoomMax
+	} else if t < titleStartZoomOut+titleZoomOutFrames {
+		// Zooming out
+		progress := float64(t-titleStartZoomOut) / float64(titleZoomOutFrames)
+		eased := progress * progress * (3 - 2*progress) // smoothstep
+		s.zoomLevel = math.Exp(logMax - (logMax-logMin)*eased)
+	} else {
+		// After zoom ends
+		s.zoomLevel = 1.0
+	}
+
+	// Calculate fade alpha based on timeline position
+	if t < titleStartFade {
+		// Before fade starts
+		s.fadeAlpha = 0
+	} else if t < titleStartFade+titleFadeFrames {
+		// Fading
+		progress := float64(t-titleStartFade) / float64(titleFadeFrames)
+		s.fadeAlpha = progress * progress * (3 - 2*progress) // smoothstep for fade too
+	} else {
+		// After fade ends
+		s.fadeAlpha = 1.0
+	}
+
+	// End of animation
+	if t >= titleEnd {
+		s.phase = titlePhaseDone
+		s.game.connectScene.showTitleBackground = true
+		s.game.SetScene(s.game.connectScene)
 	}
 
 	return nil
@@ -133,52 +139,34 @@ func (s *TitleScene) Draw(screen *ebiten.Image) {
 	img8Bit := GetTitleScreen8Bit()
 	imgModern := GetTitleScreenModern()
 
-	// Calculate scaling to fill screen while maintaining aspect ratio
 	screenW := float64(ScreenWidth)
 	screenH := float64(ScreenHeight)
 
-	switch s.phase {
-	case titlePhase8Bit:
-		// Show only 8-bit version (no zoom yet)
-		if img8Bit != nil {
-			s.drawImageFullScreen(screen, img8Bit)
+	// Simple drawing based on current zoom and fade values
+	// Draw 8-bit image (underneath, fades out as fadeAlpha increases)
+	if img8Bit != nil && s.fadeAlpha < 1.0 {
+		if s.zoomLevel > 1.01 {
+			s.drawImageZoomed(screen, img8Bit, s.zoomLevel, 1.0-s.fadeAlpha)
 		} else {
-			// Fallback if image not loaded
-			screen.Fill(color.RGBA{0, 0, 0, 255})
-			DrawLargeTextCentered(screen, "LORDS OF CONQUEST", int(screenW)/2, int(screenH)/2-20, ColorPrimary)
-			DrawTextCentered(screen, "(8-bit title screen)", int(screenW)/2, int(screenH)/2+20, ColorTextMuted)
+			s.drawImageFullScreenWithAlpha(screen, img8Bit, 1.0-s.fadeAlpha)
 		}
+	} else if img8Bit == nil && s.fadeAlpha < 1.0 {
+		// Fallback if 8-bit image not loaded
+		screen.Fill(color.RGBA{0, 0, 0, 255})
+		DrawLargeTextCentered(screen, "LORDS OF CONQUEST", int(screenW)/2, int(screenH)/2-20, ColorPrimary)
+		DrawTextCentered(screen, "(8-bit title screen)", int(screenW)/2, int(screenH)/2+20, ColorTextMuted)
+	}
 
-	case titlePhaseZoomIn:
-		// Zooming in on 8-bit image
-		if img8Bit != nil {
-			s.drawImageZoomed(screen, img8Bit, s.zoomLevel, 1.0)
-		}
-
-	case titlePhaseFading:
-		// Crossfade between 8-bit and modern while zoomed
-		if img8Bit != nil {
-			s.drawImageZoomed(screen, img8Bit, s.zoomLevel, 1.0)
-		}
-		if imgModern != nil {
-			// Draw modern on top with increasing alpha
+	// Draw modern image (on top, fades in as fadeAlpha increases)
+	if imgModern != nil && s.fadeAlpha > 0 {
+		if s.zoomLevel > 1.01 {
 			s.drawImageZoomed(screen, imgModern, s.zoomLevel, s.fadeAlpha)
-		}
-
-	case titlePhaseZoomOut:
-		// Zooming out on modern image
-		if imgModern != nil {
-			s.drawImageZoomed(screen, imgModern, s.zoomLevel, 1.0)
-		}
-
-	case titlePhaseModern, titlePhaseDone:
-		// Show only modern version (no zoom)
-		if imgModern != nil {
-			s.drawImageFullScreen(screen, imgModern)
 		} else {
-			screen.Fill(color.RGBA{20, 20, 40, 255})
-			DrawLargeTextCentered(screen, "LORDS OF CONQUEST", int(screenW)/2, int(screenH)/2-20, ColorPrimary)
+			s.drawImageFullScreenWithAlpha(screen, imgModern, s.fadeAlpha)
 		}
+	} else if imgModern == nil && s.fadeAlpha >= 1.0 {
+		screen.Fill(color.RGBA{20, 20, 40, 255})
+		DrawLargeTextCentered(screen, "LORDS OF CONQUEST", int(screenW)/2, int(screenH)/2-20, ColorPrimary)
 	}
 
 	// Skip hint at bottom
