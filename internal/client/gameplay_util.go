@@ -63,7 +63,6 @@ func (s *GameplayScene) SetGameState(state map[string]interface{}) {
 		// Clear selection and close menus when phase changes
 		if s.currentPhase != phase {
 			s.selectedTerritory = ""
-			s.showShipmentMenu = false
 			s.shipmentMode = ""
 			s.shipmentFromTerritory = ""
 			s.shipmentCarryHorse = false
@@ -75,9 +74,8 @@ func (s *GameplayScene) SetGameState(state map[string]interface{}) {
 	}
 
 	if turn, ok := state["currentPlayerId"].(string); ok {
-		// Close shipment menu when turn changes
+		// Reset shipment state when turn changes
 		if s.currentTurn != turn {
-			s.showShipmentMenu = false
 			s.shipmentMode = ""
 			s.shipmentFromTerritory = ""
 		}

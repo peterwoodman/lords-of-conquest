@@ -487,13 +487,9 @@ func (s *GameplayScene) drawBottomBar(screen *ebiten.Image) {
 
 	case "Shipment":
 		if isMyTurn {
-			if s.showShipmentMenu {
-				instruction = "Select what to move: stockpile, horse, or boat"
-				instruction2 = "Then click source and destination territories"
-			} else {
-				instruction = "Click anywhere on the map to open shipment menu"
-				instruction2 = "Move stockpile, horse, or boat - or click 'End Turn' to skip"
-			}
+			// Shipment controls are drawn separately
+			s.drawShipmentControls(screen, rightX, barY, barX+barW)
+			return // Exit early - we draw our own instructions
 		} else {
 			instruction = "Waiting for other player to move units..."
 		}
@@ -528,6 +524,165 @@ func (s *GameplayScene) drawBottomBar(screen *ebiten.Image) {
 		s.endPhaseBtn.Y = barY + 30
 		s.endPhaseBtn.Draw(screen)
 	}
+}
+
+// drawShipmentControls draws shipment phase controls in the status bar
+func (s *GameplayScene) drawShipmentControls(screen *ebiten.Image, startX, barY, endX int) {
+	// Check what units we have available
+	hasStockpile := false
+	hasHorse := false
+	hasBoat := false
+
+	if myPlayer, ok := s.players[s.game.config.PlayerID]; ok {
+		player := myPlayer.(map[string]interface{})
+		if stockpileTerr, ok := player["stockpileTerritory"].(string); ok && stockpileTerr != "" {
+			hasStockpile = true
+		}
+	}
+
+	for _, terrData := range s.territories {
+		terr := terrData.(map[string]interface{})
+		owner := terr["owner"].(string)
+		if owner != s.game.config.PlayerID {
+			continue
+		}
+		if h, ok := terr["hasHorse"].(bool); ok && h {
+			hasHorse = true
+		}
+		if boats, ok := terr["totalBoats"].(float64); ok && boats > 0 {
+			hasBoat = true
+		}
+	}
+
+	// Turn indicator at top
+	DrawLargeText(screen, "YOUR TURN - SHIPMENT", startX, barY+12, ColorSuccess)
+
+	btnY := barY + 35
+	btnW := 100
+	btnH := 28
+	btnSpacing := 8
+
+	if s.shipmentMode == "" {
+		// Show mode selection buttons
+		DrawText(screen, "Move:", startX, btnY+7, ColorText)
+
+		btnX := startX + 50
+
+		s.moveStockpileBtn.X = btnX
+		s.moveStockpileBtn.Y = btnY
+		s.moveStockpileBtn.W = btnW
+		s.moveStockpileBtn.H = btnH
+		s.moveStockpileBtn.Disabled = !hasStockpile
+		s.moveStockpileBtn.Draw(screen)
+		btnX += btnW + btnSpacing
+
+		s.moveHorseBtn.X = btnX
+		s.moveHorseBtn.Y = btnY
+		s.moveHorseBtn.W = btnW
+		s.moveHorseBtn.H = btnH
+		s.moveHorseBtn.Disabled = !hasHorse
+		s.moveHorseBtn.Draw(screen)
+		btnX += btnW + btnSpacing
+
+		s.moveBoatBtn.X = btnX
+		s.moveBoatBtn.Y = btnY
+		s.moveBoatBtn.W = btnW
+		s.moveBoatBtn.H = btnH
+		s.moveBoatBtn.Disabled = !hasBoat
+		s.moveBoatBtn.Draw(screen)
+
+		DrawText(screen, "Select what to move, or End Turn to skip", startX, barY+75, ColorTextMuted)
+	} else {
+		// Show current mode and selection status
+		modeText := ""
+		switch s.shipmentMode {
+		case "stockpile":
+			modeText = "Moving Stockpile"
+		case "horse":
+			modeText = "Moving Horse"
+		case "boat":
+			modeText = "Moving Boat"
+		}
+		DrawText(screen, modeText, startX, btnY, ColorPrimary)
+
+		// Source info
+		infoX := startX + 130
+		if s.shipmentMode == "stockpile" {
+			// Stockpile source is automatic
+			stockpileLoc := ""
+			if myPlayer, ok := s.players[s.game.config.PlayerID]; ok {
+				player := myPlayer.(map[string]interface{})
+				if stockpileTerr, ok := player["stockpileTerritory"].(string); ok {
+					if terr, ok := s.territories[stockpileTerr].(map[string]interface{}); ok {
+						stockpileLoc = terr["name"].(string)
+					}
+				}
+			}
+			DrawText(screen, fmt.Sprintf("From: %s", stockpileLoc), infoX, btnY, ColorText)
+		} else {
+			fromName := "(click source)"
+			if s.shipmentFromTerritory != "" {
+				if terr, ok := s.territories[s.shipmentFromTerritory].(map[string]interface{}); ok {
+					fromName = terr["name"].(string)
+				}
+			}
+			DrawText(screen, fmt.Sprintf("From: %s", fromName), infoX, btnY, ColorText)
+		}
+
+		// Destination info
+		destName := "(click destination)"
+		if s.selectedTerritory != "" {
+			if terr, ok := s.territories[s.selectedTerritory].(map[string]interface{}); ok {
+				destName = terr["name"].(string)
+			}
+		}
+		DrawText(screen, fmt.Sprintf("To: %s", destName), infoX+180, btnY, ColorText)
+
+		// Cargo checkboxes (for horse and boat)
+		checkboxY := barY + 55
+		if s.shipmentMode == "horse" && s.shipmentFromTerritory != "" {
+			if terr, ok := s.territories[s.shipmentFromTerritory].(map[string]interface{}); ok {
+				if hasWeapon, _ := terr["hasWeapon"].(bool); hasWeapon {
+					s.drawCheckbox(screen, startX, checkboxY, "Carry Weapon", &s.shipmentCarryWeapon)
+				}
+			}
+		} else if s.shipmentMode == "boat" && s.shipmentFromTerritory != "" {
+			if terr, ok := s.territories[s.shipmentFromTerritory].(map[string]interface{}); ok {
+				hasHorseInTerr, _ := terr["hasHorse"].(bool)
+				hasWeaponInTerr, _ := terr["hasWeapon"].(bool)
+
+				cbX := startX
+				if hasHorseInTerr {
+					s.drawCheckbox(screen, cbX, checkboxY, "Load Horse", &s.shipmentCarryHorse)
+					cbX += 120
+				}
+				if hasWeaponInTerr {
+					s.drawCheckbox(screen, cbX, checkboxY, "Load Weapon", &s.shipmentCarryWeapon)
+				}
+			}
+		}
+
+		// Confirm and Cancel buttons
+		btnX := endX - 290
+		s.shipmentConfirmBtn.X = btnX
+		s.shipmentConfirmBtn.Y = barY + 55
+		s.shipmentConfirmBtn.W = 110
+		s.shipmentConfirmBtn.H = btnH
+		s.shipmentConfirmBtn.Disabled = s.selectedTerritory == "" || (s.shipmentMode != "stockpile" && s.shipmentFromTerritory == "")
+		s.shipmentConfirmBtn.Draw(screen)
+
+		s.cancelShipmentBtn.X = btnX + 120
+		s.cancelShipmentBtn.Y = barY + 55
+		s.cancelShipmentBtn.W = btnW
+		s.cancelShipmentBtn.H = btnH
+		s.cancelShipmentBtn.Text = "Cancel"
+		s.cancelShipmentBtn.Draw(screen)
+	}
+
+	// End Turn button (always visible)
+	s.endPhaseBtn.X = endX - 170
+	s.endPhaseBtn.Y = barY + 30
+	s.endPhaseBtn.Draw(screen)
 }
 
 func (s *GameplayScene) drawPlayersPanel(screen *ebiten.Image) {

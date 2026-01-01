@@ -79,13 +79,29 @@ func (s *GameplayScene) handleShipment(territoryID string) {
 		return
 	}
 
-	// If shipment menu not shown, show it
-	if !s.showShipmentMenu {
-		s.showShipmentMenu = true
-		s.shipmentMode = ""
-		s.shipmentFromTerritory = ""
-		s.selectedTerritory = ""
+	// If no mode selected yet, ignore clicks
+	if s.shipmentMode == "" {
 		return
+	}
+
+	// Check if we own this territory
+	terr, ok := s.territories[territoryID].(map[string]interface{})
+	if !ok {
+		return
+	}
+	owner := terr["owner"].(string)
+	if owner != s.game.config.PlayerID {
+		return
+	}
+
+	// Handle based on current mode
+	switch s.shipmentMode {
+	case "stockpile":
+		s.handleStockpileMove(territoryID)
+	case "horse":
+		s.handleHorseMove(territoryID, terr)
+	case "boat":
+		s.handleBoatMove(territoryID, terr)
 	}
 }
 
@@ -102,52 +118,12 @@ func (s *GameplayScene) startShipmentMode(mode string) {
 
 // cancelShipmentMode cancels the current shipment selection.
 func (s *GameplayScene) cancelShipmentMode() {
-	if s.shipmentMode != "" {
-		s.shipmentMode = ""
-		s.shipmentFromTerritory = ""
-		s.selectedTerritory = ""
-		s.shipmentCarryHorse = false
-		s.shipmentCarryWeapon = false
-		s.shipmentWaterBodyID = ""
-	} else {
-		s.showShipmentMenu = false
-	}
-}
-
-// handleShipmentDestinationClick handles clicks when selecting shipment source/destination.
-func (s *GameplayScene) handleShipmentDestinationClick(x, y int) {
-	if s.mapData == nil {
-		return
-	}
-
-	grid := s.mapData["grid"].([]interface{})
-	row := grid[y].([]interface{})
-	territoryID := int(row[x].(float64))
-
-	if territoryID == 0 {
-		return // Water clicked
-	}
-
-	tid := fmt.Sprintf("t%d", territoryID)
-
-	// Check if we own this territory
-	terr, ok := s.territories[tid].(map[string]interface{})
-	if !ok {
-		return
-	}
-	owner := terr["owner"].(string)
-	if owner != s.game.config.PlayerID {
-		return
-	}
-
-	switch s.shipmentMode {
-	case "stockpile":
-		s.handleStockpileMove(tid)
-	case "horse":
-		s.handleHorseMove(tid, terr)
-	case "boat":
-		s.handleBoatMove(tid, terr)
-	}
+	s.shipmentMode = ""
+	s.shipmentFromTerritory = ""
+	s.selectedTerritory = ""
+	s.shipmentCarryHorse = false
+	s.shipmentCarryWeapon = false
+	s.shipmentWaterBodyID = ""
 }
 
 // handleStockpileMove handles stockpile movement selection.
@@ -259,7 +235,6 @@ func (s *GameplayScene) confirmShipment() {
 	}
 
 	// Reset shipment state
-	s.showShipmentMenu = false
 	s.shipmentMode = ""
 	s.shipmentFromTerritory = ""
 	s.selectedTerritory = ""

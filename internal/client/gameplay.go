@@ -112,7 +112,6 @@ type GameplayScene struct {
 	returnToLobbyBtn *Button
 
 	// Shipment phase UI
-	showShipmentMenu      bool
 	shipmentMode          string // "", "stockpile", "horse", "boat"
 	shipmentFromTerritory string // Source territory for unit movement
 	shipmentWaterBodyID   string // For boats: which water body
@@ -468,31 +467,18 @@ func (s *GameplayScene) Update() error {
 		return nil // Block other input while showing request
 	}
 
-	// Handle shipment menu
-	if s.showShipmentMenu {
+	// Handle shipment phase controls (no blocking - controls are in status bar)
+	if s.currentPhase == "Shipment" && s.currentTurn == s.game.config.PlayerID {
 		s.moveStockpileBtn.Update()
 		s.moveHorseBtn.Update()
 		s.moveBoatBtn.Update()
-		s.cancelShipmentBtn.Update()
 		if s.shipmentMode != "" {
 			s.shipmentConfirmBtn.Update()
-		}
-		if inpututil.IsKeyJustPressed(ebiten.KeyEscape) {
-			if s.shipmentMode != "" {
+			s.cancelShipmentBtn.Update()
+			if inpututil.IsKeyJustPressed(ebiten.KeyEscape) {
 				s.cancelShipmentMode()
-			} else {
-				s.showShipmentMenu = false
 			}
 		}
-		// Handle click for destination selection when in a mode
-		if s.shipmentMode != "" && inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) {
-			mx, my := ebiten.CursorPosition()
-			cell := s.screenToGrid(mx, my)
-			if cell[0] >= 0 {
-				s.handleShipmentDestinationClick(cell[0], cell[1])
-			}
-		}
-		return nil // Block other input while showing menu
 	}
 
 	// Update hovered cell
@@ -576,11 +562,6 @@ func (s *GameplayScene) Draw(screen *ebiten.Image) {
 	// Draw build menu overlay
 	if s.showBuildMenu {
 		s.drawBuildMenu(screen)
-	}
-
-	// Draw shipment menu overlay
-	if s.showShipmentMenu {
-		s.drawShipmentMenu(screen)
 	}
 
 	// Draw water body selection overlay
