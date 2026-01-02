@@ -142,6 +142,8 @@ func CheckPhaseSkips(currentPhase Phase, nextPhase Phase, numPlayers int, chance
 }
 
 // NextPhase advances to the next phase.
+// Phase order: Development (skipped Year 1) → Production → Trade → Shipment → Conquest
+// End-game is checked after Conquest, then round increments.
 func (pm *PhaseManager) NextPhase() (Phase, bool) {
 	s := pm.State
 
@@ -149,6 +151,7 @@ func (pm *PhaseManager) NextPhase() (Phase, bool) {
 	case PhaseTerritorySelection:
 		// Check if all territories are claimed
 		if pm.allTerritoriesClaimed() {
+			// Year 1 starts - skip Development, go straight to Production
 			s.Phase = PhaseProduction
 			s.Round = 1
 			pm.shufflePlayerOrder()
@@ -158,8 +161,25 @@ func (pm *PhaseManager) NextPhase() (Phase, bool) {
 		pm.advancePlayerOrder()
 		return s.Phase, false
 
+	case PhaseDevelopment:
+		// After Development → Production
+		s.Phase = PhaseProduction
+		// Check for skip
+		if ShouldSkipPhase(PhaseProduction, s.Settings.ChanceLevel) {
+			if len(s.Players) >= 3 {
+				s.Phase = PhaseTrade
+			} else {
+				s.Phase = PhaseShipment
+				if ShouldSkipPhase(PhaseShipment, s.Settings.ChanceLevel) {
+					s.Phase = PhaseConquest
+				}
+			}
+			return s.Phase, true // skipped
+		}
+		return s.Phase, false
+
 	case PhaseProduction:
-		// Trade phase only with 3+ players
+		// After Production → Trade (if 3+ players) or Shipment
 		if len(s.Players) >= 3 {
 			s.Phase = PhaseTrade
 		} else {
@@ -186,28 +206,12 @@ func (pm *PhaseManager) NextPhase() (Phase, bool) {
 		return s.Phase, false
 
 	case PhaseConquest:
-		s.Phase = PhaseDevelopment
-		return s.Phase, false
-
-	case PhaseDevelopment:
-		// End of round
+		// End of round - increment round and go to Development
 		s.Round++
 		pm.shufflePlayerOrder()
 		pm.resetPlayerTurns()
 
-		s.Phase = PhaseProduction
-		// Check for skip
-		if ShouldSkipPhase(PhaseProduction, s.Settings.ChanceLevel) {
-			if len(s.Players) >= 3 {
-				s.Phase = PhaseTrade
-			} else {
-				s.Phase = PhaseShipment
-				if ShouldSkipPhase(PhaseShipment, s.Settings.ChanceLevel) {
-					s.Phase = PhaseConquest
-				}
-			}
-			return s.Phase, true // skipped
-		}
+		s.Phase = PhaseDevelopment
 		return s.Phase, false
 	}
 

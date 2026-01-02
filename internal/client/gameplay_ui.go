@@ -379,12 +379,13 @@ func (s *GameplayScene) drawBottomBar(screen *ebiten.Image) {
 	DrawLargeText(screen, fmt.Sprintf("Year %d", s.round), barX+15, barY+30, ColorText)
 
 	// Phase list - vertical list to the right of Year
-	phases := []string{"Production", "Trade", "Shipment", "Conquest", "Development"}
+	// Order: Development (skipped Year 1) → Production → Trade → Shipment → Conquest
+	phases := []string{"Development", "Production", "Trade", "Shipment", "Conquest"}
 	phaseX := barX + 100 // Right of "Year X"
 	phaseY := barY + 12
 	lineHeight := 17
 
-	// Check if we're in Territory Selection (only in year 1)
+	// Check if we're in Territory Selection (only before year 1)
 	if s.currentPhase == "Territory Selection" {
 		// During territory selection, show it prominently
 		displayText := "> Territory Selection"
@@ -397,7 +398,11 @@ func (s *GameplayScene) drawBottomBar(screen *ebiten.Image) {
 			textColor := ColorTextMuted
 			displayText := "  " + phase // Indent for non-current phases
 
-			if phase == s.currentPhase {
+			// Development is skipped in Year 1
+			if phase == "Development" && s.round == 1 {
+				displayText = "  " + phase + " (skipped)"
+				textColor = ColorTextDim
+			} else if phase == s.currentPhase {
 				// Current phase - highlighted with arrow and background
 				textColor = ColorSuccess
 				displayText = "> " + phase

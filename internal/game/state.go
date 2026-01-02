@@ -51,11 +51,11 @@ type Phase int
 
 const (
 	PhaseTerritorySelection Phase = iota
+	PhaseDevelopment // First in year (but skipped in Year 1)
 	PhaseProduction
 	PhaseTrade
 	PhaseShipment
-	PhaseConquest
-	PhaseDevelopment
+	PhaseConquest // Last in year - end-game checked after this
 )
 
 // String returns the phase name.

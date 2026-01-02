@@ -1828,7 +1828,18 @@ func (h *Handlers) aiConquest(gameID string, state *game.GameState) {
 
 	// No favorable attacks - end conquest
 	log.Printf("AI: No favorable attacks (best odds: %.2f), ending conquest", bestOdds)
+
+	// Track round before ending conquest to detect round change
+	roundBefore := state.Round
 	state.EndConquest(state.CurrentPlayerID)
+
+	// Check for game over at end of round (when all players completed conquest)
+	if state.Round > roundBefore && state.IsGameOver() {
+		log.Printf("AI: Round ended after conquest - checking victory conditions")
+		h.saveAndBroadcastAIState(gameID, state)
+		h.handleGameOver(gameID, state)
+		return
+	}
 
 	// Save state
 	if !h.saveAndBroadcastAIState(gameID, state) {
@@ -1909,20 +1920,8 @@ func (h *Handlers) aiDevelopment(gameID string, state *game.GameState) {
 		log.Printf("AI: Nothing to build, ending development")
 	}
 
-	// Track round before ending development to detect round change
-	roundBefore := state.Round
-
 	// End development phase
 	state.EndDevelopment(state.CurrentPlayerID)
-
-	// Check for game over at end of round (when all players completed development)
-	if state.Round > roundBefore && state.IsGameOver() {
-		log.Printf("AI: Round ended - checking victory conditions")
-		// Save state before handling game over
-		h.saveAndBroadcastAIState(gameID, state)
-		h.handleGameOver(gameID, state)
-		return
-	}
 
 	// Save state
 	if !h.saveAndBroadcastAIState(gameID, state) {
@@ -2379,14 +2378,11 @@ func (h *Handlers) handleEndPhase(client *Client, msg *protocol.Message) error {
 			return err
 		}
 	case game.PhaseConquest:
+		// Track round before ending conquest to detect round change
+		roundBefore := state.Round
 		// End conquest phase for this player
 		state.EndConquest(client.PlayerID)
-	case game.PhaseDevelopment:
-		// Track round before ending development to detect round change
-		roundBefore := state.Round
-		// End development phase for this player
-		state.EndDevelopment(client.PlayerID)
-		// Check for game over at end of round (when all players completed development)
+		// Check for game over at end of round (when all players completed conquest)
 		if state.Round > roundBefore && state.IsGameOver() {
 			// Save state before handling game over
 			stateJSON2, err := json.Marshal(state)
@@ -2397,10 +2393,13 @@ func (h *Handlers) handleEndPhase(client *Client, msg *protocol.Message) error {
 				state.CurrentPlayerID, state.Round, state.Phase.String()); err != nil {
 				return err
 			}
-			log.Printf("Round ended - checking victory conditions")
+			log.Printf("Round ended after conquest - checking victory conditions")
 			h.handleGameOver(client.GameID, &state)
 			return nil
 		}
+	case game.PhaseDevelopment:
+		// End development phase for this player
+		state.EndDevelopment(client.PlayerID)
 	default:
 		return errors.New("cannot end phase in current state")
 	}
