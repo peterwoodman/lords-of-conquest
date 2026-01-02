@@ -401,6 +401,7 @@ type ExecuteAttackPayload struct {
 // CombatResultPayload reports the result of combat.
 type CombatResultPayload struct {
 	Success         bool     `json:"success"`
+	AttackerID      string   `json:"attacker_id"`
 	AttackerWins    bool     `json:"attacker_wins"`
 	AttackStrength  int      `json:"attack_strength"`
 	DefenseStrength int      `json:"defense_strength"`

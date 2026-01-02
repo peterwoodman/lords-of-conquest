@@ -473,7 +473,18 @@ func (s *GameplayScene) drawCheckbox(screen *ebiten.Image, x, y int, label strin
 
 // ShowCombatResult starts the combat animation before displaying the result
 func (s *GameplayScene) ShowCombatResult(result *CombatResultData) {
+	// If animation or result dialog is already showing, queue this result
+	if s.showCombatAnimation || s.showCombatResult {
+		s.combatResultQueue = append(s.combatResultQueue, result)
+		return
+	}
+
 	// Start the combat animation
+	s.startCombatAnimation(result)
+}
+
+// startCombatAnimation begins the animation for a combat result
+func (s *GameplayScene) startCombatAnimation(result *CombatResultData) {
 	s.combatPendingResult = result
 	s.combatAnimTerritory = result.TargetTerritory
 	s.combatAnimExplosions = make([]CombatExplosion, 0)
@@ -487,6 +498,21 @@ func (s *GameplayScene) ShowCombatResult(result *CombatResultData) {
 	}
 	s.combatAnimTimer = s.combatAnimMaxDuration
 	s.showCombatAnimation = true
+}
+
+// dismissCombatResult dismisses the current combat result and shows the next queued one
+func (s *GameplayScene) dismissCombatResult() {
+	s.showCombatResult = false
+	s.combatResult = nil
+
+	// Check if there are more combat results queued
+	if len(s.combatResultQueue) > 0 {
+		// Pop the first result from the queue
+		nextResult := s.combatResultQueue[0]
+		s.combatResultQueue = s.combatResultQueue[1:]
+		// Start animation for the next result
+		s.startCombatAnimation(nextResult)
+	}
 }
 
 // updateCombatAnimation updates the combat animation state each frame
@@ -531,14 +557,25 @@ func (s *GameplayScene) updateCombatAnimation() {
 	// End animation
 	if s.combatAnimTimer <= 0 {
 		s.showCombatAnimation = false
-		s.combatResult = s.combatPendingResult
-		s.showCombatResult = true
 		s.combatAnimExplosions = nil
 
 		// Apply any queued game state update now that animation is done
 		if s.combatPendingState != nil {
 			s.applyGameState(s.combatPendingState)
 			s.combatPendingState = nil
+		}
+
+		// Only show the result dialog if this was our attack
+		if s.combatPendingResult.AttackerID == s.game.config.PlayerID {
+			s.combatResult = s.combatPendingResult
+			s.showCombatResult = true
+		} else {
+			// For other players' attacks, skip dialog and process next in queue
+			if len(s.combatResultQueue) > 0 {
+				nextResult := s.combatResultQueue[0]
+				s.combatResultQueue = s.combatResultQueue[1:]
+				s.startCombatAnimation(nextResult)
+			}
 		}
 	}
 }

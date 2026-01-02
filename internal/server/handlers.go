@@ -1638,6 +1638,7 @@ func (h *Handlers) aiConquest(gameID string, state *game.GameState) {
 
 			combatResult := protocol.CombatResultPayload{
 				Success:         true,
+				AttackerID:      state.CurrentPlayerID,
 				AttackerWins:    result.AttackerWins,
 				AttackStrength:  result.AttackStrength,
 				DefenseStrength: result.DefenseStrength,
@@ -2608,6 +2609,7 @@ func (h *Handlers) handleExecuteAttack(client *Client, msg *protocol.Message) er
 	// Broadcast combat result to ALL players so everyone sees the animation
 	combatResult := protocol.CombatResultPayload{
 		Success:         true,
+		AttackerID:      client.PlayerID,
 		AttackerWins:    result.AttackerWins,
 		AttackStrength:  result.AttackStrength,
 		DefenseStrength: result.DefenseStrength,
@@ -2707,6 +2709,12 @@ func (h *Handlers) handleBuild(client *Client, msg *protocol.Message) error {
 	}
 
 	log.Printf("Player %s built %s at %s", client.Name, payload.Type, payload.Territory)
+
+	// Check for game over (building 6th city wins)
+	if state.IsGameOver() {
+		h.handleGameOver(client.GameID, &state)
+		return nil
+	}
 
 	// Broadcast updated state
 	h.broadcastGameState(client.GameID)

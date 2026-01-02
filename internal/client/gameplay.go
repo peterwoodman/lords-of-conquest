@@ -61,9 +61,10 @@ type GameplayScene struct {
 	waterBodySelectBtns []*Button
 
 	// Combat result display
-	showCombatResult bool
-	combatResult     *CombatResultData
-	dismissResultBtn *Button
+	showCombatResult   bool
+	combatResult       *CombatResultData
+	combatResultQueue  []*CombatResultData // Queue of combat results to show
+	dismissResultBtn   *Button
 
 	// Combat animation
 	showCombatAnimation     bool
@@ -214,6 +215,7 @@ type CombatExplosion struct {
 
 // CombatResultData holds the result of a combat for display
 type CombatResultData struct {
+	AttackerID      string
 	AttackerWins    bool
 	AttackStrength  int
 	DefenseStrength int
@@ -298,7 +300,7 @@ func NewGameplayScene(game *Game) *GameplayScene {
 		X: 0, Y: 0, W: 120, H: 40,
 		Text:    "OK",
 		Primary: true,
-		OnClick: func() { s.showCombatResult = false },
+		OnClick: func() { s.dismissCombatResult() },
 	}
 
 	// Attack planning buttons
@@ -481,7 +483,7 @@ func (s *GameplayScene) Update() error {
 	if s.showCombatResult {
 		s.dismissResultBtn.Update()
 		if inpututil.IsKeyJustPressed(ebiten.KeyEscape) || inpututil.IsKeyJustPressed(ebiten.KeyEnter) {
-			s.showCombatResult = false
+			s.dismissCombatResult()
 		}
 		return nil // Block other input while showing result
 	}
@@ -702,7 +704,8 @@ func (s *GameplayScene) Draw(screen *ebiten.Image) {
 	s.drawBottomBar(screen)
 
 	// Draw hover info (includes attack preview during conquest)
-	if s.hoveredCell[0] >= 0 {
+	// Hide when attack dialogs/animations are showing
+	if s.hoveredCell[0] >= 0 && !s.showAttackPlan && !s.showCombatAnimation && !s.showCombatResult {
 		s.drawHoverInfo(screen)
 	}
 
