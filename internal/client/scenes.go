@@ -766,10 +766,6 @@ func (s *LobbyScene) Update() error {
 	s.yourGameList.Update()
 	s.gameList.Update()
 	s.codeInput.Update()
-	s.createBtn.Update()
-	s.joinBtn.Update()
-	s.deleteBtn.Update()
-	s.joinCodeBtn.Update()
 
 	// Auto-refresh every 5 seconds (300 frames at 60fps)
 	s.refreshTimer++
@@ -779,7 +775,7 @@ func (s *LobbyScene) Update() error {
 		s.game.ListYourGames()
 	}
 
-	// Update selected game from either list
+	// Update selected game from either list - do this BEFORE button updates
 	if id := s.yourGameList.GetSelectedID(); id != "" {
 		s.selectedGame = id
 		s.gameList.ClearSelection()
@@ -788,9 +784,15 @@ func (s *LobbyScene) Update() error {
 		s.yourGameList.ClearSelection()
 	}
 
-	// Disable join/delete if nothing selected
+	// Update button disabled state BEFORE button Update() so they respond correctly
 	s.joinBtn.Disabled = s.selectedGame == ""
 	s.deleteBtn.Disabled = s.selectedGame == "" || !s.isCreator(s.selectedGame)
+
+	// Now update buttons with correct disabled state
+	s.createBtn.Update()
+	s.joinBtn.Update()
+	s.deleteBtn.Update()
+	s.joinCodeBtn.Update()
 
 	return nil
 }

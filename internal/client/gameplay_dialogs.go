@@ -512,6 +512,12 @@ func (s *GameplayScene) dismissCombatResult() {
 		s.combatResultQueue = s.combatResultQueue[1:]
 		// Start animation for the next result
 		s.startCombatAnimation(nextResult)
+	} else {
+		// No more combat results - apply any pending game state
+		if s.combatPendingState != nil {
+			s.applyGameState(s.combatPendingState)
+			s.combatPendingState = nil
+		}
 	}
 }
 
@@ -566,11 +572,21 @@ func (s *GameplayScene) updateCombatAnimation() {
 		}
 
 		// Only show the result dialog if this was our attack
-		if s.combatPendingResult.AttackerID == s.game.config.PlayerID {
+		isMyAttack := s.combatPendingResult.AttackerID == s.game.config.PlayerID
+		log.Printf("Combat animation ended: AttackerID=%s, MyPlayerID=%s, isMyAttack=%v",
+			s.combatPendingResult.AttackerID, s.game.config.PlayerID, isMyAttack)
+
+		if isMyAttack {
 			s.combatResult = s.combatPendingResult
 			s.showCombatResult = true
 		} else {
 			// For other players' attacks, skip dialog and process next in queue
+			// Also apply pending state since we're not showing a dialog
+			if s.combatPendingState != nil {
+				s.applyGameState(s.combatPendingState)
+				s.combatPendingState = nil
+			}
+
 			if len(s.combatResultQueue) > 0 {
 				nextResult := s.combatResultQueue[0]
 				s.combatResultQueue = s.combatResultQueue[1:]

@@ -28,10 +28,11 @@ func (s *GameplayScene) screenToGrid(screenX, screenY int) [2]int {
 
 // SetGameState updates the game state from the server.
 func (s *GameplayScene) SetGameState(state map[string]interface{}) {
-	// If combat animation is in progress, queue this state update for later
-	// This prevents the territory from changing color before the animation ends
-	if s.showCombatAnimation {
-		log.Println("GameplayScene.SetGameState: Animation in progress, queuing state update")
+	// If combat animation is in progress OR there are queued combat results,
+	// queue this state update for later. This prevents the territory from 
+	// changing color before the animation ends.
+	if s.showCombatAnimation || s.showCombatResult || len(s.combatResultQueue) > 0 {
+		log.Println("GameplayScene.SetGameState: Combat in progress, queuing state update")
 		s.combatPendingState = state
 		return
 	}

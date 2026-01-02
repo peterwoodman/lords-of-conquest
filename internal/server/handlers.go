@@ -1610,21 +1610,24 @@ func (h *Handlers) aiConquest(gameID string, state *game.GameState) {
 
 	// Only attack if we have at least 1:1 odds (simple AI)
 	if bestTarget != "" && bestOdds >= 1.0 {
+		// Capture attacker ID BEFORE attack (Attack() may advance turn)
+		attackerID := state.CurrentPlayerID
+
 		// Get territory name and player name
 		terrName := bestTarget
 		if terr, ok := state.Territories[bestTarget]; ok {
 			terrName = terr.Name
 		}
-		playerName := state.CurrentPlayerID
-		if p, ok := state.Players[state.CurrentPlayerID]; ok {
+		playerName := attackerID
+		if p, ok := state.Players[attackerID]; ok {
 			playerName = p.Name
 		}
 
 		log.Printf("AI: Attacking %s (odds: %.2f)", bestTarget, bestOdds)
-		result, err := state.Attack(state.CurrentPlayerID, bestTarget, nil)
+		result, err := state.Attack(attackerID, bestTarget, nil)
 		if err != nil {
 			log.Printf("AI: Attack failed: %v", err)
-			state.EndConquest(state.CurrentPlayerID)
+			state.EndConquest(attackerID)
 		} else {
 			// Broadcast combat result to all players so everyone sees the animation
 			unitsDestroyed := make([]string, 0)
@@ -1638,7 +1641,7 @@ func (h *Handlers) aiConquest(gameID string, state *game.GameState) {
 
 			combatResult := protocol.CombatResultPayload{
 				Success:         true,
-				AttackerID:      state.CurrentPlayerID,
+				AttackerID:      attackerID, // Use captured ID, not state.CurrentPlayerID
 				AttackerWins:    result.AttackerWins,
 				AttackStrength:  result.AttackStrength,
 				DefenseStrength: result.DefenseStrength,
@@ -1650,11 +1653,11 @@ func (h *Handlers) aiConquest(gameID string, state *game.GameState) {
 
 			if result.AttackerWins {
 				log.Printf("AI: Attack successful!")
-				h.logHistory(gameID, state.Round, state.Phase.String(), state.CurrentPlayerID, playerName,
+				h.logHistory(gameID, state.Round, state.Phase.String(), attackerID, playerName,
 					database.EventAttackSuccess, fmt.Sprintf("Captured %s", terrName))
 			} else {
 				log.Printf("AI: Attack failed, lost the battle")
-				h.logHistory(gameID, state.Round, state.Phase.String(), state.CurrentPlayerID, playerName,
+				h.logHistory(gameID, state.Round, state.Phase.String(), attackerID, playerName,
 					database.EventAttackFailed, fmt.Sprintf("Attack on %s failed", terrName))
 			}
 		}
