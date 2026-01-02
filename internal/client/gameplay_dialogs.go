@@ -397,25 +397,6 @@ func (s *GameplayScene) drawAttackPlan(screen *ebiten.Image) {
 			if carryText != "" {
 				DrawText(screen, carryText, panelX+25, optY+35, ColorTextMuted)
 			}
-
-			// Handle click on this option
-			mx, my := ebiten.CursorPosition()
-			if mx >= panelX+15 && mx <= panelX+panelW-15 &&
-				my >= optY && my <= optY+55 {
-				if inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) {
-					s.selectedReinforcement = &ReinforcementData{
-						UnitType:       reinf.UnitType,
-						FromTerritory:  reinf.FromTerritory,
-						WaterBodyID:    reinf.WaterBodyID,
-						StrengthBonus:  reinf.StrengthBonus,
-						CanCarryWeapon: reinf.CanCarryWeapon,
-						CanCarryHorse:  reinf.CanCarryHorse,
-					}
-					// Reset checkboxes when changing selection
-					s.loadHorseCheckbox = false
-					s.loadWeaponCheckbox = false
-				}
-			}
 		}
 		yPos += reinforceCount * 60
 
@@ -480,7 +461,91 @@ func (s *GameplayScene) drawAttackPlan(screen *ebiten.Image) {
 	s.cancelAttackBtn.Draw(screen)
 }
 
-// drawCheckbox draws a simple checkbox with label
+// updateAttackPlanInput handles input for the attack planning dialog (called from Update)
+func (s *GameplayScene) updateAttackPlanInput() {
+	if s.attackPreview == nil {
+		return
+	}
+
+	// Calculate panel dimensions (must match drawAttackPlan)
+	reinforceCount := len(s.attackPreview.Reinforcements)
+	panelW := 450
+	panelH := 160
+	if reinforceCount > 0 {
+		panelH = 200 + reinforceCount*60
+		if s.selectedReinforcement != nil {
+			checkboxCount := 0
+			if s.selectedReinforcement.UnitType == "boat" {
+				if s.selectedReinforcement.CanCarryHorse {
+					checkboxCount++
+				}
+				if s.selectedReinforcement.CanCarryWeapon {
+					checkboxCount++
+				}
+			} else if s.selectedReinforcement.UnitType == "horse" && s.selectedReinforcement.CanCarryWeapon {
+				checkboxCount++
+			}
+			panelH += checkboxCount * 25
+		}
+	}
+	panelX := ScreenWidth/2 - panelW/2
+	panelY := ScreenHeight/2 - panelH/2
+	yPos := panelY + 100
+
+	// Handle reinforcement selection clicks
+	if reinforceCount > 0 && inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) {
+		mx, my := ebiten.CursorPosition()
+		yPos += 25 // After header text
+
+		for i, reinf := range s.attackPreview.Reinforcements {
+			optY := yPos + i*60
+			if mx >= panelX+15 && mx <= panelX+panelW-15 &&
+				my >= optY && my <= optY+55 {
+				s.selectedReinforcement = &ReinforcementData{
+					UnitType:       reinf.UnitType,
+					FromTerritory:  reinf.FromTerritory,
+					WaterBodyID:    reinf.WaterBodyID,
+					StrengthBonus:  reinf.StrengthBonus,
+					CanCarryWeapon: reinf.CanCarryWeapon,
+					CanCarryHorse:  reinf.CanCarryHorse,
+				}
+				s.loadHorseCheckbox = false
+				s.loadWeaponCheckbox = false
+				break
+			}
+		}
+
+		// Handle checkbox clicks
+		if s.selectedReinforcement != nil {
+			checkboxY := yPos + reinforceCount*60
+			checkboxX := panelX + 20
+			boxSize := 16
+
+			if s.selectedReinforcement.UnitType == "boat" {
+				if s.selectedReinforcement.CanCarryHorse {
+					if mx >= checkboxX && mx <= checkboxX+boxSize+150 &&
+						my >= checkboxY+10 && my <= checkboxY+10+boxSize {
+						s.loadHorseCheckbox = !s.loadHorseCheckbox
+					}
+					checkboxY += 25
+				}
+				if s.selectedReinforcement.CanCarryWeapon {
+					if mx >= checkboxX && mx <= checkboxX+boxSize+150 &&
+						my >= checkboxY+10 && my <= checkboxY+10+boxSize {
+						s.loadWeaponCheckbox = !s.loadWeaponCheckbox
+					}
+				}
+			} else if s.selectedReinforcement.UnitType == "horse" && s.selectedReinforcement.CanCarryWeapon {
+				if mx >= checkboxX && mx <= checkboxX+boxSize+150 &&
+					my >= checkboxY+10 && my <= checkboxY+10+boxSize {
+					s.loadWeaponCheckbox = !s.loadWeaponCheckbox
+				}
+			}
+		}
+	}
+}
+
+// drawCheckbox draws a simple checkbox with label (no click handling - done in updateAttackPlanInput)
 func (s *GameplayScene) drawCheckbox(screen *ebiten.Image, x, y int, label string, checked *bool) {
 	boxSize := 16
 
@@ -501,14 +566,6 @@ func (s *GameplayScene) drawCheckbox(screen *ebiten.Image, x, y int, label strin
 
 	// Draw label
 	DrawText(screen, label, x+boxSize+8, y+2, ColorText)
-
-	// Handle click
-	mx, my := ebiten.CursorPosition()
-	if mx >= x && mx <= x+boxSize+150 && my >= y && my <= y+boxSize {
-		if inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) {
-			*checked = !*checked
-		}
-	}
 }
 
 // ShowCombatResult starts the combat animation before displaying the result

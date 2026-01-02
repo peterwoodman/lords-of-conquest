@@ -1241,12 +1241,24 @@ func (h *Handlers) handleYourGames(client *Client, msg *protocol.Message) error 
 		// Check if it's this player's turn and if game is actually over
 		isYourTurn := false
 		isGameOver := false
+		round := 0
+		phase := ""
+		var playerNames []string
+
 		if g.Status == database.GameStatusStarted {
 			stateJSON, err := h.hub.server.db.GetGameState(g.ID)
 			if err == nil && stateJSON != "" {
 				var state game.GameState
 				if err := json.Unmarshal([]byte(stateJSON), &state); err == nil {
 					isYourTurn = state.CurrentPlayerID == client.PlayerID
+					round = state.Round
+					phase = string(state.Phase)
+
+					// Get player names from state
+					for _, p := range state.Players {
+						playerNames = append(playerNames, p.Name)
+					}
+
 					// Check if game is actually over but wasn't marked in DB
 					if state.IsGameOver() {
 						isGameOver = true
@@ -1260,6 +1272,14 @@ func (h *Handlers) handleYourGames(client *Client, msg *protocol.Message) error 
 							h.hub.server.db.EndGame(g.ID, winner.ID, reason)
 						}
 					}
+				}
+			}
+		} else if g.Status == database.GameStatusWaiting {
+			// For waiting games, get player names from database
+			players, err := h.hub.server.db.GetGamePlayers(g.ID)
+			if err == nil {
+				for _, p := range players {
+					playerNames = append(playerNames, p.PlayerName)
 				}
 			}
 		}
@@ -1284,6 +1304,9 @@ func (h *Handlers) handleYourGames(client *Client, msg *protocol.Message) error 
 			MaxPlayers:  g.MaxPlayers,
 			IsYourTurn:  isYourTurn,
 			HostName:    hostName,
+			PlayerNames: playerNames,
+			Round:       round,
+			Phase:       phase,
 		})
 	}
 
@@ -1587,11 +1610,25 @@ func (h *Handlers) aiPlaceStockpile(gameID string, state *game.GameState) {
 
 	if anyPlaced {
 		// Save state
-		h.saveAndBroadcastAIState(gameID, state)
+		stateJSON, _ := json.Marshal(state)
+		h.hub.server.db.SaveGameState(gameID, string(stateJSON),
+			state.CurrentPlayerID, state.Round, state.Phase.String())
 
-		// If phase changed (all stockpiles placed), check for next AI turn
-		if state.Phase != game.PhaseProduction || state.Round > 1 {
-			go h.checkAndTriggerAI(gameID)
+		// Broadcast updated state
+		h.broadcastGameStateImmediate(gameID)
+
+		// Check if all stockpiles are now placed - if so, trigger production
+		if state.AllStockpilesPlaced() {
+			log.Printf("AI: All stockpiles placed - triggering production animation")
+			state.ProductionPending = true
+			stateJSON2, _ := json.Marshal(state)
+			h.hub.server.db.SaveGameState(gameID, string(stateJSON2),
+				state.CurrentPlayerID, state.Round, state.Phase.String())
+
+			h.triggerProductionAnimation(gameID, state)
+		} else {
+			// Still waiting for other stockpiles (human players)
+			log.Printf("AI: Still waiting for human players to place stockpiles")
 		}
 	}
 }

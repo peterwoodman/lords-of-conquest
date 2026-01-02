@@ -125,14 +125,17 @@ type GameListPayload struct {
 
 // GameListItem is a summary of a game.
 type GameListItem struct {
-	ID          string `json:"id"`
-	Name        string `json:"name"`
-	JoinCode    string `json:"join_code,omitempty"`
-	Status      string `json:"status"`
-	PlayerCount int    `json:"player_count"`
-	MaxPlayers  int    `json:"max_players"`
-	HostName    string `json:"host_name,omitempty"`
-	IsYourTurn  bool   `json:"is_your_turn,omitempty"`
+	ID          string   `json:"id"`
+	Name        string   `json:"name"`
+	JoinCode    string   `json:"join_code,omitempty"`
+	Status      string   `json:"status"`
+	PlayerCount int      `json:"player_count"`
+	MaxPlayers  int      `json:"max_players"`
+	HostName    string   `json:"host_name,omitempty"`
+	IsYourTurn  bool     `json:"is_your_turn,omitempty"`
+	PlayerNames []string `json:"player_names,omitempty"` // Names of players in the game
+	Round       int      `json:"round,omitempty"`        // Current round/year
+	Phase       string   `json:"phase,omitempty"`        // Current game phase
 }
 
 // YourGamesPayload contains games the player is in.

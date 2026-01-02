@@ -29,6 +29,7 @@ var (
 	// Text colors
 	ColorText          = color.RGBA{255, 255, 255, 255}   // Pure white
 	ColorTextMuted     = color.RGBA{160, 180, 220, 255}   // Light blue-grey
+	ColorTextDim       = color.RGBA{120, 140, 180, 255}   // Dimmer blue-grey for details
 	ColorTextShadow    = color.RGBA{0, 0, 0, 180}         // Text shadow
 	
 	// UI elements
@@ -340,6 +341,7 @@ type ListItem struct {
 	ID       string
 	Text     string
 	Subtext  string
+	Detail   string // Additional detail line (e.g., player names)
 	Selected bool
 }
 
@@ -374,8 +376,11 @@ func (l *List) Update() {
 		return
 	}
 
-	itemHeight := 60 // Match the Draw method
-	
+	itemHeight := l.itemHeight
+	if itemHeight <= 0 {
+		itemHeight = 60 // default
+	}
+
 	// Handle scroll
 	_, dy := ebiten.Wheel()
 	l.scrollOffset -= int(dy * 30)
@@ -408,9 +413,12 @@ func (l *List) Draw(screen *ebiten.Image) {
 	// Draw background
 	DrawPanel(screen, l.X, l.Y, l.W, l.H)
 
-	// Larger item height for bigger text
-	itemHeight := 60
-	
+	// Use configured item height
+	itemHeight := l.itemHeight
+	if itemHeight <= 0 {
+		itemHeight = 60 // default
+	}
+
 	// Draw items
 	visibleStart := l.scrollOffset / itemHeight
 	visibleEnd := (l.scrollOffset + l.H) / itemHeight + 1
@@ -435,7 +443,10 @@ func (l *List) Draw(screen *ebiten.Image) {
 		// Draw text - larger
 		DrawLargeText(screen, item.Text, l.X+15, itemY+6, ColorText)
 		if item.Subtext != "" {
-			DrawText(screen, item.Subtext, l.X+15, itemY+34, ColorTextMuted)
+			DrawText(screen, item.Subtext, l.X+15, itemY+28, ColorTextMuted)
+		}
+		if item.Detail != "" {
+			DrawText(screen, item.Detail, l.X+15, itemY+44, ColorTextDim)
 		}
 	}
 

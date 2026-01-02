@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"image/color"
 	"math"
+	"strings"
 
 	"lords-of-conquest/internal/protocol"
 	"lords-of-conquest/pkg/maps"
@@ -552,8 +553,9 @@ type LobbyScene struct {
 func NewLobbyScene(game *Game) *LobbyScene {
 	s := &LobbyScene{game: game}
 
-	// Your games list (top half)
+	// Your games list (top half) - taller items for more info
 	s.yourGameList = NewList(50, 100, 500, 180)
+	s.yourGameList.itemHeight = 70 // Taller items to show player names
 	s.yourGameList.OnSelect = func(id string) {
 		s.selectedGame = id
 	}
@@ -1149,14 +1151,48 @@ func (s *LobbyScene) SetYourGames(games []protocol.GameListItem) {
 	s.yourGames = games
 	items := make([]ListItem, len(games))
 	for i, g := range games {
-		status := g.Status
-		if g.IsYourTurn {
-			status += " - YOUR TURN!"
+		// Build status line
+		statusLine := ""
+		if g.Status == "started" && g.Round > 0 {
+			// Show year and phase for started games
+			phaseName := g.Phase
+			// Make phase names more readable
+			switch g.Phase {
+			case "production":
+				phaseName = "Production"
+			case "trade":
+				phaseName = "Trade"
+			case "shipment":
+				phaseName = "Shipment"
+			case "conquest":
+				phaseName = "Conquest"
+			case "development":
+				phaseName = "Development"
+			case "selection":
+				phaseName = "Selection"
+			}
+			statusLine = fmt.Sprintf("Year %d - %s", g.Round, phaseName)
+			if g.IsYourTurn {
+				statusLine += " (YOUR TURN!)"
+			}
+		} else {
+			statusLine = fmt.Sprintf("%s (%d/%d)", g.Status, g.PlayerCount, g.MaxPlayers)
+			if g.IsYourTurn {
+				statusLine += " - YOUR TURN!"
+			}
 		}
+
+		// Build player names string
+		playerStr := ""
+		if len(g.PlayerNames) > 0 {
+			playerStr = strings.Join(g.PlayerNames, ", ")
+		}
+
 		items[i] = ListItem{
 			ID:      g.ID,
 			Text:    g.Name,
-			Subtext: fmt.Sprintf("%s (%d/%d)", status, g.PlayerCount, g.MaxPlayers),
+			Subtext: statusLine,
+			Detail:  playerStr,
 		}
 	}
 	// Preserve selection and scroll if this is an auto-refresh

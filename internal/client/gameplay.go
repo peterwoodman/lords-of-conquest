@@ -646,6 +646,9 @@ func (s *GameplayScene) Update() error {
 
 	// Handle attack planning dialog
 	if s.showAttackPlan {
+		// Handle reinforcement selection clicks
+		s.updateAttackPlanInput()
+
 		// Only allow attack without reinforcement if base strength > 0
 		if s.attackPreview != nil && s.attackPreview.AttackStrength > 0 {
 			s.attackNoReinfBtn.Update()
