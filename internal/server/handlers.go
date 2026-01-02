@@ -77,6 +77,8 @@ func (h *Handlers) Handle(client *Client, msg *protocol.Message) {
 		err = h.handleListGames(client, msg)
 	case protocol.TypeYourGames:
 		err = h.handleYourGames(client, msg)
+	case protocol.TypeClientReady:
+		err = h.handleClientReady(client, msg)
 	default:
 		err = errors.New("unknown message type")
 	}
@@ -807,10 +809,12 @@ func (h *Handlers) broadcastGameState(gameID string) {
 
 	// Check for skipped phases and notify clients
 	if len(state.SkippedPhases) > 0 {
-		for _, skip := range state.SkippedPhases {
+		for i, skip := range state.SkippedPhases {
+			eventID := fmt.Sprintf("skip-%s-%d-%d", gameID, time.Now().UnixNano(), i)
 			skipPayload := protocol.PhaseSkippedPayload{
-				Phase:  skip.Phase.String(),
-				Reason: skip.Reason,
+				EventID: eventID,
+				Phase:   skip.Phase.String(),
+				Reason:  skip.Reason,
 			}
 			log.Printf("Broadcasting phase skip: %s - %s", skip.Phase.String(), skip.Reason)
 			h.hub.notifyGamePlayers(gameID, protocol.TypePhaseSkipped, skipPayload)
@@ -1628,29 +1632,10 @@ func (h *Handlers) aiConquest(gameID string, state *game.GameState) {
 		if err != nil {
 			log.Printf("AI: Attack failed: %v", err)
 			state.EndConquest(attackerID)
+			h.saveAndBroadcastAIState(gameID, state)
+			go h.checkAndTriggerAI(gameID)
 		} else {
-			// Broadcast combat result to all players so everyone sees the animation
-			unitsDestroyed := make([]string, 0)
-			for _, u := range result.UnitsDestroyed {
-				unitsDestroyed = append(unitsDestroyed, u.TerritoryID)
-			}
-			unitsCaptured := make([]string, 0)
-			for _, u := range result.UnitsCaptured {
-				unitsCaptured = append(unitsCaptured, u.TerritoryID)
-			}
-
-			combatResult := protocol.CombatResultPayload{
-				Success:         true,
-				AttackerID:      attackerID, // Use captured ID, not state.CurrentPlayerID
-				AttackerWins:    result.AttackerWins,
-				AttackStrength:  result.AttackStrength,
-				DefenseStrength: result.DefenseStrength,
-				TargetTerritory: bestTarget,
-				UnitsDestroyed:  unitsDestroyed,
-				UnitsCaptured:   unitsCaptured,
-			}
-			h.hub.notifyGamePlayers(gameID, protocol.TypeActionResult, combatResult)
-
+			// Log history
 			if result.AttackerWins {
 				log.Printf("AI: Attack successful!")
 				h.logHistory(gameID, state.Round, state.Phase.String(), attackerID, playerName,
@@ -1660,11 +1645,45 @@ func (h *Handlers) aiConquest(gameID string, state *game.GameState) {
 				h.logHistory(gameID, state.Round, state.Phase.String(), attackerID, playerName,
 					database.EventAttackFailed, fmt.Sprintf("Attack on %s failed", terrName))
 			}
+
+			// Broadcast combat result and wait for client acknowledgment
+			unitsDestroyed := make([]string, 0)
+			for _, u := range result.UnitsDestroyed {
+				unitsDestroyed = append(unitsDestroyed, u.TerritoryID)
+			}
+			unitsCaptured := make([]string, 0)
+			for _, u := range result.UnitsCaptured {
+				unitsCaptured = append(unitsCaptured, u.TerritoryID)
+			}
+
+			eventID := fmt.Sprintf("combat-%s-%d", gameID, time.Now().UnixNano())
+			combatResult := protocol.CombatResultPayload{
+				EventID:         eventID,
+				Success:         true,
+				AttackerID:      attackerID,
+				AttackerWins:    result.AttackerWins,
+				AttackStrength:  result.AttackStrength,
+				DefenseStrength: result.DefenseStrength,
+				TargetTerritory: bestTarget,
+				UnitsDestroyed:  unitsDestroyed,
+				UnitsCaptured:   unitsCaptured,
+			}
+
+			// Use broadcastWithAck to wait for clients before proceeding
+			// Capture state for the closure
+			stateCopy := state
+			h.broadcastWithAck(gameID, eventID, protocol.EventCombat, protocol.TypeActionResult, combatResult, func() {
+				// Called after all clients acknowledge (or timeout)
+				h.saveAndBroadcastAIState(gameID, stateCopy)
+				go h.checkAndTriggerAI(gameID)
+			})
 		}
-	} else {
-		log.Printf("AI: No favorable attacks (best odds: %.2f), ending conquest", bestOdds)
-		state.EndConquest(state.CurrentPlayerID)
+		return // Don't fall through - we're waiting for ack
 	}
+
+	// No favorable attacks - end conquest
+	log.Printf("AI: No favorable attacks (best odds: %.2f), ending conquest", bestOdds)
+	state.EndConquest(state.CurrentPlayerID)
 
 	// Save state
 	h.saveAndBroadcastAIState(gameID, state)
@@ -1746,8 +1765,20 @@ func (h *Handlers) aiDevelopment(gameID string, state *game.GameState) {
 		log.Printf("AI: Nothing to build, ending development")
 	}
 
+	// Track round before ending development to detect round change
+	roundBefore := state.Round
+
 	// End development phase
 	state.EndDevelopment(state.CurrentPlayerID)
+
+	// Check for game over at end of round (when all players completed development)
+	if state.Round > roundBefore && state.IsGameOver() {
+		log.Printf("AI: Round ended - checking victory conditions")
+		// Save state before handling game over
+		h.saveAndBroadcastAIState(gameID, state)
+		h.handleGameOver(gameID, state)
+		return
+	}
 
 	// Save state
 	h.saveAndBroadcastAIState(gameID, state)
@@ -2210,8 +2241,25 @@ func (h *Handlers) handleEndPhase(client *Client, msg *protocol.Message) error {
 		// End conquest phase for this player
 		state.EndConquest(client.PlayerID)
 	case game.PhaseDevelopment:
+		// Track round before ending development to detect round change
+		roundBefore := state.Round
 		// End development phase for this player
 		state.EndDevelopment(client.PlayerID)
+		// Check for game over at end of round (when all players completed development)
+		if state.Round > roundBefore && state.IsGameOver() {
+			// Save state before handling game over
+			stateJSON2, err := json.Marshal(state)
+			if err != nil {
+				return err
+			}
+			if err := h.hub.server.db.SaveGameState(client.GameID, string(stateJSON2),
+				state.CurrentPlayerID, state.Round, state.Phase.String()); err != nil {
+				return err
+			}
+			log.Printf("Round ended - checking victory conditions")
+			h.handleGameOver(client.GameID, &state)
+			return nil
+		}
 	default:
 		return errors.New("cannot end phase in current state")
 	}
@@ -2609,8 +2657,36 @@ func (h *Handlers) handleExecuteAttack(client *Client, msg *protocol.Message) er
 		unitsCaptured = append(unitsCaptured, u.TerritoryID)
 	}
 
-	// Broadcast combat result to ALL players so everyone sees the animation
+	if result.AttackerWins {
+		log.Printf("Player %s conquered %s", client.Name, payload.TargetTerritory)
+	} else {
+		log.Printf("Player %s failed to conquer %s", client.Name, payload.TargetTerritory)
+	}
+
+	// Check for game over BEFORE broadcasting animation
+	if state.IsGameOver() {
+		// Still show combat result, but no AI trigger needed
+		eventID := fmt.Sprintf("combat-%s-%d", client.GameID, time.Now().UnixNano())
+		combatResult := protocol.CombatResultPayload{
+			EventID:         eventID,
+			Success:         true,
+			AttackerID:      client.PlayerID,
+			AttackerWins:    result.AttackerWins,
+			AttackStrength:  result.AttackStrength,
+			DefenseStrength: result.DefenseStrength,
+			TargetTerritory: payload.TargetTerritory,
+			UnitsDestroyed:  unitsDestroyed,
+			UnitsCaptured:   unitsCaptured,
+		}
+		h.hub.notifyGamePlayers(client.GameID, protocol.TypeActionResult, combatResult)
+		h.handleGameOver(client.GameID, &state)
+		return nil
+	}
+
+	// Broadcast combat result and wait for client acknowledgment before triggering AI
+	eventID := fmt.Sprintf("combat-%s-%d", client.GameID, time.Now().UnixNano())
 	combatResult := protocol.CombatResultPayload{
+		EventID:         eventID,
 		Success:         true,
 		AttackerID:      client.PlayerID,
 		AttackerWins:    result.AttackerWins,
@@ -2621,25 +2697,13 @@ func (h *Handlers) handleExecuteAttack(client *Client, msg *protocol.Message) er
 		UnitsCaptured:   unitsCaptured,
 	}
 
-	h.hub.notifyGamePlayers(client.GameID, protocol.TypeActionResult, combatResult)
-
-	if result.AttackerWins {
-		log.Printf("Player %s conquered %s", client.Name, payload.TargetTerritory)
-	} else {
-		log.Printf("Player %s failed to conquer %s", client.Name, payload.TargetTerritory)
-	}
-
-	// Check for game over BEFORE broadcasting state
-	if state.IsGameOver() {
-		h.handleGameOver(client.GameID, &state)
-		return nil
-	}
-
-	// Broadcast updated state
-	h.broadcastGameState(client.GameID)
-
-	// Check if next player is AI
-	go h.checkAndTriggerAI(client.GameID)
+	// Capture gameID for the closure
+	gameID := client.GameID
+	h.broadcastWithAck(gameID, eventID, protocol.EventCombat, protocol.TypeActionResult, combatResult, func() {
+		// Called after all clients acknowledge (or timeout)
+		h.broadcastGameState(gameID)
+		go h.checkAndTriggerAI(gameID)
+	})
 
 	return nil
 }
@@ -2713,11 +2777,8 @@ func (h *Handlers) handleBuild(client *Client, msg *protocol.Message) error {
 
 	log.Printf("Player %s built %s at %s", client.Name, payload.Type, payload.Territory)
 
-	// Check for game over (building 6th city wins)
-	if state.IsGameOver() {
-		h.handleGameOver(client.GameID, &state)
-		return nil
-	}
+	// Note: Victory by cities is checked at end of round, not immediately when built
+	// This gives all players a chance to complete their development phase
 
 	// Broadcast updated state
 	h.broadcastGameState(client.GameID)
@@ -2937,4 +2998,34 @@ func (h *Handlers) handleGameOver(gameID string, state *game.GameState) {
 	}
 
 	h.hub.notifyGamePlayers(gameID, protocol.TypeGameEnded, payload)
+}
+
+// ==================== Synchronization Handlers ====================
+
+// handleClientReady processes a client's acknowledgment that they're ready to proceed.
+func (h *Handlers) handleClientReady(client *Client, msg *protocol.Message) error {
+	var payload protocol.ClientReadyPayload
+	if err := msg.ParsePayload(&payload); err != nil {
+		return err
+	}
+
+	log.Printf("Client %s ready for event %s (%s)", client.PlayerID, payload.EventID, payload.EventType)
+	h.hub.AcknowledgeEvent(payload.EventID, client.PlayerID)
+	return nil
+}
+
+// broadcastWithAck sends a message to all players in a game and waits for acknowledgment
+// before calling the onComplete callback. AI players are auto-acknowledged.
+func (h *Handlers) broadcastWithAck(gameID, eventID, eventType string, msgType protocol.MessageType, payload interface{}, onComplete func()) {
+	// Get list of human players who need to acknowledge
+	humanPlayers := h.hub.GetHumanPlayersInGame(gameID)
+
+	log.Printf("Broadcasting %s event %s to game %s, waiting for %d human players",
+		eventType, eventID, gameID, len(humanPlayers))
+
+	// Send the message to all players
+	h.hub.notifyGamePlayers(gameID, msgType, payload)
+
+	// Create pending event and wait for acks
+	h.hub.CreatePendingEvent(eventID, eventType, gameID, humanPlayers, onComplete)
 }

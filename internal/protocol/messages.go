@@ -76,6 +76,13 @@ const (
 	TypeBuild           MessageType = "build"
 )
 
+// Synchronization message types
+const (
+	TypeClientReady MessageType = "client_ready" // Client → Server: Ready for next action
+	TypeWaitingFor  MessageType = "waiting_for"  // Server → Clients: Waiting for players
+	TypeProceed     MessageType = "proceed"      // Server → Clients: All ready, proceeding
+)
+
 // System message types
 const (
 	TypeWelcome     MessageType = "welcome"

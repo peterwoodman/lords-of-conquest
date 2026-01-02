@@ -21,7 +21,7 @@ func (s *GameplayScene) drawBuildMenu(screen *ebiten.Image) {
 
 	// Menu panel
 	menuW := 280
-	menuH := 280
+	menuH := 330
 	menuX := ScreenWidth/2 - menuW/2
 	menuY := ScreenHeight/2 - menuH/2
 
@@ -68,42 +68,71 @@ func (s *GameplayScene) drawBuildMenu(screen *ebiten.Image) {
 	btnX := menuX + 40
 	btnY := menuY + 70
 
-	// City button - costs 1 coal, 1 gold, 1 iron, 1 timber (or 4 gold)
-	canAffordCity := (coal >= 1 && gold >= 1 && iron >= 1 && timber >= 1) || gold >= 4
+	// Determine affordability based on gold toggle
+	var canAffordCity, canAffordWeapon, canAffordBoat bool
+	var cityText, weaponText, boatText string
+
+	if s.buildUseGold {
+		// Gold only mode - check gold costs
+		canAffordCity = gold >= 4
+		canAffordWeapon = gold >= 2
+		canAffordBoat = gold >= 3
+		cityText = "City (4 Gold)"
+		weaponText = "Weapon (2 Gold)"
+		boatText = "Boat (3 Gold)"
+	} else {
+		// Resource mode - check resource costs
+		canAffordCity = coal >= 1 && gold >= 1 && iron >= 1 && timber >= 1
+		canAffordWeapon = coal >= 1 && iron >= 1
+		canAffordBoat = timber >= 3
+		cityText = "City (C+G+I+W)"
+		weaponText = "Weapon (C+I)"
+		boatText = "Boat (3 Timber)"
+	}
+
+	// City button
 	s.buildCityBtn.X = btnX
 	s.buildCityBtn.Y = btnY
 	s.buildCityBtn.Disabled = !canAffordCity || hasCity
-	s.buildCityBtn.Text = "City (C+G+I+W or 4G)"
+	s.buildCityBtn.Text = cityText
 	if hasCity {
 		s.buildCityBtn.Text = "City (already built)"
 	}
 	s.buildCityBtn.Draw(screen)
 
-	// Weapon button - costs 1 coal, 1 iron (or 2 gold)
-	canAffordWeapon := (coal >= 1 && iron >= 1) || gold >= 2
+	// Weapon button
 	s.buildWeaponBtn.X = btnX
-	s.buildWeaponBtn.Y = btnY + 50
+	s.buildWeaponBtn.Y = btnY + 45
 	s.buildWeaponBtn.Disabled = !canAffordWeapon || hasWeapon
-	s.buildWeaponBtn.Text = "Weapon (C+I or 2G)"
+	s.buildWeaponBtn.Text = weaponText
 	if hasWeapon {
 		s.buildWeaponBtn.Text = "Weapon (already built)"
 	}
 	s.buildWeaponBtn.Draw(screen)
 
-	// Boat button - costs 3 timber (or 3 gold), coastal only
-	canAffordBoat := timber >= 3 || gold >= 3
+	// Boat button
 	s.buildBoatBtn.X = btnX
-	s.buildBoatBtn.Y = btnY + 100
+	s.buildBoatBtn.Y = btnY + 90
 	s.buildBoatBtn.Disabled = !canAffordBoat || !isCoastal
-	s.buildBoatBtn.Text = "Boat (3W or 3G)"
+	s.buildBoatBtn.Text = boatText
 	if !isCoastal {
 		s.buildBoatBtn.Text = "Boat (coastal only)"
 	}
 	s.buildBoatBtn.Draw(screen)
 
+	// Gold toggle button
+	s.buildUseGoldBtn.X = btnX
+	s.buildUseGoldBtn.Y = btnY + 145
+	if s.buildUseGold {
+		s.buildUseGoldBtn.Text = "[X] Use Gold Only"
+	} else {
+		s.buildUseGoldBtn.Text = "[ ] Use Gold Only"
+	}
+	s.buildUseGoldBtn.Draw(screen)
+
 	// Cancel button
 	s.cancelBuildBtn.X = btnX
-	s.cancelBuildBtn.Y = btnY + 160
+	s.cancelBuildBtn.Y = btnY + 195
 	s.cancelBuildBtn.Draw(screen)
 
 	// Resource reminder
@@ -502,6 +531,11 @@ func (s *GameplayScene) startCombatAnimation(result *CombatResultData) {
 
 // dismissCombatResult dismisses the current combat result and shows the next queued one
 func (s *GameplayScene) dismissCombatResult() {
+	// Send acknowledgment for this combat result
+	if s.combatResult != nil && s.combatResult.EventID != "" {
+		s.game.SendClientReady(s.combatResult.EventID, protocol.EventCombat)
+	}
+
 	s.showCombatResult = false
 	s.combatResult = nil
 
@@ -577,11 +611,14 @@ func (s *GameplayScene) updateCombatAnimation() {
 			s.combatPendingResult.AttackerID, s.game.config.PlayerID, isMyAttack)
 
 		if isMyAttack {
+			// Show dialog - acknowledgment will be sent when dialog is dismissed
 			s.combatResult = s.combatPendingResult
 			s.showCombatResult = true
 		} else {
-			// For other players' attacks, skip dialog and process next in queue
-			// Also apply pending state since we're not showing a dialog
+			// For other players' attacks, send acknowledgment immediately
+			s.game.SendClientReady(s.combatPendingResult.EventID, protocol.EventCombat)
+
+			// Apply pending state since we're not showing a dialog
 			if s.combatPendingState != nil {
 				s.applyGameState(s.combatPendingState)
 				s.combatPendingState = nil
@@ -935,9 +972,13 @@ func (s *GameplayScene) voteAlliance(side string) {
 }
 
 // ShowPhaseSkipped queues a phase skip popup for display.
-func (s *GameplayScene) ShowPhaseSkipped(phase, reason string) {
+func (s *GameplayScene) ShowPhaseSkipped(eventID, phase, reason string) {
 	// Add to queue
-	s.phaseSkipQueue = append(s.phaseSkipQueue, PhaseSkipData{Phase: phase, Reason: reason})
+	s.phaseSkipQueue = append(s.phaseSkipQueue, PhaseSkipData{
+		EventID: eventID,
+		Phase:   phase,
+		Reason:  reason,
+	})
 
 	// If not currently showing a skip, start showing the first one
 	if !s.showPhaseSkip {
@@ -947,6 +988,12 @@ func (s *GameplayScene) ShowPhaseSkipped(phase, reason string) {
 
 // showNextPhaseSkip displays the next queued phase skip.
 func (s *GameplayScene) showNextPhaseSkip() {
+	// Send acknowledgment for the current skip before moving to next
+	if s.phaseSkipEventID != "" {
+		s.game.SendClientReady(s.phaseSkipEventID, protocol.EventPhaseSkip)
+		s.phaseSkipEventID = ""
+	}
+
 	if len(s.phaseSkipQueue) == 0 {
 		s.showPhaseSkip = false
 		return
@@ -956,6 +1003,7 @@ func (s *GameplayScene) showNextPhaseSkip() {
 	skip := s.phaseSkipQueue[0]
 	s.phaseSkipQueue = s.phaseSkipQueue[1:]
 
+	s.phaseSkipEventID = skip.EventID
 	s.phaseSkipPhase = skip.Phase
 	s.phaseSkipReason = skip.Reason
 	s.phaseSkipCountdown = 30 * 60 // 30 seconds at 60fps
@@ -1093,7 +1141,7 @@ func (s *GameplayScene) drawVictoryScreen(screen *ebiten.Image) {
 		// Victory reason
 		reasonText := "by conquest"
 		if s.victoryReason == "cities" {
-			reasonText = fmt.Sprintf("with %d cities", s.game.lobbyState.Settings.VictoryCities)
+			reasonText = "by building cities"
 		} else if s.victoryReason == "elimination" {
 			reasonText = "by eliminating all rivals"
 		}

@@ -233,8 +233,9 @@ type GameEndedPayload struct {
 
 // PhaseSkippedPayload is sent when a phase is skipped due to chance.
 type PhaseSkippedPayload struct {
-	Phase  string `json:"phase"`  // The phase that was skipped
-	Reason string `json:"reason"` // Funny reason for skipping
+	EventID string `json:"event_id"` // For sync acknowledgment
+	Phase   string `json:"phase"`    // The phase that was skipped
+	Reason  string `json:"reason"`   // Funny reason for skipping
 }
 
 // ==================== Action Payloads ====================
@@ -400,6 +401,7 @@ type ExecuteAttackPayload struct {
 
 // CombatResultPayload reports the result of combat.
 type CombatResultPayload struct {
+	EventID         string   `json:"event_id"` // For sync acknowledgment
 	Success         bool     `json:"success"`
 	AttackerID      string   `json:"attacker_id"`
 	AttackerWins    bool     `json:"attacker_wins"`
@@ -408,6 +410,37 @@ type CombatResultPayload struct {
 	TargetTerritory string   `json:"target_territory"`
 	UnitsDestroyed  []string `json:"units_destroyed,omitempty"`
 	UnitsCaptured   []string `json:"units_captured,omitempty"`
+}
+
+// ==================== Synchronization Payloads ====================
+
+// Event types for synchronization
+const (
+	EventCombat     = "combat"      // Combat animation/result
+	EventPhaseSkip  = "phase_skip"  // Phase was skipped notification
+	EventPhaseChange = "phase_change" // Phase transition
+	EventTurnChange = "turn_change"   // Turn changed to new player
+)
+
+// ClientReadyPayload is sent by client to acknowledge an event.
+type ClientReadyPayload struct {
+	EventID   string `json:"event_id"`   // Which event we're acknowledging
+	EventType string `json:"event_type"` // combat, phase_skip, etc.
+}
+
+// WaitingForPayload tells clients who we're waiting for.
+type WaitingForPayload struct {
+	EventID     string   `json:"event_id"`
+	EventType   string   `json:"event_type"`
+	PlayerIDs   []string `json:"player_ids"`
+	PlayerNames []string `json:"player_names"`
+	TimeoutSec  int      `json:"timeout_sec"`
+}
+
+// ProceedPayload tells clients that all are ready and game is proceeding.
+type ProceedPayload struct {
+	EventID   string `json:"event_id"`
+	EventType string `json:"event_type"`
 }
 
 // ==================== System Payloads ====================

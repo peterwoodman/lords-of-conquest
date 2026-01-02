@@ -50,9 +50,11 @@ type GameplayScene struct {
 	// Build menu (Development phase)
 	showBuildMenu      bool
 	buildMenuTerritory string
+	buildUseGold       bool // Toggle for using gold instead of resources
 	buildCityBtn       *Button
 	buildWeaponBtn     *Button
 	buildBoatBtn       *Button
+	buildUseGoldBtn    *Button
 	cancelBuildBtn     *Button
 
 	// Water body selection for boats
@@ -106,12 +108,13 @@ type GameplayScene struct {
 	stayNeutralBtn        *Button
 
 	// Phase skip popup (queue to handle multiple skips)
-	showPhaseSkip      bool
-	phaseSkipPhase     string
-	phaseSkipReason    string
-	phaseSkipCountdown int // Frames remaining (30 seconds at 60fps = 1800)
-	phaseSkipQueue     []PhaseSkipData // Queue for pending skip messages
-	dismissSkipBtn     *Button
+	showPhaseSkip       bool
+	phaseSkipEventID    string // Current skip's event ID for acknowledgment
+	phaseSkipPhase      string
+	phaseSkipReason     string
+	phaseSkipCountdown  int             // Frames remaining (30 seconds at 60fps = 1800)
+	phaseSkipQueue      []PhaseSkipData // Queue for pending skip messages
+	dismissSkipBtn      *Button
 
 	// Victory screen
 	showVictory      bool
@@ -215,6 +218,7 @@ type CombatExplosion struct {
 
 // CombatResultData holds the result of a combat for display
 type CombatResultData struct {
+	EventID         string // For sync acknowledgment
 	AttackerID      string
 	AttackerWins    bool
 	AttackStrength  int
@@ -246,8 +250,9 @@ type ReinforcementData struct {
 
 // PhaseSkipData holds info about a skipped phase for the popup queue
 type PhaseSkipData struct {
-	Phase  string
-	Reason string
+	EventID string
+	Phase   string
+	Reason  string
 }
 
 // Panel is a UI panel.
@@ -289,10 +294,15 @@ func NewGameplayScene(game *Game) *GameplayScene {
 		Text:    "Build Boat",
 		OnClick: func() { s.doBuild("boat") },
 	}
+	s.buildUseGoldBtn = &Button{
+		X: 0, Y: 0, W: 200, H: 40,
+		Text:    "[ ] Use Gold Only",
+		OnClick: func() { s.buildUseGold = !s.buildUseGold },
+	}
 	s.cancelBuildBtn = &Button{
 		X: 0, Y: 0, W: 200, H: 40,
 		Text:    "Cancel",
-		OnClick: func() { s.showBuildMenu = false },
+		OnClick: func() { s.showBuildMenu = false; s.buildUseGold = false },
 	}
 
 	// Combat result dismiss button
@@ -541,9 +551,11 @@ func (s *GameplayScene) Update() error {
 		s.buildCityBtn.Update()
 		s.buildWeaponBtn.Update()
 		s.buildBoatBtn.Update()
+		s.buildUseGoldBtn.Update()
 		s.cancelBuildBtn.Update()
 		if inpututil.IsKeyJustPressed(ebiten.KeyEscape) {
 			s.showBuildMenu = false
+			s.buildUseGold = false
 		}
 		return nil // Block other input while showing menu
 	}

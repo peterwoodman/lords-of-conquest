@@ -306,52 +306,14 @@ func (s *GameplayScene) doBuild(buildType string) {
 		}
 	}
 
-	// Determine if we should use gold (if we can't afford regular cost)
-	useGold := s.shouldUseGold(buildType)
+	// Use the gold toggle setting from the menu
+	useGold := s.buildUseGold
 
 	log.Printf("Building %s at %s (useGold: %v)", buildType, s.buildMenuTerritory, useGold)
 	s.game.Build(buildType, s.buildMenuTerritory, useGold)
 	s.showBuildMenu = false
 	s.buildMenuTerritory = ""
-}
-
-// shouldUseGold determines if gold should be used for a build
-func (s *GameplayScene) shouldUseGold(buildType string) bool {
-	if myPlayer, ok := s.players[s.game.config.PlayerID]; ok {
-		player := myPlayer.(map[string]interface{})
-		if stockpile, ok := player["stockpile"].(map[string]interface{}); ok {
-			coal, iron, timber := 0, 0, 0
-			if v, ok := stockpile["coal"].(float64); ok {
-				coal = int(v)
-			}
-			if v, ok := stockpile["iron"].(float64); ok {
-				iron = int(v)
-			}
-			if v, ok := stockpile["timber"].(float64); ok {
-				timber = int(v)
-			}
-
-			switch buildType {
-			case "city":
-				gold := 0
-				if v, ok := stockpile["gold"].(float64); ok {
-					gold = int(v)
-				}
-				if !(coal >= 1 && gold >= 1 && iron >= 1 && timber >= 1) {
-					return true
-				}
-			case "weapon":
-				if !(coal >= 1 && iron >= 1) {
-					return true
-				}
-			case "boat":
-				if timber < 3 {
-					return true
-				}
-			}
-		}
-	}
-	return false
+	s.buildUseGold = false // Reset toggle for next time
 }
 
 // doBuildBoatInWater builds a boat in a specific water body
@@ -360,12 +322,14 @@ func (s *GameplayScene) doBuildBoatInWater(waterBodyID string) {
 		return
 	}
 
-	useGold := s.shouldUseGold("boat")
+	// Use the gold toggle setting from the menu
+	useGold := s.buildUseGold
 	log.Printf("Building boat at %s in water body %s (useGold: %v)", s.buildMenuTerritory, waterBodyID, useGold)
 	s.game.BuildBoatInWater(s.buildMenuTerritory, waterBodyID, useGold)
 	s.showWaterBodySelect = false
 	s.waterBodyOptions = nil
 	s.buildMenuTerritory = ""
+	s.buildUseGold = false // Reset toggle for next time
 }
 
 // handleWaterBodyClick handles clicking on a water cell during water body selection

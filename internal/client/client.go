@@ -315,6 +315,19 @@ func (g *Game) BuildBoatInWater(territoryID, waterBodyID string, useGold bool) e
 	return g.network.SendPayload(protocol.TypeBuild, payload)
 }
 
+// SendClientReady tells the server we're ready to proceed after an event.
+func (g *Game) SendClientReady(eventID, eventType string) error {
+	if eventID == "" {
+		return nil // No event to acknowledge
+	}
+	log.Printf("Sending client ready for event %s (%s)", eventID, eventType)
+	payload := protocol.ClientReadyPayload{
+		EventID:   eventID,
+		EventType: eventType,
+	}
+	return g.network.SendPayload(protocol.TypeClientReady, payload)
+}
+
 // PlanAttack requests an attack preview for a target territory.
 func (g *Game) PlanAttack(targetTerritory string) error {
 	payload := protocol.PlanAttackPayload{
@@ -520,6 +533,7 @@ func (g *Game) handleMessage(msg *protocol.Message) {
 			}
 			
 			result := &CombatResultData{
+				EventID:         payload.EventID,
 				AttackerID:      payload.AttackerID,
 				AttackerWins:    payload.AttackerWins,
 				AttackStrength:  payload.AttackStrength,
@@ -623,8 +637,8 @@ func (g *Game) handleMessage(msg *protocol.Message) {
 			return
 		}
 		// Show phase skip popup in gameplay scene
-		g.gameplayScene.ShowPhaseSkipped(payload.Phase, payload.Reason)
-		log.Printf("Phase skipped: %s - %s", payload.Phase, payload.Reason)
+		g.gameplayScene.ShowPhaseSkipped(payload.EventID, payload.Phase, payload.Reason)
+		log.Printf("Phase skipped: %s - %s (event: %s)", payload.Phase, payload.Reason, payload.EventID)
 
 	case protocol.TypeGameEnded:
 		var payload protocol.GameEndedPayload

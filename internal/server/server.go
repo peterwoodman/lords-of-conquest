@@ -153,6 +153,17 @@ type PendingBattle struct {
 	ExpiresAt    time.Time
 }
 
+// PendingEvent tracks an event that requires client acknowledgment before proceeding.
+type PendingEvent struct {
+	ID           string
+	Type         string                  // combat, phase_skip, phase_change, etc.
+	GameID       string
+	RequiredAcks map[string]bool         // PlayerID -> acknowledged (true = received ack)
+	Timeout      time.Time
+	OnComplete   func()                  // Called when all acks received or timeout
+	completed    bool                    // Prevent double-completion
+}
+
 // Hub maintains the set of active clients and broadcasts messages.
 type Hub struct {
 	server *Server
@@ -171,6 +182,9 @@ type Hub struct {
 
 	// Pending trades waiting for responses
 	pendingTrades map[string]*PendingTrade
+
+	// Pending events waiting for client acknowledgment
+	pendingEvents map[string]*PendingEvent
 
 	// Register requests
 	register chan *Client
@@ -198,6 +212,7 @@ func NewHub(server *Server) *Hub {
 		playerClients:  make(map[string]*Client),
 		gameClients:    make(map[string]map[*Client]bool),
 		pendingBattles: make(map[string]*PendingBattle),
+		pendingEvents:  make(map[string]*PendingEvent),
 		register:       make(chan *Client, 100),
 		unregister:     make(chan *Client, 100),
 		broadcast:      make(chan *ClientMessage, 256),
@@ -391,6 +406,131 @@ func (h *Hub) IsPlayerOnline(playerID string) bool {
 	defer h.mu.RUnlock()
 	_, ok := h.playerClients[playerID]
 	return ok
+}
+
+// SyncTimeout is how long to wait for client acknowledgments before proceeding anyway.
+const SyncTimeout = 30 * time.Second
+
+// CreatePendingEvent creates a new event that requires client acknowledgment.
+// requiredPlayers are the human player IDs that must acknowledge.
+// onComplete is called when all acks are received or timeout occurs.
+func (h *Hub) CreatePendingEvent(eventID, eventType, gameID string, requiredPlayers []string, onComplete func()) *PendingEvent {
+	acks := make(map[string]bool)
+	for _, pid := range requiredPlayers {
+		acks[pid] = false
+	}
+
+	event := &PendingEvent{
+		ID:           eventID,
+		Type:         eventType,
+		GameID:       gameID,
+		RequiredAcks: acks,
+		Timeout:      time.Now().Add(SyncTimeout),
+		OnComplete:   onComplete,
+	}
+
+	h.mu.Lock()
+	h.pendingEvents[eventID] = event
+	h.mu.Unlock()
+
+	// Start timeout goroutine
+	go h.eventTimeoutWatcher(eventID)
+
+	// If no human players need to ack, complete immediately
+	if len(requiredPlayers) == 0 {
+		h.completeEvent(event)
+	}
+
+	return event
+}
+
+// eventTimeoutWatcher waits for timeout and completes the event if not already done.
+func (h *Hub) eventTimeoutWatcher(eventID string) {
+	h.mu.RLock()
+	event, exists := h.pendingEvents[eventID]
+	h.mu.RUnlock()
+
+	if !exists {
+		return
+	}
+
+	// Wait until timeout
+	time.Sleep(time.Until(event.Timeout))
+
+	h.mu.Lock()
+	event, exists = h.pendingEvents[eventID]
+	if exists && !event.completed {
+		log.Printf("Event %s timed out, proceeding anyway", eventID)
+		h.mu.Unlock()
+		h.completeEvent(event)
+	} else {
+		h.mu.Unlock()
+	}
+}
+
+// AcknowledgeEvent processes a client's acknowledgment of an event.
+func (h *Hub) AcknowledgeEvent(eventID, playerID string) {
+	h.mu.Lock()
+	event, exists := h.pendingEvents[eventID]
+	if !exists {
+		h.mu.Unlock()
+		log.Printf("Ack received for unknown event %s from player %s", eventID, playerID)
+		return
+	}
+
+	if _, required := event.RequiredAcks[playerID]; required {
+		event.RequiredAcks[playerID] = true
+		log.Printf("Event %s: received ack from %s", eventID, playerID)
+	}
+
+	// Check if all acks received
+	allAcked := true
+	for _, acked := range event.RequiredAcks {
+		if !acked {
+			allAcked = false
+			break
+		}
+	}
+	h.mu.Unlock()
+
+	if allAcked {
+		h.completeEvent(event)
+	}
+}
+
+// completeEvent marks an event as complete and calls its callback.
+func (h *Hub) completeEvent(event *PendingEvent) {
+	h.mu.Lock()
+	if event.completed {
+		h.mu.Unlock()
+		return
+	}
+	event.completed = true
+	delete(h.pendingEvents, event.ID)
+	h.mu.Unlock()
+
+	log.Printf("Event %s (%s) completed, proceeding", event.ID, event.Type)
+
+	// Call the completion callback
+	if event.OnComplete != nil {
+		event.OnComplete()
+	}
+}
+
+// GetHumanPlayersInGame returns the player IDs of connected human players in a game.
+func (h *Hub) GetHumanPlayersInGame(gameID string) []string {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+
+	var players []string
+	if gameClients, ok := h.gameClients[gameID]; ok {
+		for client := range gameClients {
+			if client.PlayerID != "" {
+				players = append(players, client.PlayerID)
+			}
+		}
+	}
+	return players
 }
 
 // Client represents a connected WebSocket client.
