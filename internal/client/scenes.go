@@ -62,6 +62,9 @@ func (s *TitleScene) OnEnter() {
 	s.fadeAlpha = 0
 	s.zoomLevel = 1.0
 	s.skipPressed = false
+
+	// Start playing intro music
+	PlayIntroMusic()
 }
 
 func (s *TitleScene) OnExit() {}

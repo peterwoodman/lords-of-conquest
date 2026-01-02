@@ -409,6 +409,9 @@ func (g *Game) handleMessage(msg *protocol.Message) {
 			g.config.Save()
 			log.Printf("Authenticated as %s", payload.Name)
 
+			// Fade out intro music when connected
+			FadeOutIntroMusic(2000) // 2 second fade
+
 			// Reset connect scene state
 			g.connectScene.connecting = false
 			g.connectScene.connectBtn.Disabled = false

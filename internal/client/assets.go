@@ -2,18 +2,22 @@ package client
 
 import (
 	"bytes"
+	"fmt"
 	"image"
 	"image/color"
 	"image/gif"
 	"io"
 	_ "image/png"
 	"log"
+	"math/rand"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/audio"
 	"github.com/hajimehoshi/ebiten/v2/audio/mp3"
+	"github.com/hajimehoshi/ebiten/v2/audio/vorbis"
 )
 
 // Icons holds all loaded icon images
@@ -27,6 +31,9 @@ var titleScreenModern *ebiten.Image
 var audioContext *audio.Context
 var winnerMusic *audio.Player
 var winnerMusicBytes []byte
+var introMusic *audio.Player
+var introMusicBytes []byte
+var bridgeSounds [][]byte // bridge1.ogg to bridge5.ogg
 
 // LoadIcons loads all icon images from the assets/icons directory
 func LoadIcons() {
@@ -209,10 +216,33 @@ func LoadAudio() {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		log.Printf("Failed to load winner.mp3: %v", err)
-		return
+	} else {
+		winnerMusicBytes = data
+		log.Printf("Loaded winner music: %s", path)
 	}
-	winnerMusicBytes = data
-	log.Printf("Loaded winner music: %s", path)
+
+	// Load intro music
+	introPath := filepath.Join(baseDir, "intro.ogg")
+	introData, err := os.ReadFile(introPath)
+	if err != nil {
+		log.Printf("Failed to load intro.ogg: %v", err)
+	} else {
+		introMusicBytes = introData
+		log.Printf("Loaded intro music: %s", introPath)
+	}
+
+	// Load bridge sounds (bridge1.ogg to bridge5.ogg)
+	bridgeSounds = make([][]byte, 0, 5)
+	for i := 1; i <= 5; i++ {
+		bridgePath := filepath.Join(baseDir, fmt.Sprintf("bridge%d.ogg", i))
+		bridgeData, err := os.ReadFile(bridgePath)
+		if err != nil {
+			log.Printf("Failed to load bridge%d.ogg: %v", i, err)
+		} else {
+			bridgeSounds = append(bridgeSounds, bridgeData)
+			log.Printf("Loaded bridge sound: %s", bridgePath)
+		}
+	}
 }
 
 // PlayWinnerMusic starts playing the victory music
@@ -257,6 +287,120 @@ func StopWinnerMusic() {
 // IsWinnerMusicPlaying returns true if victory music is playing
 func IsWinnerMusicPlaying() bool {
 	return winnerMusic != nil && winnerMusic.IsPlaying()
+}
+
+// PlayIntroMusic starts playing the intro music
+func PlayIntroMusic() {
+	if audioContext == nil || len(introMusicBytes) == 0 {
+		log.Printf("Cannot play intro music: audio not initialized or file not loaded")
+		return
+	}
+
+	// Stop any existing intro music
+	StopIntroMusic()
+
+	// Decode the OGG
+	decoded, err := vorbis.DecodeWithSampleRate(44100, bytes.NewReader(introMusicBytes))
+	if err != nil {
+		log.Printf("Failed to decode intro.ogg: %v", err)
+		return
+	}
+
+	// Create an infinite loop player
+	loop := audio.NewInfiniteLoop(decoded, decoded.Length())
+
+	player, err := audioContext.NewPlayer(loop)
+	if err != nil {
+		log.Printf("Failed to create audio player for intro: %v", err)
+		return
+	}
+
+	introMusic = player
+	introMusic.Play()
+	log.Printf("Playing intro music")
+}
+
+// StopIntroMusic stops the intro music immediately
+func StopIntroMusic() {
+	if introMusic != nil {
+		introMusic.Close()
+		introMusic = nil
+		log.Printf("Stopped intro music")
+	}
+}
+
+// FadeOutIntroMusic gradually fades out the intro music over the specified duration
+func FadeOutIntroMusic(durationMs int) {
+	if introMusic == nil || !introMusic.IsPlaying() {
+		return
+	}
+
+	log.Printf("Fading out intro music over %dms", durationMs)
+
+	// Fade out in a goroutine
+	go func() {
+		player := introMusic // Capture reference
+		if player == nil {
+			return
+		}
+
+		steps := 30 // Number of volume steps
+		stepDuration := time.Duration(durationMs/steps) * time.Millisecond
+		volumeStep := 1.0 / float64(steps)
+
+		for i := 0; i < steps; i++ {
+			if player != introMusic {
+				// Player changed (e.g., music restarted), abort fade
+				return
+			}
+			volume := 1.0 - (float64(i+1) * volumeStep)
+			if volume < 0 {
+				volume = 0
+			}
+			player.SetVolume(volume)
+			time.Sleep(stepDuration)
+		}
+
+		// Stop the music after fade completes
+		if player == introMusic {
+			StopIntroMusic()
+		}
+	}()
+}
+
+// IsIntroMusicPlaying returns true if intro music is playing
+func IsIntroMusicPlaying() bool {
+	return introMusic != nil && introMusic.IsPlaying()
+}
+
+// PlayBridgeSound plays a random bridge sound
+func PlayBridgeSound() {
+	if audioContext == nil || len(bridgeSounds) == 0 {
+		log.Printf("Cannot play bridge sound: audio not initialized or sounds not loaded")
+		return
+	}
+
+	// Pick a random bridge sound
+	idx := rand.Intn(len(bridgeSounds))
+	soundData := bridgeSounds[idx]
+
+	// Decode and play in a goroutine to not block
+	go func() {
+		decoded, err := vorbis.DecodeWithSampleRate(44100, bytes.NewReader(soundData))
+		if err != nil {
+			log.Printf("Failed to decode bridge sound: %v", err)
+			return
+		}
+
+		player, err := audioContext.NewPlayer(decoded)
+		if err != nil {
+			log.Printf("Failed to create bridge sound player: %v", err)
+			return
+		}
+
+		player.Play()
+		log.Printf("Playing bridge sound %d", idx+1)
+	}()
 }
 
 // audioLoopReader wraps a reader to loop infinitely

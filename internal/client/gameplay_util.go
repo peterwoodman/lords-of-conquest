@@ -98,7 +98,12 @@ func (s *GameplayScene) applyGameState(state map[string]interface{}) {
 	}
 
 	if round, ok := state["round"].(float64); ok {
-		s.round = int(round)
+		newRound := int(round)
+		// Play bridge sound when round changes (but not on initial load where s.round is 0)
+		if s.round > 0 && newRound > s.round {
+			PlayBridgeSound()
+		}
+		s.round = newRound
 		log.Printf("Round: %d", s.round)
 	}
 
