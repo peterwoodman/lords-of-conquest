@@ -398,11 +398,7 @@ func (s *GameplayScene) drawBottomBar(screen *ebiten.Image) {
 			textColor := ColorTextMuted
 			displayText := "  " + phase // Indent for non-current phases
 
-			// Development is skipped in Year 1
-			if phase == "Development" && s.round == 1 {
-				displayText = "  " + phase + " (skipped)"
-				textColor = ColorTextDim
-			} else if phase == s.currentPhase {
+			if phase == s.currentPhase {
 				// Current phase - highlighted with arrow and background
 				textColor = ColorSuccess
 				displayText = "> " + phase
@@ -424,7 +420,49 @@ func (s *GameplayScene) drawBottomBar(screen *ebiten.Image) {
 	rightX := barX + leftSectionW + 20
 	isMyTurn := s.currentTurn == s.game.config.PlayerID
 
-	// Turn indicator at top
+	// Check for stockpile placement first (happens during Production phase)
+	// During stockpile placement, ALL players place simultaneously (not turn-based)
+	stockpilePlacementPending := false
+	needsStockpile := false
+	if s.currentPhase == "Production" {
+		if s.gameState != nil {
+			if pending, ok := s.gameState["stockpilePlacementPending"].(bool); ok {
+				stockpilePlacementPending = pending
+			}
+		}
+		if myPlayer, ok := s.players[s.game.config.PlayerID]; ok {
+			player := myPlayer.(map[string]interface{})
+			stockpileTerr, hasStockpile := player["stockpileTerritory"]
+			needsStockpile = !hasStockpile || stockpileTerr == nil || stockpileTerr == ""
+		}
+	}
+
+	// If stockpile placement is pending, show special UI instead of turn indicator
+	if stockpilePlacementPending {
+		if needsStockpile {
+			// Draw a prominent instruction box for stockpile placement
+			boxX := rightX - 10
+			boxY := barY + 10
+			boxW := 420
+			boxH := 70
+			vector.DrawFilledRect(screen, float32(boxX), float32(boxY), float32(boxW), float32(boxH), color.RGBA{60, 40, 80, 255}, false)
+			vector.StrokeRect(screen, float32(boxX), float32(boxY), float32(boxW), float32(boxH), 2, ColorWarning, false)
+
+			DrawLargeText(screen, "PLACE YOUR STOCKPILE", rightX, barY+18, ColorWarning)
+			DrawText(screen, "Click one of YOUR territories to place your stockpile", rightX, barY+45, ColorText)
+			if s.round == 1 {
+				DrawText(screen, "All players place stockpiles simultaneously", rightX, barY+62, ColorTextMuted)
+			} else {
+				DrawText(screen, "Your stockpile was captured - place a new one!", rightX, barY+62, ColorTextMuted)
+			}
+		} else {
+			DrawText(screen, "Waiting for other players to place stockpiles...", rightX, barY+25, ColorTextMuted)
+		}
+		// End Turn button not shown during stockpile placement
+		return
+	}
+
+	// Normal turn indicator (not during stockpile placement)
 	if s.currentTurn != "" {
 		if player, ok := s.players[s.currentTurn].(map[string]interface{}); ok {
 			playerName := player["name"].(string)
@@ -460,36 +498,8 @@ func (s *GameplayScene) drawBottomBar(screen *ebiten.Image) {
 		}
 
 	case "Production":
-		// Check if we need to place a stockpile (at start of round 1 or after losing one)
-		needsStockpile := false
-		if myPlayer, ok := s.players[s.game.config.PlayerID]; ok {
-			player := myPlayer.(map[string]interface{})
-			stockpileTerr, hasStockpile := player["stockpileTerritory"]
-			needsStockpile = !hasStockpile || stockpileTerr == nil || stockpileTerr == ""
-		}
-
-		// Check if stockpile placement is pending (from game state)
-		stockpilePlacementPending := false
-		if s.gameState != nil {
-			if pending, ok := s.gameState["stockpilePlacementPending"].(bool); ok {
-				stockpilePlacementPending = pending
-			}
-		}
-
-		if stockpilePlacementPending {
-			if needsStockpile {
-				instruction = "Click one of YOUR territories to place your stockpile"
-				if s.round == 1 {
-					instruction2 = "All players place stockpiles simultaneously"
-				} else {
-					instruction2 = "Your stockpile was captured - place a new one!"
-				}
-			} else {
-				instruction = "Waiting for other players to place stockpiles..."
-			}
-		} else {
-			instruction = "Resources are being produced automatically"
-		}
+		// Normal production (stockpile already placed)
+		instruction = "Resources are being produced automatically"
 
 	case "Trade":
 		if isMyTurn {

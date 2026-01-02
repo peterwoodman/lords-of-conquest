@@ -213,7 +213,9 @@ func (g *GameState) EndDevelopment(playerID string) error {
 	return nil
 }
 
-// advanceDevelopmentTurn moves to the next player or next round.
+// advanceDevelopmentTurn moves to the next player or next phase (Production).
+// Note: Development is now the FIRST phase of each round (except Year 1), so after
+// all players complete Development, we move to Production (same round).
 func (g *GameState) advanceDevelopmentTurn() {
 	log.Printf("advanceDevelopmentTurn: Current player %s in round %d", g.CurrentPlayerID, g.Round)
 	
@@ -249,9 +251,10 @@ func (g *GameState) advanceDevelopmentTurn() {
 
 	// Check if we've completed all players (wrapped around to start)
 	if nextIdx <= currentIdx {
-		// End of round - start new round
-		log.Printf("advanceDevelopmentTurn: Wrapped around (nextIdx %d <= currentIdx %d), starting new round", nextIdx, currentIdx)
-		g.startNewRound()
+		// All players completed Development - move to Production phase (same round)
+		log.Printf("advanceDevelopmentTurn: Wrapped around, moving to Production phase")
+		pm := NewPhaseManager(g)
+		pm.NextPhase() // Development → Production
 	} else {
 		log.Printf("advanceDevelopmentTurn: Moving to next player %s", g.PlayerOrder[nextIdx])
 		g.CurrentPlayerID = g.PlayerOrder[nextIdx]

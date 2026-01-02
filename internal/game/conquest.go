@@ -281,17 +281,10 @@ func (g *GameState) advanceConquestTurn() {
 		}
 
 		if nextIdx == 0 {
-			// Wrapped around - move to development phase
-			g.Phase = PhaseDevelopment
-			g.CurrentPlayerID = g.PlayerOrder[0]
-			// Find first non-eliminated player
-			for _, pid := range g.PlayerOrder {
-				p := g.Players[pid]
-				if p != nil && !p.Eliminated {
-					g.CurrentPlayerID = pid
-					break
-				}
-			}
+			// Wrapped around - use NextPhase to properly transition
+			// This increments the round and moves to Development
+			pm := NewPhaseManager(g)
+			pm.NextPhase()
 			return
 		}
 
@@ -302,13 +295,7 @@ func (g *GameState) advanceConquestTurn() {
 		}
 	}
 
-	// No one has attacks remaining, move to development phase
-	g.Phase = PhaseDevelopment
-	for _, pid := range g.PlayerOrder {
-		p := g.Players[pid]
-		if p != nil && !p.Eliminated {
-			g.CurrentPlayerID = pid
-			break
-		}
-	}
+	// No one has attacks remaining - use NextPhase to properly transition
+	pm := NewPhaseManager(g)
+	pm.NextPhase()
 }

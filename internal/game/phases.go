@@ -176,6 +176,8 @@ func (pm *PhaseManager) NextPhase() (Phase, bool) {
 			}
 			return s.Phase, true // skipped
 		}
+		// Production needs animation - set pending flag
+		s.ProductionPending = true
 		return s.Phase, false
 
 	case PhaseProduction:
@@ -210,6 +212,21 @@ func (pm *PhaseManager) NextPhase() (Phase, bool) {
 		s.Round++
 		pm.shufflePlayerOrder()
 		pm.resetPlayerTurns()
+
+		// Check if any player needs to place a stockpile (lost it last round)
+		if s.NeedsStockpilePlacement() {
+			s.Phase = PhaseProduction
+			s.StockpilePlacementPending = true
+			// Set current player to first player needing stockpile
+			for _, pid := range s.PlayerOrder {
+				p := s.Players[pid]
+				if p != nil && !p.Eliminated && p.StockpileTerritory == "" {
+					s.CurrentPlayerID = pid
+					break
+				}
+			}
+			return s.Phase, false
+		}
 
 		s.Phase = PhaseDevelopment
 		return s.Phase, false
