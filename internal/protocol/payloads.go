@@ -410,6 +410,13 @@ type CombatResultPayload struct {
 	TargetTerritory string   `json:"target_territory"`
 	UnitsDestroyed  []string `json:"units_destroyed,omitempty"`
 	UnitsCaptured   []string `json:"units_captured,omitempty"`
+	// Stockpile capture info (only present if stockpile was captured)
+	StockpileCaptured     bool   `json:"stockpile_captured,omitempty"`
+	CapturedCoal          int    `json:"captured_coal,omitempty"`
+	CapturedGold          int    `json:"captured_gold,omitempty"`
+	CapturedIron          int    `json:"captured_iron,omitempty"`
+	CapturedTimber        int    `json:"captured_timber,omitempty"`
+	CapturedFromTerritory string `json:"captured_from_territory,omitempty"` // Where the stockpile was
 }
 
 // ==================== Synchronization Payloads ====================

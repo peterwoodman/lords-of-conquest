@@ -533,13 +533,19 @@ func (g *Game) handleMessage(msg *protocol.Message) {
 			}
 			
 			result := &CombatResultData{
-				EventID:         payload.EventID,
-				AttackerID:      payload.AttackerID,
-				AttackerWins:    payload.AttackerWins,
-				AttackStrength:  payload.AttackStrength,
-				DefenseStrength: payload.DefenseStrength,
-				TargetTerritory: payload.TargetTerritory,
-				TargetName:      targetName,
+				EventID:               payload.EventID,
+				AttackerID:            payload.AttackerID,
+				AttackerWins:          payload.AttackerWins,
+				AttackStrength:        payload.AttackStrength,
+				DefenseStrength:       payload.DefenseStrength,
+				TargetTerritory:       payload.TargetTerritory,
+				TargetName:            targetName,
+				StockpileCaptured:     payload.StockpileCaptured,
+				CapturedCoal:          payload.CapturedCoal,
+				CapturedGold:          payload.CapturedGold,
+				CapturedIron:          payload.CapturedIron,
+				CapturedTimber:        payload.CapturedTimber,
+				CapturedFromTerritory: payload.CapturedFromTerritory,
 			}
 			g.gameplayScene.ShowCombatResult(result)
 			

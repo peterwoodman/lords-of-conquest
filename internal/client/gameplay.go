@@ -84,6 +84,13 @@ type GameplayScene struct {
 	productionAnimIndex    int     // Which production item we're currently animating
 	productionAnimProgress float64 // 0.0 to 1.0 for current item
 
+	// Stockpile capture animation
+	showStockpileCapture       bool
+	stockpileCaptureData       *StockpileCaptureData
+	stockpileCaptureTimer      int
+	stockpileCaptureIndex      int     // Which resource we're animating
+	stockpileCaptureProgress   float64 // 0.0 to 1.0 for current resource
+
 	// Attack planning (Conquest phase)
 	showAttackPlan        bool
 	attackPlanTarget      string             // Territory ID being attacked
@@ -232,14 +239,36 @@ type CombatResultData struct {
 	DefenseStrength int
 	TargetTerritory string
 	TargetName      string
+	// Stockpile capture info
+	StockpileCaptured     bool
+	CapturedCoal          int
+	CapturedGold          int
+	CapturedIron          int
+	CapturedTimber        int
+	CapturedFromTerritory string
 }
 
 // ProductionAnimData holds production animation data from server
 type ProductionAnimData struct {
-	EventID              string
-	Productions          []ProductionItem
-	StockpileTerritoryID string
+	EventID                string
+	Productions            []ProductionItem
+	StockpileTerritoryID   string
 	StockpileTerritoryName string
+}
+
+// StockpileCaptureData holds data for stockpile capture animation
+type StockpileCaptureData struct {
+	FromTerritoryID   string
+	ToTerritoryID     string // Player's stockpile territory
+	Resources         []CapturedResource
+	PendingEventID    string // Combat event ID to acknowledge when done
+	PendingCombatData *CombatResultData
+}
+
+// CapturedResource represents a resource being transferred
+type CapturedResource struct {
+	ResourceType string // "Coal", "Gold", "Iron", "Timber"
+	Amount       int
 }
 
 // ProductionItem represents a single production event for animation
@@ -514,6 +543,12 @@ func (s *GameplayScene) Update() error {
 		return nil // Block all input during animation
 	}
 
+	// Handle stockpile capture animation
+	if s.showStockpileCapture {
+		s.updateStockpileCaptureAnimation()
+		return nil // Block all input during animation
+	}
+
 	// Handle combat animation
 	if s.showCombatAnimation {
 		s.updateCombatAnimation()
@@ -777,6 +812,10 @@ func (s *GameplayScene) Draw(screen *ebiten.Image) {
 	// Draw production animation
 	if s.showProductionAnim {
 		s.drawProductionAnimation(screen)
+	}
+	// Draw stockpile capture animation
+	if s.showStockpileCapture {
+		s.drawStockpileCaptureAnimation(screen)
 	}
 	// Draw alliance menu overlay
 	if s.showAllyMenu {

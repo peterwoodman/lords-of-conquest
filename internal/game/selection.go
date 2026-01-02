@@ -66,6 +66,7 @@ func (g *GameState) isTerritorySelectionComplete() bool {
 func (g *GameState) startFirstRound() {
 	g.Round = 1
 	g.Phase = PhaseProduction
+	g.StockpilePlacementPending = true // All players need to place stockpiles
 
 	// First production: players place their stockpiles
 	// This is handled as a sub-phase of production
@@ -75,11 +76,13 @@ func (g *GameState) startFirstRound() {
 	g.CurrentPlayerID = g.PlayerOrder[0]
 }
 
-// PlaceStockpile places a player's stockpile during the first production phase.
+// PlaceStockpile places a player's stockpile during the production phase.
+// This is used at the start of round 1 and after a player loses their stockpile.
 // Note: Does NOT automatically trigger production - server should call
 // AllStockpilesPlaced() to check, then trigger production animation.
 func (g *GameState) PlaceStockpile(playerID, territoryID string) error {
-	if g.Round != 1 || g.Phase != PhaseProduction {
+	// Must be in production phase with stockpile placement pending
+	if g.Phase != PhaseProduction || !g.StockpilePlacementPending {
 		return ErrInvalidAction
 	}
 
@@ -107,7 +110,7 @@ func (g *GameState) PlaceStockpile(playerID, territoryID string) error {
 
 // AllStockpilesPlaced checks if all players have placed their stockpiles.
 func (g *GameState) AllStockpilesPlaced() bool {
-	if g.Round != 1 || g.Phase != PhaseProduction {
+	if g.Phase != PhaseProduction || !g.StockpilePlacementPending {
 		return false
 	}
 	for _, p := range g.Players {
@@ -116,6 +119,27 @@ func (g *GameState) AllStockpilesPlaced() bool {
 		}
 	}
 	return true
+}
+
+// NeedsStockpilePlacement checks if any player needs to place a stockpile.
+func (g *GameState) NeedsStockpilePlacement() bool {
+	for _, p := range g.Players {
+		if !p.Eliminated && p.StockpileTerritory == "" {
+			return true
+		}
+	}
+	return false
+}
+
+// GetPlayersNeedingStockpile returns IDs of players who need to place stockpiles.
+func (g *GameState) GetPlayersNeedingStockpile() []string {
+	players := make([]string, 0)
+	for id, p := range g.Players {
+		if !p.Eliminated && p.StockpileTerritory == "" {
+			players = append(players, id)
+		}
+	}
+	return players
 }
 
 // AdvanceFromStockpilePlacement advances from stockpile placement to the next phase.

@@ -75,27 +75,11 @@ func (g *GameState) GetAttackPlan(attackerID, targetID string) *PlanAttackResult
 			continue
 		}
 
-		// Skip adjacent territories (their strength is already counted)
-		if g.isAdjacent(id, targetID) {
-			continue
-		}
-
-		// Horses (2 movement range)
-		if t.HasHorse && g.canHorseReachTarget(attackerID, id, targetID) {
-			opt := ReinforcementOption{
-				UnitType:      "horse",
-				FromTerritory: id,
-				Strength:      1,
-				CanCarry:      []string{},
-			}
-			if t.HasWeapon {
-				opt.CanCarry = append(opt.CanCarry, "weapon")
-				opt.Strength += 3 // If carrying weapon
-			}
-			result.Reinforcements = append(result.Reinforcements, opt)
-		}
+		isAdjacent := g.isAdjacent(id, targetID)
 
 		// Boats (water movement) - one option per water body with boats
+		// Boats are ALWAYS listed as reinforcements (even from adjacent territories)
+		// because they are never counted in base attack strength
 		if t.TotalBoats() > 0 && t.IsCoastal() {
 			for waterID, boatCount := range t.Boats {
 				if boatCount > 0 && g.canBoatReachTargetViaWater(id, targetID, waterID) {
@@ -115,6 +99,26 @@ func (g *GameState) GetAttackPlan(attackerID, targetID string) *PlanAttackResult
 					result.Reinforcements = append(result.Reinforcements, opt)
 				}
 			}
+		}
+
+		// Skip adjacent territories for horses - their strength is already counted in base attack
+		if isAdjacent {
+			continue
+		}
+
+		// Horses (2 movement range) - only from non-adjacent territories
+		if t.HasHorse && g.canHorseReachTarget(attackerID, id, targetID) {
+			opt := ReinforcementOption{
+				UnitType:      "horse",
+				FromTerritory: id,
+				Strength:      1,
+				CanCarry:      []string{},
+			}
+			if t.HasWeapon {
+				opt.CanCarry = append(opt.CanCarry, "weapon")
+				opt.Strength += 3 // If carrying weapon
+			}
+			result.Reinforcements = append(result.Reinforcements, opt)
 		}
 	}
 

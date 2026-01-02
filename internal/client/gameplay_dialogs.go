@@ -5,6 +5,7 @@ import (
 	"image/color"
 	"log"
 	"math/rand"
+	"strings"
 
 	"lords-of-conquest/internal/protocol"
 
@@ -615,10 +616,16 @@ func (s *GameplayScene) updateCombatAnimation() {
 			s.combatPendingState = nil
 		}
 
-		// Only show the result dialog if this was our attack
+		// Check if we captured a stockpile and it's our attack - animate the resource transfer
 		isMyAttack := s.combatPendingResult.AttackerID == s.game.config.PlayerID
 		log.Printf("Combat animation ended: AttackerID=%s, MyPlayerID=%s, isMyAttack=%v",
 			s.combatPendingResult.AttackerID, s.game.config.PlayerID, isMyAttack)
+
+		if isMyAttack && s.combatPendingResult.StockpileCaptured {
+			// Start stockpile capture animation
+			s.startStockpileCaptureAnimation(s.combatPendingResult)
+			return
+		}
 
 		if isMyAttack {
 			// Show dialog - acknowledgment will be sent when dialog is dismissed
@@ -1587,6 +1594,11 @@ func (s *GameplayScene) updateProductionAnimation() {
 
 	// Check if current item animation is complete
 	if s.productionAnimProgress >= 1.0 {
+		// Apply visual update for the completed item
+		if s.productionAnimIndex < len(s.productionAnimData.Productions) {
+			s.applyProductionItemVisual(s.productionAnimData.Productions[s.productionAnimIndex])
+		}
+
 		s.productionAnimIndex++
 		s.productionAnimTimer = 0
 		s.productionAnimProgress = 0
@@ -1594,6 +1606,31 @@ func (s *GameplayScene) updateProductionAnimation() {
 		// Check if all items are done
 		if s.productionAnimIndex >= len(s.productionAnimData.Productions) {
 			s.finishProductionAnimation()
+		}
+	}
+}
+
+// applyProductionItemVisual updates the client's visual state when a production item animation completes.
+func (s *GameplayScene) applyProductionItemVisual(item ProductionItem) {
+	// For horses (Grassland), show the horse on the destination territory immediately
+	if item.ResourceType == "Grassland" && item.DestinationID != "" {
+		if terr, ok := s.territories[item.DestinationID].(map[string]interface{}); ok {
+			terr["hasHorse"] = true
+			log.Printf("Production visual: Horse now visible on %s", item.DestinationName)
+		}
+	}
+
+	// For resources, update stockpile display
+	// The stockpile values are shown in the side panel from player data
+	if item.ResourceType != "Grassland" && item.ResourceType != "None" {
+		if player, ok := s.players[s.game.config.PlayerID].(map[string]interface{}); ok {
+			if stockpile, ok := player["stockpile"].(map[string]interface{}); ok {
+				resourceKey := strings.ToLower(item.ResourceType)
+				if current, ok := stockpile[resourceKey].(float64); ok {
+					stockpile[resourceKey] = current + float64(item.Amount)
+					log.Printf("Production visual: Stockpile %s now %v", resourceKey, stockpile[resourceKey])
+				}
+			}
 		}
 	}
 }
@@ -1627,17 +1664,17 @@ func (s *GameplayScene) drawProductionAnimation(screen *ebiten.Image) {
 	}
 	item := s.productionAnimData.Productions[s.productionAnimIndex]
 
-	// Get territory positions from the map
-	srcX, srcY := s.getTerritoryCenter(item.TerritoryID)
+	// Get source position - where the resource icon is on the territory
+	srcX, srcY := s.getResourceIconPosition(item.TerritoryID, item.ResourceType)
 
-	// Destination: stockpile for resources, destination territory for horses
+	// Destination: stockpile icon for resources, destination territory for horses
 	var destX, destY int
 	if item.ResourceType == "Grassland" && item.DestinationID != "" {
-		// Horse goes to destination territory
-		destX, destY = s.getTerritoryCenter(item.DestinationID)
+		// Horse goes to destination territory - find where horse icon will appear
+		destX, destY = s.getFirstAvailableIconPosition(item.DestinationID)
 	} else {
-		// Resource goes to stockpile
-		destX, destY = s.getTerritoryCenter(s.productionAnimData.StockpileTerritoryID)
+		// Resource goes to stockpile icon
+		destX, destY = s.getStockpileIconPosition(s.productionAnimData.StockpileTerritoryID)
 	}
 
 	// Calculate current position (linear interpolation)
@@ -1645,95 +1682,169 @@ func (s *GameplayScene) drawProductionAnimation(screen *ebiten.Image) {
 	currentX := float32(srcX) + float32(destX-srcX)*float32(progress)
 	currentY := float32(srcY) + float32(destY-srcY)*float32(progress)
 
-	// Draw the moving resource icon
-	s.drawProductionIcon(screen, currentX, currentY, item.ResourceType, item.Amount)
+	// Draw the moving resource icon using actual game icons
+	s.drawProductionAnimIcon(screen, currentX, currentY, item.ResourceType)
 
 	// Draw info panel at bottom
 	s.drawProductionInfoPanel(screen, item, int(s.productionAnimIndex)+1, len(s.productionAnimData.Productions))
 }
 
-// getTerritoryCenter returns the screen position of a territory's center.
-func (s *GameplayScene) getTerritoryCenter(territoryID string) (int, int) {
+// getResourceIconPosition returns the screen position where a resource icon is drawn on a territory.
+func (s *GameplayScene) getResourceIconPosition(territoryID, resourceType string) (int, int) {
 	if s.mapData == nil {
 		return ScreenWidth / 2, ScreenHeight / 2
 	}
 
-	// Find territory cells
 	grid := s.mapData["grid"].([]interface{})
-	width := int(s.mapData["width"].(float64))
-	height := int(s.mapData["height"].(float64))
+	cells := s.findTerritoryCells(territoryID, grid)
+	if len(cells) == 0 {
+		return ScreenWidth / 2, ScreenHeight / 2
+	}
 
-	// Map area bounds
-	mapAreaX := 200
-	mapAreaY := 10
-	mapAreaW := ScreenWidth - 250 - 60
-	mapAreaH := ScreenHeight - 130
-
-	cellW := float32(mapAreaW) / float32(width)
-	cellH := float32(mapAreaH) / float32(height)
-
-	// Find all cells belonging to this territory and average their positions
-	var sumX, sumY float32
-	var count int
-
-	for y := 0; y < height; y++ {
-		row := grid[y].([]interface{})
-		for x := 0; x < width; x++ {
-			cellVal := int(row[x].(float64))
-			if cellVal > 0 {
-				// Check if this cell belongs to the territory
-				cellTerritoryID := fmt.Sprintf("t%d", cellVal)
-				if cellTerritoryID == territoryID {
-					sumX += float32(mapAreaX) + float32(x)*cellW + cellW/2
-					sumY += float32(mapAreaY) + float32(y)*cellH + cellH/2
-					count++
-				}
-			}
+	// Count icons that come before the resource in the drawing order
+	// Order: stockpile, city, weapon, horse, then resource
+	iconIndex := 0
+	if terr, ok := s.territories[territoryID].(map[string]interface{}); ok {
+		if _, hasStockpile := terr["isStockpile"].(bool); hasStockpile {
+			iconIndex++
+		}
+		if cities, ok := terr["cities"].(float64); ok && cities > 0 {
+			iconIndex++
+		}
+		if hasWeapon, ok := terr["hasWeapon"].(bool); ok && hasWeapon {
+			iconIndex++
+		}
+		if hasHorse, ok := terr["hasHorse"].(bool); ok && hasHorse {
+			iconIndex++
 		}
 	}
 
-	if count > 0 {
-		return int(sumX / float32(count)), int(sumY / float32(count))
+	// Use the cell at iconIndex (or last available cell)
+	cellIdx := iconIndex
+	if cellIdx >= len(cells) {
+		cellIdx = len(cells) - 1
 	}
 
-	return ScreenWidth / 2, ScreenHeight / 2
+	cell := cells[cellIdx]
+	sx, sy := s.gridToScreen(cell[0], cell[1])
+
+	// Return center of the cell (icon is drawn centered)
+	return sx + s.cellSize/2, sy + s.cellSize/2
 }
 
-// drawProductionIcon draws a resource icon at the given position.
-func (s *GameplayScene) drawProductionIcon(screen *ebiten.Image, x, y float32, resourceType string, amount int) {
-	// Draw a colored circle with resource initial
-	var iconColor color.RGBA
-	var initial string
-
-	switch resourceType {
-	case "Coal":
-		iconColor = color.RGBA{50, 50, 50, 255}
-		initial = "C"
-	case "Gold":
-		iconColor = color.RGBA{255, 215, 0, 255}
-		initial = "G"
-	case "Iron":
-		iconColor = color.RGBA{150, 150, 170, 255}
-		initial = "I"
-	case "Timber":
-		iconColor = color.RGBA{139, 90, 43, 255}
-		initial = "W"
-	case "Grassland":
-		iconColor = color.RGBA{100, 180, 100, 255}
-		initial = "H" // Horse
-	default:
-		iconColor = color.RGBA{200, 200, 200, 255}
-		initial = "?"
+// getStockpileIconPosition returns the screen position where the stockpile icon is drawn.
+func (s *GameplayScene) getStockpileIconPosition(territoryID string) (int, int) {
+	if s.mapData == nil {
+		return ScreenWidth / 2, ScreenHeight / 2
 	}
 
-	// Draw circle
-	vector.DrawFilledCircle(screen, x, y, 15, iconColor, false)
-	vector.StrokeCircle(screen, x, y, 15, 2, color.White, false)
+	grid := s.mapData["grid"].([]interface{})
+	cells := s.findTerritoryCells(territoryID, grid)
+	if len(cells) == 0 {
+		return ScreenWidth / 2, ScreenHeight / 2
+	}
 
-	// Draw initial and amount
-	DrawTextCentered(screen, initial, int(x), int(y)-5, color.White)
-	if amount > 1 {
-		DrawText(screen, fmt.Sprintf("x%d", amount), int(x)+10, int(y)+5, color.White)
+	// Stockpile is always the first icon (index 0)
+	cell := cells[0]
+	sx, sy := s.gridToScreen(cell[0], cell[1])
+
+	return sx + s.cellSize/2, sy + s.cellSize/2
+}
+
+// getFirstAvailableIconPosition returns the screen position for the first available icon slot on a territory.
+func (s *GameplayScene) getFirstAvailableIconPosition(territoryID string) (int, int) {
+	if s.mapData == nil {
+		return ScreenWidth / 2, ScreenHeight / 2
+	}
+
+	grid := s.mapData["grid"].([]interface{})
+	cells := s.findTerritoryCells(territoryID, grid)
+	if len(cells) == 0 {
+		return ScreenWidth / 2, ScreenHeight / 2
+	}
+
+	// Count existing icons to find next available slot
+	iconIndex := 0
+	if terr, ok := s.territories[territoryID].(map[string]interface{}); ok {
+		if _, hasStockpile := terr["isStockpile"].(bool); hasStockpile {
+			iconIndex++
+		}
+		if cities, ok := terr["cities"].(float64); ok && cities > 0 {
+			iconIndex++
+		}
+		if hasWeapon, ok := terr["hasWeapon"].(bool); ok && hasWeapon {
+			iconIndex++
+		}
+		// Horse slot - this is where a new horse would go
+	}
+
+	cellIdx := iconIndex
+	if cellIdx >= len(cells) {
+		cellIdx = len(cells) - 1
+	}
+
+	cell := cells[cellIdx]
+	sx, sy := s.gridToScreen(cell[0], cell[1])
+
+	return sx + s.cellSize/2, sy + s.cellSize/2
+}
+
+// drawProductionAnimIcon draws a resource/horse icon at the given position for animation.
+func (s *GameplayScene) drawProductionAnimIcon(screen *ebiten.Image, x, y float32, resourceType string) {
+	// Determine icon size based on cell size
+	iconSize := float32(s.cellSize) * 0.7
+	if iconSize < 20 {
+		iconSize = 20
+	}
+
+	// Get the appropriate icon
+	var iconImg *ebiten.Image
+	switch resourceType {
+	case "Coal":
+		iconImg = GetIcon("coal")
+	case "Gold":
+		iconImg = GetIcon("gold")
+	case "Iron":
+		iconImg = GetIcon("iron")
+	case "Timber":
+		iconImg = GetIcon("timber")
+	case "Grassland":
+		iconImg = GetIcon("horse") // Grassland produces horses
+	}
+
+	// Calculate position (center the icon at x, y)
+	drawX := x - iconSize/2
+	drawY := y - iconSize/2
+
+	if iconImg != nil {
+		// Draw the PNG icon scaled to fit
+		op := &ebiten.DrawImageOptions{}
+		imgW := float32(iconImg.Bounds().Dx())
+		imgH := float32(iconImg.Bounds().Dy())
+		scaleX := iconSize / imgW
+		scaleY := iconSize / imgH
+		op.GeoM.Scale(float64(scaleX), float64(scaleY))
+		op.GeoM.Translate(float64(drawX), float64(drawY))
+		screen.DrawImage(iconImg, op)
+	} else {
+		// Fallback: draw a colored circle
+		var iconColor color.RGBA
+		switch resourceType {
+		case "Coal":
+			iconColor = color.RGBA{50, 50, 50, 255}
+		case "Gold":
+			iconColor = color.RGBA{255, 215, 0, 255}
+		case "Iron":
+			iconColor = color.RGBA{150, 150, 170, 255}
+		case "Timber":
+			iconColor = color.RGBA{139, 90, 43, 255}
+		case "Grassland":
+			iconColor = color.RGBA{100, 180, 100, 255}
+		default:
+			iconColor = color.RGBA{200, 200, 200, 255}
+		}
+		vector.DrawFilledCircle(screen, x, y, iconSize/2, iconColor, false)
+		vector.StrokeCircle(screen, x, y, iconSize/2, 2, color.White, false)
 	}
 }
 
@@ -1764,6 +1875,172 @@ func (s *GameplayScene) drawProductionInfoPanel(screen *ebiten.Image, item Produ
 	DrawText(screen, fromText, panelX+15, panelY+35, ColorText)
 	DrawText(screen, toText, panelX+15, panelY+50, ColorText)
 	DrawText(screen, amountText, panelX+panelW-100, panelY+42, ColorSuccess)
+
+	// Progress indicator
+	progressText := fmt.Sprintf("%d / %d", current, total)
+	DrawText(screen, progressText, panelX+panelW-60, panelY+60, ColorTextMuted)
+}
+
+// ==================== Stockpile Capture Animation ====================
+
+// startStockpileCaptureAnimation starts the animation for transferring captured stockpile resources.
+func (s *GameplayScene) startStockpileCaptureAnimation(combatResult *CombatResultData) {
+	// Find player's stockpile territory
+	playerStockpileTerr := ""
+	if myPlayer, ok := s.players[s.game.config.PlayerID].(map[string]interface{}); ok {
+		if stockpileTerr, ok := myPlayer["stockpileTerritory"].(string); ok {
+			playerStockpileTerr = stockpileTerr
+		}
+	}
+
+	if playerStockpileTerr == "" {
+		// No stockpile, just show combat result
+		log.Printf("No stockpile territory found, skipping capture animation")
+		s.combatResult = combatResult
+		s.showCombatResult = true
+		return
+	}
+
+	// Build list of resources to animate
+	resources := make([]CapturedResource, 0)
+	if combatResult.CapturedCoal > 0 {
+		resources = append(resources, CapturedResource{"Coal", combatResult.CapturedCoal})
+	}
+	if combatResult.CapturedGold > 0 {
+		resources = append(resources, CapturedResource{"Gold", combatResult.CapturedGold})
+	}
+	if combatResult.CapturedIron > 0 {
+		resources = append(resources, CapturedResource{"Iron", combatResult.CapturedIron})
+	}
+	if combatResult.CapturedTimber > 0 {
+		resources = append(resources, CapturedResource{"Timber", combatResult.CapturedTimber})
+	}
+
+	if len(resources) == 0 {
+		// No resources to animate, just show combat result
+		log.Printf("Stockpile captured but no resources, skipping animation")
+		s.combatResult = combatResult
+		s.showCombatResult = true
+		return
+	}
+
+	s.stockpileCaptureData = &StockpileCaptureData{
+		FromTerritoryID:   combatResult.CapturedFromTerritory,
+		ToTerritoryID:     playerStockpileTerr,
+		Resources:         resources,
+		PendingEventID:    combatResult.EventID,
+		PendingCombatData: combatResult,
+	}
+	s.stockpileCaptureIndex = 0
+	s.stockpileCaptureProgress = 0
+	s.stockpileCaptureTimer = 0
+	s.showStockpileCapture = true
+
+	log.Printf("Starting stockpile capture animation: %d resources from %s to %s",
+		len(resources), combatResult.CapturedFromTerritory, playerStockpileTerr)
+}
+
+// updateStockpileCaptureAnimation updates the stockpile capture animation state.
+func (s *GameplayScene) updateStockpileCaptureAnimation() {
+	if !s.showStockpileCapture || s.stockpileCaptureData == nil {
+		return
+	}
+
+	// Animation speed: 45 frames per resource (0.75 seconds at 60fps)
+	framesPerResource := 45
+
+	s.stockpileCaptureTimer++
+	s.stockpileCaptureProgress = float64(s.stockpileCaptureTimer) / float64(framesPerResource)
+
+	// Check if current resource animation is complete
+	if s.stockpileCaptureProgress >= 1.0 {
+		// Apply visual update for the completed resource
+		if s.stockpileCaptureIndex < len(s.stockpileCaptureData.Resources) {
+			s.applyStockpileCaptureVisual(s.stockpileCaptureData.Resources[s.stockpileCaptureIndex])
+		}
+
+		s.stockpileCaptureIndex++
+		s.stockpileCaptureTimer = 0
+		s.stockpileCaptureProgress = 0
+
+		// Check if all resources are done
+		if s.stockpileCaptureIndex >= len(s.stockpileCaptureData.Resources) {
+			s.finishStockpileCaptureAnimation()
+		}
+	}
+}
+
+// applyStockpileCaptureVisual updates the client's visual state when a captured resource animation completes.
+func (s *GameplayScene) applyStockpileCaptureVisual(resource CapturedResource) {
+	if player, ok := s.players[s.game.config.PlayerID].(map[string]interface{}); ok {
+		if stockpile, ok := player["stockpile"].(map[string]interface{}); ok {
+			resourceKey := strings.ToLower(resource.ResourceType)
+			if current, ok := stockpile[resourceKey].(float64); ok {
+				stockpile[resourceKey] = current + float64(resource.Amount)
+				log.Printf("Stockpile capture visual: %s now %v", resourceKey, stockpile[resourceKey])
+			}
+		}
+	}
+}
+
+// finishStockpileCaptureAnimation completes the stockpile capture animation.
+func (s *GameplayScene) finishStockpileCaptureAnimation() {
+	log.Printf("Stockpile capture animation complete")
+
+	// Show the combat result dialog
+	s.combatResult = s.stockpileCaptureData.PendingCombatData
+	s.showCombatResult = true
+
+	// Clear animation state
+	s.showStockpileCapture = false
+	s.stockpileCaptureData = nil
+	s.stockpileCaptureIndex = 0
+	s.stockpileCaptureProgress = 0
+	s.stockpileCaptureTimer = 0
+}
+
+// drawStockpileCaptureAnimation draws the stockpile capture animation overlay.
+func (s *GameplayScene) drawStockpileCaptureAnimation(screen *ebiten.Image) {
+	if !s.showStockpileCapture || s.stockpileCaptureData == nil {
+		return
+	}
+
+	// Get current resource
+	if s.stockpileCaptureIndex >= len(s.stockpileCaptureData.Resources) {
+		return
+	}
+	resource := s.stockpileCaptureData.Resources[s.stockpileCaptureIndex]
+
+	// Get source position (captured stockpile location)
+	srcX, srcY := s.getStockpileIconPosition(s.stockpileCaptureData.FromTerritoryID)
+
+	// Get destination position (player's stockpile)
+	destX, destY := s.getStockpileIconPosition(s.stockpileCaptureData.ToTerritoryID)
+
+	// Calculate current position (linear interpolation)
+	progress := s.stockpileCaptureProgress
+	currentX := float32(srcX) + float32(destX-srcX)*float32(progress)
+	currentY := float32(srcY) + float32(destY-srcY)*float32(progress)
+
+	// Draw the moving resource icon
+	s.drawProductionAnimIcon(screen, currentX, currentY, resource.ResourceType)
+
+	// Draw info panel
+	s.drawStockpileCapturePanel(screen, resource, s.stockpileCaptureIndex+1, len(s.stockpileCaptureData.Resources))
+}
+
+// drawStockpileCapturePanel draws information about the stockpile capture.
+func (s *GameplayScene) drawStockpileCapturePanel(screen *ebiten.Image, resource CapturedResource, current, total int) {
+	panelW, panelH := 350, 80
+	panelX := ScreenWidth/2 - panelW/2
+	panelY := ScreenHeight - 200
+
+	DrawFancyPanel(screen, panelX, panelY, panelW, panelH, "Stockpile Captured!")
+
+	// Resource info
+	amountText := fmt.Sprintf("+%d %s", resource.Amount, resource.ResourceType)
+	DrawText(screen, "Transferring resources to your stockpile", panelX+15, panelY+35, ColorText)
+	DrawText(screen, amountText, panelX+panelW/2-30, panelY+52, ColorSuccess)
 
 	// Progress indicator
 	progressText := fmt.Sprintf("%d / %d", current, total)

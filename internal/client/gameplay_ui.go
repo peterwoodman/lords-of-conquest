@@ -459,21 +459,32 @@ func (s *GameplayScene) drawBottomBar(screen *ebiten.Image) {
 		}
 
 	case "Production":
-		if s.round == 1 {
-			// Check if we've already placed our stockpile
-			myStockpilePlaced := false
-			if myPlayer, ok := s.players[s.game.config.PlayerID]; ok {
-				player := myPlayer.(map[string]interface{})
-				if stockpileTerr, ok := player["stockpileTerritory"]; ok && stockpileTerr != nil && stockpileTerr != "" {
-					myStockpilePlaced = true
-				}
-			}
+		// Check if we need to place a stockpile (at start of round 1 or after losing one)
+		needsStockpile := false
+		if myPlayer, ok := s.players[s.game.config.PlayerID]; ok {
+			player := myPlayer.(map[string]interface{})
+			stockpileTerr, hasStockpile := player["stockpileTerritory"]
+			needsStockpile = !hasStockpile || stockpileTerr == nil || stockpileTerr == ""
+		}
 
-			if myStockpilePlaced {
-				instruction = "Waiting for other players to place stockpiles..."
-			} else {
+		// Check if stockpile placement is pending (from game state)
+		stockpilePlacementPending := false
+		if s.gameState != nil {
+			if pending, ok := s.gameState["stockpilePlacementPending"].(bool); ok {
+				stockpilePlacementPending = pending
+			}
+		}
+
+		if stockpilePlacementPending {
+			if needsStockpile {
 				instruction = "Click one of YOUR territories to place your stockpile"
-				instruction2 = "All players place stockpiles simultaneously"
+				if s.round == 1 {
+					instruction2 = "All players place stockpiles simultaneously"
+				} else {
+					instruction2 = "Your stockpile was captured - place a new one!"
+				}
+			} else {
+				instruction = "Waiting for other players to place stockpiles..."
 			}
 		} else {
 			instruction = "Resources are being produced automatically"

@@ -1425,10 +1425,10 @@ func (h *Handlers) checkAndTriggerAI(gameID string) {
 		return
 	}
 
-	// Special case: Production phase round 1 is stockpile placement (all players at once)
+	// Special case: Stockpile placement (all players at once)
 	// This needs to happen regardless of whose turn it is
-	if state.Phase == game.PhaseProduction && state.Round == 1 {
-		log.Printf("AI: Production phase round 1 - checking for stockpile placement")
+	if state.Phase == game.PhaseProduction && state.StockpilePlacementPending {
+		log.Printf("AI: Production phase with stockpile placement pending - checking for AI placements")
 		h.aiPlaceStockpile(gameID, &state)
 		return
 	}
@@ -1527,7 +1527,7 @@ func (h *Handlers) aiSelectTerritory(gameID string, state *game.GameState) {
 	go h.checkAndTriggerAI(gameID)
 }
 
-// aiPlaceStockpile places all AI players' stockpiles on the first production phase.
+// aiPlaceStockpile places all AI players' stockpiles during stockpile placement phase.
 func (h *Handlers) aiPlaceStockpile(gameID string, state *game.GameState) {
 	// Get AI player info from database
 	dbPlayers, err := h.hub.server.db.GetGamePlayers(gameID)
@@ -1756,6 +1756,16 @@ func (h *Handlers) aiConquest(gameID string, state *game.GameState) {
 				TargetTerritory: bestTarget,
 				UnitsDestroyed:  unitsDestroyed,
 				UnitsCaptured:   unitsCaptured,
+			}
+
+			// Add stockpile capture info if applicable
+			if result.StockpileCaptured != nil {
+				combatResult.StockpileCaptured = true
+				combatResult.CapturedCoal = result.StockpileCaptured.Coal
+				combatResult.CapturedGold = result.StockpileCaptured.Gold
+				combatResult.CapturedIron = result.StockpileCaptured.Iron
+				combatResult.CapturedTimber = result.StockpileCaptured.Timber
+				combatResult.CapturedFromTerritory = bestTarget
 			}
 
 			// Use broadcastWithAck to wait for clients before proceeding
@@ -2763,6 +2773,15 @@ func (h *Handlers) handleExecuteAttack(client *Client, msg *protocol.Message) er
 			UnitsDestroyed:  unitsDestroyed,
 			UnitsCaptured:   unitsCaptured,
 		}
+		// Add stockpile capture info if applicable
+		if result.StockpileCaptured != nil {
+			combatResult.StockpileCaptured = true
+			combatResult.CapturedCoal = result.StockpileCaptured.Coal
+			combatResult.CapturedGold = result.StockpileCaptured.Gold
+			combatResult.CapturedIron = result.StockpileCaptured.Iron
+			combatResult.CapturedTimber = result.StockpileCaptured.Timber
+			combatResult.CapturedFromTerritory = payload.TargetTerritory
+		}
 		h.hub.notifyGamePlayers(client.GameID, protocol.TypeActionResult, combatResult)
 		h.handleGameOver(client.GameID, &state)
 		return nil
@@ -2780,6 +2799,15 @@ func (h *Handlers) handleExecuteAttack(client *Client, msg *protocol.Message) er
 		TargetTerritory: payload.TargetTerritory,
 		UnitsDestroyed:  unitsDestroyed,
 		UnitsCaptured:   unitsCaptured,
+	}
+	// Add stockpile capture info if applicable
+	if result.StockpileCaptured != nil {
+		combatResult.StockpileCaptured = true
+		combatResult.CapturedCoal = result.StockpileCaptured.Coal
+		combatResult.CapturedGold = result.StockpileCaptured.Gold
+		combatResult.CapturedIron = result.StockpileCaptured.Iron
+		combatResult.CapturedTimber = result.StockpileCaptured.Timber
+		combatResult.CapturedFromTerritory = payload.TargetTerritory
 	}
 
 	// Capture gameID for the closure

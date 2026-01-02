@@ -263,8 +263,9 @@ func (g *GameState) startNewRound() {
 	g.Round++
 	log.Printf("startNewRound: Beginning round %d", g.Round)
 
-	// Clear any previous skipped phases
+	// Clear any previous skipped phases and pending flags
 	g.SkippedPhases = nil
+	g.StockpilePlacementPending = false
 
 	// Shuffle player order
 	shufflePlayerOrder(g)
@@ -272,6 +273,31 @@ func (g *GameState) startNewRound() {
 	// Reset player turns
 	for _, p := range g.Players {
 		p.ResetTurn()
+	}
+
+	// Set first player
+	for _, pid := range g.PlayerOrder {
+		if !g.Players[pid].Eliminated {
+			g.CurrentPlayerID = pid
+			break
+		}
+	}
+
+	// Check if any player needs to place a stockpile (lost it last round)
+	if g.NeedsStockpilePlacement() {
+		playersNeeding := g.GetPlayersNeedingStockpile()
+		log.Printf("startNewRound: Players need to place stockpiles: %v", playersNeeding)
+		g.Phase = PhaseProduction
+		g.StockpilePlacementPending = true
+		// Set current player to first player needing stockpile
+		for _, pid := range g.PlayerOrder {
+			p := g.Players[pid]
+			if p != nil && !p.Eliminated && p.StockpileTerritory == "" {
+				g.CurrentPlayerID = pid
+				break
+			}
+		}
+		return
 	}
 
 	// Check for phase skip
@@ -320,14 +346,6 @@ func (g *GameState) startNewRound() {
 		g.Phase = PhaseProduction
 		g.ProductionPending = true
 		log.Printf("startNewRound: Production pending, waiting for animation")
-	}
-
-	// Set first player
-	for _, pid := range g.PlayerOrder {
-		if !g.Players[pid].Eliminated {
-			g.CurrentPlayerID = pid
-			break
-		}
 	}
 }
 
