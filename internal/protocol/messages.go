@@ -42,14 +42,15 @@ const (
 
 // Game flow message types
 const (
-	TypeGameStarted   MessageType = "game_started"
-	TypePhaseChanged  MessageType = "phase_changed"
-	TypePhaseSkipped  MessageType = "phase_skipped"
-	TypeTurnChanged   MessageType = "turn_changed"
-	TypeActionResult  MessageType = "action_result"
-	TypeGameState     MessageType = "game_state"
-	TypeGameEnded     MessageType = "game_ended"
-	TypeGameHistory   MessageType = "game_history"
+	TypeGameStarted       MessageType = "game_started"
+	TypePhaseChanged      MessageType = "phase_changed"
+	TypePhaseSkipped      MessageType = "phase_skipped"
+	TypeTurnChanged       MessageType = "turn_changed"
+	TypeActionResult      MessageType = "action_result"
+	TypeProductionResults MessageType = "production_results"
+	TypeGameState         MessageType = "game_state"
+	TypeGameEnded         MessageType = "game_ended"
+	TypeGameHistory       MessageType = "game_history"
 )
 
 // Action message types

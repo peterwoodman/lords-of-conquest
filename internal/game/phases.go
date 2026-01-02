@@ -355,6 +355,120 @@ func (pm *PhaseManager) spreadHorses(playerID string, source *Territory) {
 	}
 }
 
+// ProductionResult describes a single production event for animation.
+type ProductionResult struct {
+	TerritoryID     string
+	TerritoryName   string
+	Resource        ResourceType
+	Amount          int
+	DestinationID   string // For horses, where they go
+	DestinationName string
+}
+
+// CalculateProductionForPlayer calculates what a player will produce (without applying it).
+// Returns the list of productions and the stockpile territory ID.
+func (pm *PhaseManager) CalculateProductionForPlayer(playerID string) ([]ProductionResult, string) {
+	player := pm.State.Players[playerID]
+	if player == nil || player.Eliminated {
+		return nil, ""
+	}
+
+	results := []ProductionResult{}
+
+	for terrID, territory := range pm.State.Territories {
+		if territory.Owner != playerID || territory.Resource == ResourceNone {
+			continue
+		}
+
+		// Grassland produces horses that spread on the map
+		if territory.Resource == ResourceGrassland {
+			// Calculate where horse will go
+			destID, destName := pm.calculateHorseDestination(playerID, territory)
+			if destID != "" {
+				results = append(results, ProductionResult{
+					TerritoryID:     terrID,
+					TerritoryName:   territory.Name,
+					Resource:        ResourceGrassland,
+					Amount:          1,
+					DestinationID:   destID,
+					DestinationName: destName,
+				})
+			}
+			continue
+		}
+
+		// Calculate production amount
+		amount := 1
+		if pm.hasAdjacentCity(territory, playerID) {
+			amount = 2
+		}
+
+		results = append(results, ProductionResult{
+			TerritoryID:   terrID,
+			TerritoryName: territory.Name,
+			Resource:      territory.Resource,
+			Amount:        amount,
+		})
+	}
+
+	return results, player.StockpileTerritory
+}
+
+// calculateHorseDestination determines where a horse will be placed.
+func (pm *PhaseManager) calculateHorseDestination(playerID string, source *Territory) (string, string) {
+	// If source doesn't have a horse yet, horse goes there
+	if !source.HasHorse {
+		// Find the territory ID for this source
+		for id, t := range pm.State.Territories {
+			if t == source {
+				return id, source.Name
+			}
+		}
+		return "", ""
+	}
+
+	// Find an adjacent territory without a horse
+	candidates := []string{}
+	for _, adjID := range source.Adjacent {
+		adj := pm.State.Territories[adjID]
+		if adj.Owner == playerID && !adj.HasHorse {
+			candidates = append(candidates, adjID)
+		}
+	}
+
+	if len(candidates) > 0 {
+		// Randomly choose one (use consistent seed for determinism)
+		chosen := candidates[rand.Intn(len(candidates))]
+		return chosen, pm.State.Territories[chosen].Name
+	}
+
+	return "", "" // No valid destination
+}
+
+// ApplyProductionResults applies previously calculated production results.
+func (pm *PhaseManager) ApplyProductionResults(playerID string, results []ProductionResult) {
+	player := pm.State.Players[playerID]
+	if player == nil {
+		return
+	}
+
+	for _, result := range results {
+		if result.Resource == ResourceGrassland {
+			// Place horse at destination
+			if dest := pm.State.Territories[result.DestinationID]; dest != nil {
+				dest.HasHorse = true
+				log.Printf("ApplyProduction: Placed horse at %s for player %s",
+					result.DestinationName, player.Name)
+			}
+		} else {
+			// Add to stockpile
+			player.Stockpile.Add(result.Resource, result.Amount)
+			log.Printf("ApplyProduction: Player %s gained %d %s from %s",
+				player.Name, result.Amount, result.Resource.String(), result.TerritoryName)
+		}
+	}
+}
+
 // ValidateAction checks if an action is valid for the current phase.
 func (pm *PhaseManager) ValidateAction(playerID string, action interface{}) error {
 	if pm.State.CurrentPlayerID != playerID {

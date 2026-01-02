@@ -275,8 +275,6 @@ func (g *GameState) startNewRound() {
 	}
 
 	// Check for phase skip
-	pm := NewPhaseManager(g)
-
 	if ShouldSkipPhase(PhaseProduction, g.Settings.ChanceLevel) {
 		// Record the skip
 		g.SkippedPhases = append(g.SkippedPhases, PhaseSkipInfo{
@@ -318,42 +316,10 @@ func (g *GameState) startNewRound() {
 			}
 		}
 	} else {
+		// Production phase - set pending flag for server to trigger animation
 		g.Phase = PhaseProduction
-		pm.ProcessProduction()
-
-		// After production, advance to next phase
-		if len(g.Players) >= 3 {
-			// Check if trade should be skipped
-			if ShouldSkipPhase(PhaseTrade, g.Settings.ChanceLevel) {
-				g.SkippedPhases = append(g.SkippedPhases, PhaseSkipInfo{
-					Phase:  PhaseTrade,
-					Reason: GetSkipReason(PhaseTrade),
-				})
-				log.Printf("startNewRound: Skipping trade phase - %s", g.SkippedPhases[len(g.SkippedPhases)-1].Reason)
-				g.Phase = PhaseShipment
-				// Check shipment skip too
-				if ShouldSkipPhase(PhaseShipment, g.Settings.ChanceLevel) {
-					g.SkippedPhases = append(g.SkippedPhases, PhaseSkipInfo{
-						Phase:  PhaseShipment,
-						Reason: GetSkipReason(PhaseShipment),
-					})
-					log.Printf("startNewRound: Skipping shipment phase - %s", g.SkippedPhases[len(g.SkippedPhases)-1].Reason)
-					g.Phase = PhaseConquest
-				}
-			} else {
-				g.Phase = PhaseTrade
-			}
-		} else {
-			g.Phase = PhaseShipment
-			if ShouldSkipPhase(PhaseShipment, g.Settings.ChanceLevel) {
-				g.SkippedPhases = append(g.SkippedPhases, PhaseSkipInfo{
-					Phase:  PhaseShipment,
-					Reason: GetSkipReason(PhaseShipment),
-				})
-				log.Printf("startNewRound: Skipping shipment phase - %s", g.SkippedPhases[len(g.SkippedPhases)-1].Reason)
-				g.Phase = PhaseConquest
-			}
-		}
+		g.ProductionPending = true
+		log.Printf("startNewRound: Production pending, waiting for animation")
 	}
 
 	// Set first player
@@ -363,6 +329,48 @@ func (g *GameState) startNewRound() {
 			break
 		}
 	}
+}
+
+// CompleteProduction is called after production animation is done.
+// It clears the pending flag and advances to the next phase.
+func (g *GameState) CompleteProduction() {
+	g.ProductionPending = false
+
+	// Advance to next phase after production
+	if len(g.Players) >= 3 {
+		// Check if trade should be skipped
+		if ShouldSkipPhase(PhaseTrade, g.Settings.ChanceLevel) {
+			g.SkippedPhases = append(g.SkippedPhases, PhaseSkipInfo{
+				Phase:  PhaseTrade,
+				Reason: GetSkipReason(PhaseTrade),
+			})
+			log.Printf("CompleteProduction: Skipping trade phase - %s", g.SkippedPhases[len(g.SkippedPhases)-1].Reason)
+			g.Phase = PhaseShipment
+			// Check shipment skip too
+			if ShouldSkipPhase(PhaseShipment, g.Settings.ChanceLevel) {
+				g.SkippedPhases = append(g.SkippedPhases, PhaseSkipInfo{
+					Phase:  PhaseShipment,
+					Reason: GetSkipReason(PhaseShipment),
+				})
+				log.Printf("CompleteProduction: Skipping shipment phase - %s", g.SkippedPhases[len(g.SkippedPhases)-1].Reason)
+				g.Phase = PhaseConquest
+			}
+		} else {
+			g.Phase = PhaseTrade
+		}
+	} else {
+		g.Phase = PhaseShipment
+		if ShouldSkipPhase(PhaseShipment, g.Settings.ChanceLevel) {
+			g.SkippedPhases = append(g.SkippedPhases, PhaseSkipInfo{
+				Phase:  PhaseShipment,
+				Reason: GetSkipReason(PhaseShipment),
+			})
+			log.Printf("CompleteProduction: Skipping shipment phase - %s", g.SkippedPhases[len(g.SkippedPhases)-1].Reason)
+			g.Phase = PhaseConquest
+		}
+	}
+
+	log.Printf("CompleteProduction: Advanced to phase %s", g.Phase.String())
 }
 
 // GetBuildOptions returns what a player can build.

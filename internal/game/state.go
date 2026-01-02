@@ -4,16 +4,17 @@ package game
 
 // GameState represents the complete state of a game.
 type GameState struct {
-	ID              string                 `json:"id"`
-	Settings        Settings               `json:"settings"`
-	Round           int                    `json:"round"`
-	Phase           Phase                  `json:"phase"`
-	CurrentPlayerID string                 `json:"currentPlayerId"`
-	PlayerOrder     []string               `json:"playerOrder"`
-	Players         map[string]*Player     `json:"players"`
-	Territories     map[string]*Territory  `json:"territories"`
-	WaterBodies     map[string]*WaterBody  `json:"waterBodies"`
-	SkippedPhases   []PhaseSkipInfo        `json:"skippedPhases,omitempty"` // Phases skipped in last transition
+	ID                string                 `json:"id"`
+	Settings          Settings               `json:"settings"`
+	Round             int                    `json:"round"`
+	Phase             Phase                  `json:"phase"`
+	CurrentPlayerID   string                 `json:"currentPlayerId"`
+	PlayerOrder       []string               `json:"playerOrder"`
+	Players           map[string]*Player     `json:"players"`
+	Territories       map[string]*Territory  `json:"territories"`
+	WaterBodies       map[string]*WaterBody  `json:"waterBodies"`
+	SkippedPhases     []PhaseSkipInfo        `json:"skippedPhases,omitempty"`     // Phases skipped in last transition
+	ProductionPending bool                   `json:"productionPending,omitempty"` // True when production animation should play
 }
 
 // Settings contains the configurable game parameters.

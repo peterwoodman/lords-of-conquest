@@ -439,6 +439,13 @@ func (s *GameplayScene) drawAttackPlan(screen *ebiten.Image) {
 	// Buttons at bottom of panel
 	btnY := panelY + panelH - 55
 
+	// Button layout: space them evenly across the panel
+	// [Attack Without] [With Unit] [Cancel]
+	btnWidth := 130
+	btnGap := 15
+	totalBtnsWidth := btnWidth*3 + btnGap*2
+	btnStartX := panelX + (panelW-totalBtnsWidth)/2
+
 	// Attack button - only show if base attack strength > 0
 	// (if strength is 0, player must bring reinforcements to attack)
 	if s.attackPreview.AttackStrength > 0 {
@@ -447,26 +454,29 @@ func (s *GameplayScene) drawAttackPlan(screen *ebiten.Image) {
 		} else {
 			s.attackNoReinfBtn.Text = "Attack Without"
 		}
-		s.attackNoReinfBtn.X = panelX + 20
+		s.attackNoReinfBtn.W = btnWidth
+		s.attackNoReinfBtn.X = btnStartX
 		s.attackNoReinfBtn.Y = btnY
 		s.attackNoReinfBtn.Draw(screen)
 	} else if s.selectedReinforcement == nil {
 		// Show message that reinforcement is required
-		DrawText(screen, "Bring forces to attack", panelX+20, btnY+10, ColorWarning)
+		DrawText(screen, "Bring forces to attack", btnStartX, btnY+10, ColorWarning)
 	}
 
-	// Cancel button (always on the right)
-	s.cancelAttackBtn.X = panelX + panelW - 120
-	s.cancelAttackBtn.Y = btnY
-	s.cancelAttackBtn.Draw(screen)
-
-	// Attack with selected reinforcement (only if one is selected, positioned in middle)
+	// Attack with selected reinforcement (only if one is selected)
 	if s.selectedReinforcement != nil {
-		s.attackWithReinfBtn.X = panelX + (panelW-160)/2 // Center the button
+		s.attackWithReinfBtn.W = btnWidth
+		s.attackWithReinfBtn.X = btnStartX + btnWidth + btnGap
 		s.attackWithReinfBtn.Y = btnY
 		s.attackWithReinfBtn.Text = "With " + s.selectedReinforcement.UnitType
 		s.attackWithReinfBtn.Draw(screen)
 	}
+
+	// Cancel button (always on the right)
+	s.cancelAttackBtn.W = btnWidth
+	s.cancelAttackBtn.X = btnStartX + (btnWidth+btnGap)*2
+	s.cancelAttackBtn.Y = btnY
+	s.cancelAttackBtn.Draw(screen)
 }
 
 // drawCheckbox draws a simple checkbox with label
@@ -1529,4 +1539,233 @@ func (s *GameplayScene) drawTradeWaiting(screen *ebiten.Image) {
 	DrawFancyPanel(screen, panelX, panelY, panelW, panelH, "")
 	DrawTextCentered(screen, "Waiting for response...", centerX, centerY-10, ColorText)
 	DrawTextCentered(screen, "(60 second timeout)", centerX, centerY+15, ColorTextMuted)
+}
+
+// ==================== Production Animation ====================
+
+// StartProductionAnimation begins the production animation sequence.
+func (s *GameplayScene) StartProductionAnimation(payload *protocol.ProductionResultsPayload) {
+	// Convert protocol payload to our animation data
+	items := make([]ProductionItem, len(payload.Productions))
+	for i, p := range payload.Productions {
+		items[i] = ProductionItem{
+			TerritoryID:     p.TerritoryID,
+			TerritoryName:   p.TerritoryName,
+			ResourceType:    p.ResourceType,
+			Amount:          p.Amount,
+			DestinationID:   p.DestinationID,
+			DestinationName: p.DestinationName,
+		}
+	}
+
+	s.productionAnimData = &ProductionAnimData{
+		EventID:                payload.EventID,
+		Productions:            items,
+		StockpileTerritoryID:   payload.StockpileTerritoryID,
+		StockpileTerritoryName: payload.StockpileTerritoryName,
+	}
+
+	s.productionAnimIndex = 0
+	s.productionAnimProgress = 0
+	s.productionAnimTimer = 0
+	s.showProductionAnim = true
+
+	log.Printf("Starting production animation with %d items", len(items))
+}
+
+// updateProductionAnimation updates the production animation state.
+func (s *GameplayScene) updateProductionAnimation() {
+	if !s.showProductionAnim || s.productionAnimData == nil {
+		return
+	}
+
+	// Animation speed: 60 frames per item (1 second at 60fps)
+	framesPerItem := 60
+
+	s.productionAnimTimer++
+	s.productionAnimProgress = float64(s.productionAnimTimer) / float64(framesPerItem)
+
+	// Check if current item animation is complete
+	if s.productionAnimProgress >= 1.0 {
+		s.productionAnimIndex++
+		s.productionAnimTimer = 0
+		s.productionAnimProgress = 0
+
+		// Check if all items are done
+		if s.productionAnimIndex >= len(s.productionAnimData.Productions) {
+			s.finishProductionAnimation()
+		}
+	}
+}
+
+// finishProductionAnimation completes the animation and sends acknowledgment.
+func (s *GameplayScene) finishProductionAnimation() {
+	log.Printf("Production animation complete, sending acknowledgment")
+
+	// Send acknowledgment to server
+	if s.productionAnimData != nil {
+		s.game.SendClientReady(s.productionAnimData.EventID, protocol.EventProduction)
+	}
+
+	// Clear animation state
+	s.showProductionAnim = false
+	s.productionAnimData = nil
+	s.productionAnimIndex = 0
+	s.productionAnimProgress = 0
+	s.productionAnimTimer = 0
+}
+
+// drawProductionAnimation draws the production animation overlay.
+func (s *GameplayScene) drawProductionAnimation(screen *ebiten.Image) {
+	if !s.showProductionAnim || s.productionAnimData == nil {
+		return
+	}
+
+	// Get current production item
+	if s.productionAnimIndex >= len(s.productionAnimData.Productions) {
+		return
+	}
+	item := s.productionAnimData.Productions[s.productionAnimIndex]
+
+	// Get territory positions from the map
+	srcX, srcY := s.getTerritoryCenter(item.TerritoryID)
+
+	// Destination: stockpile for resources, destination territory for horses
+	var destX, destY int
+	if item.ResourceType == "Grassland" && item.DestinationID != "" {
+		// Horse goes to destination territory
+		destX, destY = s.getTerritoryCenter(item.DestinationID)
+	} else {
+		// Resource goes to stockpile
+		destX, destY = s.getTerritoryCenter(s.productionAnimData.StockpileTerritoryID)
+	}
+
+	// Calculate current position (linear interpolation)
+	progress := s.productionAnimProgress
+	currentX := float32(srcX) + float32(destX-srcX)*float32(progress)
+	currentY := float32(srcY) + float32(destY-srcY)*float32(progress)
+
+	// Draw the moving resource icon
+	s.drawProductionIcon(screen, currentX, currentY, item.ResourceType, item.Amount)
+
+	// Draw info panel at bottom
+	s.drawProductionInfoPanel(screen, item, int(s.productionAnimIndex)+1, len(s.productionAnimData.Productions))
+}
+
+// getTerritoryCenter returns the screen position of a territory's center.
+func (s *GameplayScene) getTerritoryCenter(territoryID string) (int, int) {
+	if s.mapData == nil {
+		return ScreenWidth / 2, ScreenHeight / 2
+	}
+
+	// Find territory cells
+	grid := s.mapData["grid"].([]interface{})
+	width := int(s.mapData["width"].(float64))
+	height := int(s.mapData["height"].(float64))
+
+	// Map area bounds
+	mapAreaX := 200
+	mapAreaY := 10
+	mapAreaW := ScreenWidth - 250 - 60
+	mapAreaH := ScreenHeight - 130
+
+	cellW := float32(mapAreaW) / float32(width)
+	cellH := float32(mapAreaH) / float32(height)
+
+	// Find all cells belonging to this territory and average their positions
+	var sumX, sumY float32
+	var count int
+
+	for y := 0; y < height; y++ {
+		row := grid[y].([]interface{})
+		for x := 0; x < width; x++ {
+			cellVal := int(row[x].(float64))
+			if cellVal > 0 {
+				// Check if this cell belongs to the territory
+				cellTerritoryID := fmt.Sprintf("t%d", cellVal)
+				if cellTerritoryID == territoryID {
+					sumX += float32(mapAreaX) + float32(x)*cellW + cellW/2
+					sumY += float32(mapAreaY) + float32(y)*cellH + cellH/2
+					count++
+				}
+			}
+		}
+	}
+
+	if count > 0 {
+		return int(sumX / float32(count)), int(sumY / float32(count))
+	}
+
+	return ScreenWidth / 2, ScreenHeight / 2
+}
+
+// drawProductionIcon draws a resource icon at the given position.
+func (s *GameplayScene) drawProductionIcon(screen *ebiten.Image, x, y float32, resourceType string, amount int) {
+	// Draw a colored circle with resource initial
+	var iconColor color.RGBA
+	var initial string
+
+	switch resourceType {
+	case "Coal":
+		iconColor = color.RGBA{50, 50, 50, 255}
+		initial = "C"
+	case "Gold":
+		iconColor = color.RGBA{255, 215, 0, 255}
+		initial = "G"
+	case "Iron":
+		iconColor = color.RGBA{150, 150, 170, 255}
+		initial = "I"
+	case "Timber":
+		iconColor = color.RGBA{139, 90, 43, 255}
+		initial = "W"
+	case "Grassland":
+		iconColor = color.RGBA{100, 180, 100, 255}
+		initial = "H" // Horse
+	default:
+		iconColor = color.RGBA{200, 200, 200, 255}
+		initial = "?"
+	}
+
+	// Draw circle
+	vector.DrawFilledCircle(screen, x, y, 15, iconColor, false)
+	vector.StrokeCircle(screen, x, y, 15, 2, color.White, false)
+
+	// Draw initial and amount
+	DrawTextCentered(screen, initial, int(x), int(y)-5, color.White)
+	if amount > 1 {
+		DrawText(screen, fmt.Sprintf("x%d", amount), int(x)+10, int(y)+5, color.White)
+	}
+}
+
+// drawProductionInfoPanel draws information about the current production.
+func (s *GameplayScene) drawProductionInfoPanel(screen *ebiten.Image, item ProductionItem, current, total int) {
+	panelW, panelH := 400, 80
+	panelX := ScreenWidth/2 - panelW/2
+	panelY := ScreenHeight - 200
+
+	DrawFancyPanel(screen, panelX, panelY, panelW, panelH, "Production")
+
+	// Resource info
+	resourceName := item.ResourceType
+	if resourceName == "Grassland" {
+		resourceName = "Horse"
+	}
+
+	fromText := fmt.Sprintf("From: %s", item.TerritoryName)
+	toText := ""
+	if item.ResourceType == "Grassland" && item.DestinationName != "" {
+		toText = fmt.Sprintf("To: %s", item.DestinationName)
+	} else {
+		toText = fmt.Sprintf("To: Stockpile (%s)", s.productionAnimData.StockpileTerritoryName)
+	}
+
+	amountText := fmt.Sprintf("+%d %s", item.Amount, resourceName)
+
+	DrawText(screen, fromText, panelX+15, panelY+35, ColorText)
+	DrawText(screen, toText, panelX+15, panelY+50, ColorText)
+	DrawText(screen, amountText, panelX+panelW-100, panelY+42, ColorSuccess)
+
+	// Progress indicator
+	progressText := fmt.Sprintf("%d / %d", current, total)
+	DrawText(screen, progressText, panelX+panelW-60, panelY+60, ColorTextMuted)
 }

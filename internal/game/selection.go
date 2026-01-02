@@ -76,6 +76,8 @@ func (g *GameState) startFirstRound() {
 }
 
 // PlaceStockpile places a player's stockpile during the first production phase.
+// Note: Does NOT automatically trigger production - server should call
+// AllStockpilesPlaced() to check, then trigger production animation.
 func (g *GameState) PlaceStockpile(playerID, territoryID string) error {
 	if g.Round != 1 || g.Phase != PhaseProduction {
 		return ErrInvalidAction
@@ -100,24 +102,28 @@ func (g *GameState) PlaceStockpile(playerID, territoryID string) error {
 	// Place stockpile
 	player.StockpileTerritory = territoryID
 
-	// Check if all players have placed stockpiles
-	allPlaced := true
+	return nil
+}
+
+// AllStockpilesPlaced checks if all players have placed their stockpiles.
+func (g *GameState) AllStockpilesPlaced() bool {
+	if g.Round != 1 || g.Phase != PhaseProduction {
+		return false
+	}
 	for _, p := range g.Players {
 		if !p.Eliminated && p.StockpileTerritory == "" {
-			allPlaced = false
-			break
+			return false
 		}
 	}
+	return true
+}
 
-	// If all placed, start the actual production phase
-	if allPlaced {
-		pm := NewPhaseManager(g)
-		pm.ProcessProduction()
-		// Move to next phase (will be Trade or Shipment)
-		g.Phase, _ = pm.NextPhase()
-	}
-
-	return nil
+// AdvanceFromStockpilePlacement advances from stockpile placement to the next phase.
+// Called by server AFTER production animation is complete.
+func (g *GameState) AdvanceFromStockpilePlacement() {
+	pm := NewPhaseManager(g)
+	// Move to next phase (will be Trade or Shipment)
+	g.Phase, _ = pm.NextPhase()
 }
 
 // GetClaimableTerritories returns territories that can be claimed.

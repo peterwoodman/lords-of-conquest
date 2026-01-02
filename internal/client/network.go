@@ -165,13 +165,7 @@ func (c *NetworkClient) readPump() {
 			continue
 		}
 
-		// Send to receive channel and callback
-		select {
-		case c.recvChan <- &msg:
-		default:
-			log.Println("Receive channel full, dropping message")
-		}
-
+		// Handle message via callback (recvChan is not used)
 		if c.OnMessage != nil {
 			c.OnMessage(&msg)
 		}

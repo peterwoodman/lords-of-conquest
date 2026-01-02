@@ -810,6 +810,13 @@ func (h *Handlers) broadcastGameState(gameID string) bool {
 		return false
 	}
 
+	// Check for production pending - need to trigger production animation
+	if state.ProductionPending {
+		log.Printf("Production pending - triggering animation for game %s", gameID)
+		h.triggerProductionAnimation(gameID, &state)
+		return true // Caller should NOT trigger AI - we'll do it after production completes
+	}
+
 	// Check for skipped phases and notify clients with acknowledgment
 	if len(state.SkippedPhases) > 0 {
 		skips := state.SkippedPhases
@@ -1155,14 +1162,21 @@ func (h *Handlers) handlePlaceStockpile(client *Client, msg *protocol.Message) e
 
 	log.Printf("Player %s placed stockpile at %s", client.Name, payload.TerritoryID)
 
-	// Broadcast updated state
+	// Broadcast updated state (without triggering AI yet)
 	h.broadcastGameState(client.GameID)
 
-	// Trigger AI stockpile placement if still in production phase
-	if state.Phase == game.PhaseProduction && state.Round == 1 {
-		go h.checkAndTriggerAI(client.GameID)
+	// Check if all stockpiles are placed - if so, trigger production animation
+	if state.AllStockpilesPlaced() {
+		log.Printf("All stockpiles placed - triggering production animation")
+		// Set production pending flag and save
+		state.ProductionPending = true
+		stateJSON3, _ := json.Marshal(state)
+		h.hub.server.db.SaveGameState(client.GameID, string(stateJSON3),
+			state.CurrentPlayerID, state.Round, state.Phase.String())
+
+		h.triggerProductionAnimation(client.GameID, &state)
 	} else {
-		// Phase changed, check for AI turn in new phase
+		// Still waiting for stockpiles, trigger AI placement
 		go h.checkAndTriggerAI(client.GameID)
 	}
 
@@ -3100,4 +3114,113 @@ func (h *Handlers) broadcastWithAck(gameID, eventID, eventType string, msgType p
 
 	// Create pending event and wait for acks
 	h.hub.CreatePendingEvent(eventID, eventType, gameID, humanPlayers, onComplete)
+}
+
+// triggerProductionAnimation sends production results to all players for animation.
+// Each player receives only their own production data.
+func (h *Handlers) triggerProductionAnimation(gameID string, state *game.GameState) {
+	log.Printf("Triggering production animation for game %s", gameID)
+
+	pm := game.NewPhaseManager(state)
+	eventID := fmt.Sprintf("production-%s-%d", gameID, time.Now().UnixNano())
+	playersToWaitFor := make([]string, 0)
+
+	// Send production results to each player
+	for _, player := range state.Players {
+		if player.Eliminated {
+			continue
+		}
+
+		// Calculate production for this player
+		productions, stockpileTerrID := pm.CalculateProductionForPlayer(player.ID)
+
+		// Get stockpile territory name
+		stockpileName := ""
+		if terr := state.Territories[stockpileTerrID]; terr != nil {
+			stockpileName = terr.Name
+		}
+
+		// Convert to protocol format
+		protoProductions := make([]protocol.TerritoryProduction, len(productions))
+		for i, prod := range productions {
+			protoProductions[i] = protocol.TerritoryProduction{
+				TerritoryID:     prod.TerritoryID,
+				TerritoryName:   prod.TerritoryName,
+				ResourceType:    prod.Resource.String(),
+				Amount:          prod.Amount,
+				DestinationID:   prod.DestinationID,
+				DestinationName: prod.DestinationName,
+			}
+		}
+
+		payload := protocol.ProductionResultsPayload{
+			EventID:                eventID,
+			PlayerID:               player.ID,
+			Productions:            protoProductions,
+			StockpileTerritoryID:   stockpileTerrID,
+			StockpileTerritoryName: stockpileName,
+		}
+
+		// Apply production to state immediately (animation is just visual)
+		pm.ApplyProductionResults(player.ID, productions)
+
+		// Send to this player only (if online)
+		if h.hub.IsPlayerOnline(player.ID) {
+			h.hub.sendToPlayer(player.ID, protocol.TypeProductionResults, payload)
+
+			// Track human players we need to wait for
+			if !player.IsAI {
+				playersToWaitFor = append(playersToWaitFor, player.ID)
+			}
+		}
+
+		log.Printf("Sent production results to player %s: %d productions", player.Name, len(productions))
+	}
+
+	// Save state with production applied
+	stateJSON, _ := json.Marshal(state)
+	h.hub.server.db.SaveGameState(gameID, string(stateJSON),
+		state.CurrentPlayerID, state.Round, state.Phase.String())
+
+	// Wait for all human players to acknowledge
+	if len(playersToWaitFor) > 0 {
+		h.hub.CreatePendingEvent(eventID, protocol.EventProduction, gameID, playersToWaitFor, func() {
+			// All players acknowledged - complete production phase
+			h.completeProductionPhase(gameID)
+		})
+	} else {
+		// No human players to wait for (all AI) - complete immediately
+		h.completeProductionPhase(gameID)
+	}
+}
+
+// completeProductionPhase finishes production and advances to the next phase.
+func (h *Handlers) completeProductionPhase(gameID string) {
+	log.Printf("Completing production phase for game %s", gameID)
+
+	// Load current state
+	stateJSON, err := h.hub.server.db.GetGameState(gameID)
+	if err != nil {
+		log.Printf("Failed to load game state: %v", err)
+		return
+	}
+
+	var state game.GameState
+	if err := json.Unmarshal([]byte(stateJSON), &state); err != nil {
+		log.Printf("Failed to unmarshal game state: %v", err)
+		return
+	}
+
+	// Advance phase
+	state.CompleteProduction()
+
+	// Save updated state
+	stateJSON2, _ := json.Marshal(state)
+	h.hub.server.db.SaveGameState(gameID, string(stateJSON2),
+		state.CurrentPlayerID, state.Round, state.Phase.String())
+
+	// Broadcast new state (may have phase skips)
+	if !h.broadcastGameState(gameID) {
+		go h.checkAndTriggerAI(gameID)
+	}
 }

@@ -640,6 +640,16 @@ func (g *Game) handleMessage(msg *protocol.Message) {
 		g.gameplayScene.ShowPhaseSkipped(payload.EventID, payload.Phase, payload.Reason)
 		log.Printf("Phase skipped: %s - %s (event: %s)", payload.Phase, payload.Reason, payload.EventID)
 
+	case protocol.TypeProductionResults:
+		var payload protocol.ProductionResultsPayload
+		if err := msg.ParsePayload(&payload); err != nil {
+			log.Printf("Failed to parse production results: %v", err)
+			return
+		}
+		// Start production animation in gameplay scene
+		g.gameplayScene.StartProductionAnimation(&payload)
+		log.Printf("Production results received: %d items (event: %s)", len(payload.Productions), payload.EventID)
+
 	case protocol.TypeGameEnded:
 		var payload protocol.GameEndedPayload
 		if err := msg.ParsePayload(&payload); err != nil {

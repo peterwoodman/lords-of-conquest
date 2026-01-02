@@ -175,8 +175,8 @@ func (t *TextInput) Draw(screen *ebiten.Image) {
 		textColor = ColorTextMuted
 	}
 
-	// Clip text to fit
-	maxChars := (t.W - 16) / 7
+	// Clip text to fit (debug font is 6 pixels per character)
+	maxChars := (t.W - 16) / 6
 	if len(text) > maxChars {
 		text = text[len(text)-maxChars:]
 	}
@@ -184,9 +184,9 @@ func (t *TextInput) Draw(screen *ebiten.Image) {
 	ebitenutil.DebugPrintAt(screen, text, t.X+8, t.Y+t.H/2-6)
 	_ = textColor // TODO: Use custom font rendering for colored text
 
-	// Draw cursor
+	// Draw cursor (debug font is 6 pixels per character)
 	if t.focused && (t.cursorBlink/30)%2 == 0 {
-		cursorX := t.X + 8 + len(t.Text)*7
+		cursorX := t.X + 8 + len(t.Text)*6
 		if cursorX < t.X+t.W-8 {
 			vector.DrawFilledRect(screen, float32(cursorX), float32(t.Y+8), 2, float32(t.H-16), ColorText, false)
 		}

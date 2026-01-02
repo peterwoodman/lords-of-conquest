@@ -429,21 +429,19 @@ func (s *GameplayScene) drawBottomBar(screen *ebiten.Image) {
 			playerName := player["name"].(string)
 			playerColor := player["color"].(string)
 
-			if isMyTurn {
-				DrawLargeText(screen, "YOUR TURN", rightX, barY+12, ColorSuccess)
-			} else {
-				turnText := fmt.Sprintf("%s's turn", playerName)
-				DrawText(screen, turnText, rightX, barY+15, ColorText)
+			// Color indicator BEFORE turn text
+			indicatorX := rightX
+			if pc, ok := PlayerColors[playerColor]; ok {
+				vector.DrawFilledRect(screen, float32(indicatorX), float32(barY+14), 14, 14, pc, false)
+				vector.StrokeRect(screen, float32(indicatorX), float32(barY+14), 14, 14, 1, ColorBorder, false)
 			}
 
-			// Color indicator next to turn text
-			if pc, ok := PlayerColors[playerColor]; ok {
-				indicatorX := rightX + 120
-				if !isMyTurn {
-					indicatorX = rightX + len(fmt.Sprintf("%s's turn", playerName))*8 + 10
-				}
-				vector.DrawFilledRect(screen, float32(indicatorX), float32(barY+12), 16, 16, pc, false)
-				vector.StrokeRect(screen, float32(indicatorX), float32(barY+12), 16, 16, 1, ColorBorder, false)
+			textX := rightX + 20 // After the color indicator
+			if isMyTurn {
+				DrawLargeText(screen, "YOUR TURN", textX, barY+12, ColorSuccess)
+			} else {
+				turnText := fmt.Sprintf("%s's turn", playerName)
+				DrawText(screen, turnText, textX, barY+15, ColorText)
 			}
 		}
 	}
@@ -559,17 +557,27 @@ func (s *GameplayScene) drawShipmentControls(screen *ebiten.Image, startX, barY,
 		}
 	}
 
-	// Turn indicator at top
-	DrawLargeText(screen, "YOUR TURN - SHIPMENT", startX, barY+12, ColorSuccess)
+	// Turn indicator at top with color block
+	indicatorX := startX
+	if myPlayer, ok := s.players[s.game.config.PlayerID]; ok {
+		player := myPlayer.(map[string]interface{})
+		if playerColor, ok := player["color"].(string); ok {
+			if pc, ok := PlayerColors[playerColor]; ok {
+				vector.DrawFilledRect(screen, float32(indicatorX), float32(barY+14), 14, 14, pc, false)
+				vector.StrokeRect(screen, float32(indicatorX), float32(barY+14), 14, 14, 1, ColorBorder, false)
+			}
+		}
+	}
+	DrawLargeText(screen, "YOUR TURN - SHIPMENT", startX+20, barY+12, ColorSuccess)
 
-	btnY := barY + 35
+	btnY := barY + 40 // Moved down to avoid overlap with large text
 	btnW := 100
-	btnH := 28
+	btnH := 26
 	btnSpacing := 8
 
 	if s.shipmentMode == "" {
 		// Show mode selection buttons
-		DrawText(screen, "Move:", startX, btnY+7, ColorText)
+		DrawText(screen, "Move:", startX, btnY+5, ColorText)
 
 		btnX := startX + 50
 
@@ -596,7 +604,7 @@ func (s *GameplayScene) drawShipmentControls(screen *ebiten.Image, startX, barY,
 		s.moveBoatBtn.Disabled = !hasBoat
 		s.moveBoatBtn.Draw(screen)
 
-		DrawText(screen, "Select what to move, or End Turn to skip", startX, barY+75, ColorTextMuted)
+		DrawText(screen, "Select what to move, or End Turn to skip", startX, barY+72, ColorTextMuted)
 	} else {
 		// Show current mode and selection status
 		modeText := ""
@@ -608,7 +616,7 @@ func (s *GameplayScene) drawShipmentControls(screen *ebiten.Image, startX, barY,
 		case "boat":
 			modeText = "Moving Boat"
 		}
-		DrawText(screen, modeText, startX, btnY, ColorPrimary)
+		DrawText(screen, modeText, startX, btnY+5, ColorPrimary)
 
 		// Source info
 		infoX := startX + 130
@@ -623,7 +631,7 @@ func (s *GameplayScene) drawShipmentControls(screen *ebiten.Image, startX, barY,
 					}
 				}
 			}
-			DrawText(screen, fmt.Sprintf("From: %s", stockpileLoc), infoX, btnY, ColorText)
+			DrawText(screen, fmt.Sprintf("From: %s", stockpileLoc), infoX, btnY+5, ColorText)
 		} else {
 			fromName := "(click source)"
 			if s.shipmentFromTerritory != "" {
@@ -631,7 +639,7 @@ func (s *GameplayScene) drawShipmentControls(screen *ebiten.Image, startX, barY,
 					fromName = terr["name"].(string)
 				}
 			}
-			DrawText(screen, fmt.Sprintf("From: %s", fromName), infoX, btnY, ColorText)
+			DrawText(screen, fmt.Sprintf("From: %s", fromName), infoX, btnY+5, ColorText)
 		}
 
 		// Destination info
@@ -641,10 +649,10 @@ func (s *GameplayScene) drawShipmentControls(screen *ebiten.Image, startX, barY,
 				destName = terr["name"].(string)
 			}
 		}
-		DrawText(screen, fmt.Sprintf("To: %s", destName), infoX+180, btnY, ColorText)
+		DrawText(screen, fmt.Sprintf("To: %s", destName), infoX+180, btnY+5, ColorText)
 
-		// Cargo checkboxes (for horse and boat)
-		checkboxY := barY + 55
+		// Cargo checkboxes (for horse and boat) - below mode info
+		checkboxY := barY + 60
 		if s.shipmentMode == "horse" && s.shipmentFromTerritory != "" {
 			if terr, ok := s.territories[s.shipmentFromTerritory].(map[string]interface{}); ok {
 				if hasWeapon, _ := terr["hasWeapon"].(bool); hasWeapon {
@@ -667,24 +675,23 @@ func (s *GameplayScene) drawShipmentControls(screen *ebiten.Image, startX, barY,
 			}
 		}
 
-		// Confirm and Cancel buttons
-		btnX := endX - 290
-		s.shipmentConfirmBtn.X = btnX
-		s.shipmentConfirmBtn.Y = barY + 55
-		s.shipmentConfirmBtn.W = 110
+		// Confirm and Cancel buttons - far right, below End Turn
+		s.shipmentConfirmBtn.X = startX + 350
+		s.shipmentConfirmBtn.Y = barY + 60
+		s.shipmentConfirmBtn.W = 90
 		s.shipmentConfirmBtn.H = btnH
 		s.shipmentConfirmBtn.Disabled = s.selectedTerritory == "" || (s.shipmentMode != "stockpile" && s.shipmentFromTerritory == "")
 		s.shipmentConfirmBtn.Draw(screen)
 
-		s.cancelShipmentBtn.X = btnX + 120
-		s.cancelShipmentBtn.Y = barY + 55
-		s.cancelShipmentBtn.W = btnW
+		s.cancelShipmentBtn.X = startX + 448
+		s.cancelShipmentBtn.Y = barY + 60
+		s.cancelShipmentBtn.W = 70
 		s.cancelShipmentBtn.H = btnH
 		s.cancelShipmentBtn.Text = "Cancel"
 		s.cancelShipmentBtn.Draw(screen)
 	}
 
-	// End Turn button (always visible)
+	// End Turn button (always visible, right side)
 	s.endPhaseBtn.X = endX - 170
 	s.endPhaseBtn.Y = barY + 30
 	s.endPhaseBtn.Draw(screen)
@@ -692,14 +699,23 @@ func (s *GameplayScene) drawShipmentControls(screen *ebiten.Image, startX, barY,
 
 // drawTradeControls draws the trade phase controls in the status bar.
 func (s *GameplayScene) drawTradeControls(screen *ebiten.Image, startX, barY, endX int) {
-	// Instruction text
-	DrawLargeText(screen, "YOUR TURN", startX, barY+12, ColorSuccess)
-	DrawText(screen, "Propose trades to other players, or skip trading", startX, barY+45, ColorTextMuted)
-	DrawText(screen, "Resources are traded from/to stockpiles", startX, barY+62, ColorTextMuted)
+	// Turn indicator with color block
+	indicatorX := startX
+	if myPlayer, ok := s.players[s.game.config.PlayerID]; ok {
+		player := myPlayer.(map[string]interface{})
+		if playerColor, ok := player["color"].(string); ok {
+			if pc, ok := PlayerColors[playerColor]; ok {
+				vector.DrawFilledRect(screen, float32(indicatorX), float32(barY+14), 14, 14, pc, false)
+				vector.StrokeRect(screen, float32(indicatorX), float32(barY+14), 14, 14, 1, ColorBorder, false)
+			}
+		}
+	}
+	DrawLargeText(screen, "YOUR TURN - TRADE", startX+20, barY+12, ColorSuccess)
+	DrawText(screen, "Propose trades or End Turn to skip", startX, barY+45, ColorTextMuted)
 
-	// Propose Trade button
-	s.proposeTradeBtn.X = startX + 20
-	s.proposeTradeBtn.Y = barY + 55
+	// Propose Trade button - below the instruction text
+	s.proposeTradeBtn.X = startX
+	s.proposeTradeBtn.Y = barY + 65
 	s.proposeTradeBtn.Draw(screen)
 
 	// End Turn button

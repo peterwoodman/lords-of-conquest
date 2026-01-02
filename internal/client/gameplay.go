@@ -77,6 +77,13 @@ type GameplayScene struct {
 	combatPendingResult     *CombatResultData      // Result to show after animation
 	combatPendingState      map[string]interface{} // Game state to apply after animation
 
+	// Production animation
+	showProductionAnim     bool
+	productionAnimData     *ProductionAnimData
+	productionAnimTimer    int
+	productionAnimIndex    int     // Which production item we're currently animating
+	productionAnimProgress float64 // 0.0 to 1.0 for current item
+
 	// Attack planning (Conquest phase)
 	showAttackPlan        bool
 	attackPlanTarget      string             // Territory ID being attacked
@@ -225,6 +232,24 @@ type CombatResultData struct {
 	DefenseStrength int
 	TargetTerritory string
 	TargetName      string
+}
+
+// ProductionAnimData holds production animation data from server
+type ProductionAnimData struct {
+	EventID              string
+	Productions          []ProductionItem
+	StockpileTerritoryID string
+	StockpileTerritoryName string
+}
+
+// ProductionItem represents a single production event for animation
+type ProductionItem struct {
+	TerritoryID     string
+	TerritoryName   string
+	ResourceType    string // coal, gold, iron, timber, horse
+	Amount          int
+	DestinationID   string // For horses
+	DestinationName string
 }
 
 // AttackPreviewData holds attack preview info from server
@@ -481,6 +506,12 @@ func (s *GameplayScene) Update() error {
 		s.victoryTimer++
 		s.returnToLobbyBtn.Update()
 		return nil // Block all other input
+	}
+
+	// Handle production animation
+	if s.showProductionAnim {
+		s.updateProductionAnimation()
+		return nil // Block all input during animation
 	}
 
 	// Handle combat animation
@@ -742,6 +773,10 @@ func (s *GameplayScene) Draw(screen *ebiten.Image) {
 	// Draw combat result overlay
 	if s.showCombatResult {
 		s.drawCombatResult(screen)
+	}
+	// Draw production animation
+	if s.showProductionAnim {
+		s.drawProductionAnimation(screen)
 	}
 	// Draw alliance menu overlay
 	if s.showAllyMenu {

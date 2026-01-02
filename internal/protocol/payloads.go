@@ -420,7 +420,30 @@ const (
 	EventPhaseSkip  = "phase_skip"  // Phase was skipped notification
 	EventPhaseChange = "phase_change" // Phase transition
 	EventTurnChange = "turn_change"   // Turn changed to new player
+	EventProduction = "production"    // Production animation
 )
+
+// ==================== Production Payloads ====================
+
+// TerritoryProduction describes what a single territory produced.
+type TerritoryProduction struct {
+	TerritoryID   string `json:"territory_id"`
+	TerritoryName string `json:"territory_name"`
+	ResourceType  string `json:"resource_type"` // coal, gold, iron, timber, horse
+	Amount        int    `json:"amount"`
+	// For horses, where they go (can be different from source territory)
+	DestinationID   string `json:"destination_id,omitempty"`
+	DestinationName string `json:"destination_name,omitempty"`
+}
+
+// ProductionResultsPayload reports production results for animation.
+type ProductionResultsPayload struct {
+	EventID             string                `json:"event_id"`
+	PlayerID            string                `json:"player_id"`
+	Productions         []TerritoryProduction `json:"productions"`
+	StockpileTerritoryID string               `json:"stockpile_territory_id"`
+	StockpileTerritoryName string             `json:"stockpile_territory_name"`
+}
 
 // ClientReadyPayload is sent by client to acknowledge an event.
 type ClientReadyPayload struct {
