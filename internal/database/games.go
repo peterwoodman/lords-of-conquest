@@ -392,9 +392,13 @@ func (db *DB) AddAIPlayer(gameID, color, personality string) error {
 		slot = int(maxSlot.Int64) + 1
 	}
 
+	// Count existing AI players in the game to number them
+	var aiCount int
+	db.conn.QueryRow(`SELECT COUNT(*) FROM game_players WHERE game_id = ? AND is_ai = TRUE`, gameID).Scan(&aiCount)
+
 	// Create a player entry for the AI (required for foreign key)
 	aiID := fmt.Sprintf("ai-%s", uuid.New().String()[:8])
-	aiName := fmt.Sprintf("AI (%s)", personality)
+	aiName := fmt.Sprintf("CPU%d", aiCount+1)
 	aiToken := uuid.New().String()
 
 	_, err = db.conn.Exec(`

@@ -1272,7 +1272,7 @@ func NewWaitingScene(game *Game) *WaitingScene {
 
 	s.addAIBtn = &Button{
 		X: 500, Y: 150, W: 180, H: 40,
-		Text:    "Add AI Player",
+		Text:    "Add CPU",
 		OnClick: func() { s.game.AddAI("aggressive") },
 	}
 

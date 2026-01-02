@@ -65,7 +65,6 @@ func (s *GameplayScene) drawLeftSidebar(screen *ebiten.Image) {
 				player := playerData.(map[string]interface{})
 				playerName := player["name"].(string)
 				playerColor := player["color"].(string)
-				isAI := player["isAI"].(bool)
 				isOnline := true // Default to online
 				if onlineVal, ok := player["isOnline"].(bool); ok {
 					isOnline = onlineVal
@@ -90,9 +89,6 @@ func (s *GameplayScene) drawLeftSidebar(screen *ebiten.Image) {
 
 				// Player name
 				nameText := playerName
-				if isAI {
-					nameText += " (AI)"
-				}
 				if playerID == s.game.config.PlayerID {
 					nameText += " *"
 				}
