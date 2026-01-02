@@ -788,45 +788,46 @@ func convertMapToGameData(m *maps.Map) game.MapData {
 }
 
 // broadcastGameState sends the current game state to all players.
-func (h *Handlers) broadcastGameState(gameID string) {
+// If there are skipped phases, it broadcasts those first with acknowledgment,
+// then broadcasts the game state. Returns true if there were skipped phases
+// (meaning caller should NOT trigger AI immediately - it will be triggered after acks).
+func (h *Handlers) broadcastGameState(gameID string) bool {
 	// Load game state from database
 	stateJSON, err := h.hub.server.db.GetGameState(gameID)
 	if err != nil {
 		log.Printf("Failed to load game state: %v", err)
-		return
+		return false
 	}
 
 	if stateJSON == "" {
 		log.Printf("No game state found for game %s", gameID)
-		return
+		return false
 	}
 
 	var state game.GameState
 	if err := json.Unmarshal([]byte(stateJSON), &state); err != nil {
 		log.Printf("Failed to unmarshal game state: %v", err)
-		return
+		return false
 	}
 
-	// Check for skipped phases and notify clients
+	// Check for skipped phases and notify clients with acknowledgment
 	if len(state.SkippedPhases) > 0 {
-		for i, skip := range state.SkippedPhases {
-			eventID := fmt.Sprintf("skip-%s-%d-%d", gameID, time.Now().UnixNano(), i)
-			skipPayload := protocol.PhaseSkippedPayload{
-				EventID: eventID,
-				Phase:   skip.Phase.String(),
-				Reason:  skip.Reason,
-			}
-			log.Printf("Broadcasting phase skip: %s - %s", skip.Phase.String(), skip.Reason)
-			h.hub.notifyGamePlayers(gameID, protocol.TypePhaseSkipped, skipPayload)
-		}
+		skips := state.SkippedPhases
 
-		// Clear skipped phases after notifying
+		// Clear skipped phases and save immediately
 		state.SkippedPhases = nil
-
-		// Save the updated state (with cleared skips)
 		updatedJSON, _ := json.Marshal(state)
 		h.hub.server.db.SaveGameState(gameID, string(updatedJSON),
 			state.CurrentPlayerID, state.Round, state.Phase.String())
+
+		// Chain the phase skip broadcasts with acknowledgment
+		h.broadcastPhaseSkipsWithAck(gameID, skips, 0, func() {
+			// After all phase skips are acknowledged, broadcast game state and trigger AI
+			h.broadcastGameStateImmediate(gameID)
+			go h.checkAndTriggerAI(gameID)
+		})
+
+		return true // Caller should NOT trigger AI - we'll do it after acks
 	}
 
 	// Update player online status from hub
@@ -845,7 +846,7 @@ func (h *Handlers) broadcastGameState(gameID string) {
 		mapData = h.loadMapFromDatabase(gameID, state.Settings.MapID)
 		if mapData == nil {
 			log.Printf("Map not found in registry or database: %s", state.Settings.MapID)
-			return
+			return false
 		}
 	}
 
@@ -860,6 +861,78 @@ func (h *Handlers) broadcastGameState(gameID string) {
 
 	// Also broadcast history to keep it in sync
 	h.broadcastGameHistory(gameID)
+
+	return false // No skipped phases, caller can trigger AI if needed
+}
+
+// broadcastGameStateImmediate broadcasts game state without checking for skipped phases.
+// Used as a callback after phase skips are acknowledged.
+func (h *Handlers) broadcastGameStateImmediate(gameID string) {
+	stateJSON, err := h.hub.server.db.GetGameState(gameID)
+	if err != nil {
+		log.Printf("Failed to load game state: %v", err)
+		return
+	}
+
+	if stateJSON == "" {
+		return
+	}
+
+	var state game.GameState
+	if err := json.Unmarshal([]byte(stateJSON), &state); err != nil {
+		log.Printf("Failed to unmarshal game state: %v", err)
+		return
+	}
+
+	// Update player online status
+	for playerID, player := range state.Players {
+		if player.IsAI {
+			player.IsOnline = true
+		} else {
+			player.IsOnline = h.hub.IsPlayerOnline(playerID)
+		}
+	}
+
+	mapData := maps.Get(state.Settings.MapID)
+	if mapData == nil {
+		mapData = h.loadMapFromDatabase(gameID, state.Settings.MapID)
+		if mapData == nil {
+			return
+		}
+	}
+
+	payload := protocol.GameStatePayload{
+		State: createStatePayload(&state, mapData),
+	}
+
+	h.hub.notifyGamePlayers(gameID, protocol.TypeGameState, payload)
+	h.broadcastGameHistory(gameID)
+}
+
+// broadcastPhaseSkipsWithAck broadcasts phase skip messages one at a time,
+// waiting for acknowledgment before proceeding to the next.
+func (h *Handlers) broadcastPhaseSkipsWithAck(gameID string, skips []game.PhaseSkipInfo, index int, onComplete func()) {
+	if index >= len(skips) {
+		// All skips have been acknowledged
+		onComplete()
+		return
+	}
+
+	skip := skips[index]
+	eventID := fmt.Sprintf("skip-%s-%d-%d", gameID, time.Now().UnixNano(), index)
+	skipPayload := protocol.PhaseSkippedPayload{
+		EventID: eventID,
+		Phase:   skip.Phase.String(),
+		Reason:  skip.Reason,
+	}
+
+	log.Printf("Broadcasting phase skip %d/%d: %s - %s", index+1, len(skips), skip.Phase.String(), skip.Reason)
+
+	// Broadcast with ack, then proceed to next skip
+	h.broadcastWithAck(gameID, eventID, protocol.EventPhaseSkip, protocol.TypePhaseSkipped, skipPayload, func() {
+		// Recursively broadcast next skip
+		h.broadcastPhaseSkipsWithAck(gameID, skips, index+1, onComplete)
+	})
 }
 
 // loadMapFromDatabase loads a map from the database and registers it.
@@ -1022,11 +1095,12 @@ func (h *Handlers) handleSelectTerritory(client *Client, msg *protocol.Message) 
 
 	log.Printf("Player %s selected territory %s", client.Name, payload.TerritoryID)
 
-	// Broadcast updated state
-	h.broadcastGameState(client.GameID)
-
-	// Check if next player is AI and trigger their move
-	go h.checkAndTriggerAI(client.GameID)
+	// Broadcast updated state - if it returns true, phase skips are being shown
+	// and AI will be triggered after acknowledgment
+	if !h.broadcastGameState(client.GameID) {
+		// No phase skips, trigger AI immediately
+		go h.checkAndTriggerAI(client.GameID)
+	}
 
 	return nil
 }
@@ -1518,10 +1592,9 @@ func (h *Handlers) aiSkipTrade(gameID string, state *game.GameState) {
 	}
 
 	// Save state
-	h.saveAndBroadcastAIState(gameID, state)
-
-	// Check if next player is also AI
-	go h.checkAndTriggerAI(gameID)
+	if !h.saveAndBroadcastAIState(gameID, state) {
+		go h.checkAndTriggerAI(gameID)
+	}
 }
 
 // aiShipment handles the AI's shipment phase.
@@ -1556,10 +1629,9 @@ func (h *Handlers) aiShipment(gameID string, state *game.GameState) {
 	}
 
 	// Save state
-	h.saveAndBroadcastAIState(gameID, state)
-
-	// Check if next player is also AI
-	go h.checkAndTriggerAI(gameID)
+	if !h.saveAndBroadcastAIState(gameID, state) {
+		go h.checkAndTriggerAI(gameID)
+	}
 }
 
 // aiConquest handles the AI's conquest phase.
@@ -1573,8 +1645,9 @@ func (h *Handlers) aiConquest(gameID string, state *game.GameState) {
 	if player.AttacksRemaining <= 0 {
 		log.Printf("AI: No attacks remaining, ending conquest")
 		state.EndConquest(state.CurrentPlayerID)
-		h.saveAndBroadcastAIState(gameID, state)
-		go h.checkAndTriggerAI(gameID)
+		if !h.saveAndBroadcastAIState(gameID, state) {
+			go h.checkAndTriggerAI(gameID)
+		}
 		return
 	}
 
@@ -1584,8 +1657,9 @@ func (h *Handlers) aiConquest(gameID string, state *game.GameState) {
 	if len(targets) == 0 {
 		log.Printf("AI: No attackable targets, ending conquest")
 		state.EndConquest(state.CurrentPlayerID)
-		h.saveAndBroadcastAIState(gameID, state)
-		go h.checkAndTriggerAI(gameID)
+		if !h.saveAndBroadcastAIState(gameID, state) {
+			go h.checkAndTriggerAI(gameID)
+		}
 		return
 	}
 
@@ -1632,8 +1706,9 @@ func (h *Handlers) aiConquest(gameID string, state *game.GameState) {
 		if err != nil {
 			log.Printf("AI: Attack failed: %v", err)
 			state.EndConquest(attackerID)
-			h.saveAndBroadcastAIState(gameID, state)
-			go h.checkAndTriggerAI(gameID)
+			if !h.saveAndBroadcastAIState(gameID, state) {
+				go h.checkAndTriggerAI(gameID)
+			}
 		} else {
 			// Log history
 			if result.AttackerWins {
@@ -1674,8 +1749,9 @@ func (h *Handlers) aiConquest(gameID string, state *game.GameState) {
 			stateCopy := state
 			h.broadcastWithAck(gameID, eventID, protocol.EventCombat, protocol.TypeActionResult, combatResult, func() {
 				// Called after all clients acknowledge (or timeout)
-				h.saveAndBroadcastAIState(gameID, stateCopy)
-				go h.checkAndTriggerAI(gameID)
+				if !h.saveAndBroadcastAIState(gameID, stateCopy) {
+					go h.checkAndTriggerAI(gameID)
+				}
 			})
 		}
 		return // Don't fall through - we're waiting for ack
@@ -1686,10 +1762,9 @@ func (h *Handlers) aiConquest(gameID string, state *game.GameState) {
 	state.EndConquest(state.CurrentPlayerID)
 
 	// Save state
-	h.saveAndBroadcastAIState(gameID, state)
-
-	// Check if next player is also AI (or if AI has more attacks)
-	go h.checkAndTriggerAI(gameID)
+	if !h.saveAndBroadcastAIState(gameID, state) {
+		go h.checkAndTriggerAI(gameID)
+	}
 }
 
 // aiDevelopment handles the AI's development phase.
@@ -1781,27 +1856,26 @@ func (h *Handlers) aiDevelopment(gameID string, state *game.GameState) {
 	}
 
 	// Save state
-	h.saveAndBroadcastAIState(gameID, state)
-
-	// Check if next player is also AI
-	go h.checkAndTriggerAI(gameID)
+	if !h.saveAndBroadcastAIState(gameID, state) {
+		go h.checkAndTriggerAI(gameID)
+	}
 }
 
 // saveAndBroadcastAIState saves the AI's state changes and broadcasts to clients.
-func (h *Handlers) saveAndBroadcastAIState(gameID string, state *game.GameState) {
+func (h *Handlers) saveAndBroadcastAIState(gameID string, state *game.GameState) bool {
 	stateJSON, err := json.Marshal(state)
 	if err != nil {
 		log.Printf("AI: Failed to marshal state: %v", err)
-		return
+		return false
 	}
 
 	if err := h.hub.server.db.SaveGameState(gameID, string(stateJSON),
 		state.CurrentPlayerID, state.Round, state.Phase.String()); err != nil {
 		log.Printf("AI: Failed to save state: %v", err)
-		return
+		return false
 	}
 
-	h.broadcastGameState(gameID)
+	return h.broadcastGameState(gameID)
 }
 
 // handleMoveStockpile handles moving a player's stockpile during shipment phase.
@@ -1855,10 +1929,9 @@ func (h *Handlers) handleMoveStockpile(client *Client, msg *protocol.Message) er
 	log.Printf("Player %s moved stockpile to %s", client.Name, payload.Destination)
 
 	// Broadcast updated state
-	h.broadcastGameState(client.GameID)
-
-	// Check if next player is AI
-	go h.checkAndTriggerAI(client.GameID)
+	if !h.broadcastGameState(client.GameID) {
+		go h.checkAndTriggerAI(client.GameID)
+	}
 
 	return nil
 }
@@ -1904,10 +1977,9 @@ func (h *Handlers) handleMoveUnit(client *Client, msg *protocol.Message) error {
 	log.Printf("Player %s moved %s from %s to %s", client.Name, payload.UnitType, payload.From, payload.To)
 
 	// Broadcast updated state
-	h.broadcastGameState(client.GameID)
-
-	// Check if next player is AI
-	go h.checkAndTriggerAI(client.GameID)
+	if !h.broadcastGameState(client.GameID) {
+		go h.checkAndTriggerAI(client.GameID)
+	}
 
 	return nil
 }
@@ -2278,10 +2350,9 @@ func (h *Handlers) handleEndPhase(client *Client, msg *protocol.Message) error {
 	log.Printf("Player %s ended their %s phase", client.Name, endedPhase)
 
 	// Broadcast updated state
-	h.broadcastGameState(client.GameID)
-
-	// Check if next player is AI
-	go h.checkAndTriggerAI(client.GameID)
+	if !h.broadcastGameState(client.GameID) {
+		go h.checkAndTriggerAI(client.GameID)
+	}
 
 	return nil
 }
@@ -2701,8 +2772,9 @@ func (h *Handlers) handleExecuteAttack(client *Client, msg *protocol.Message) er
 	gameID := client.GameID
 	h.broadcastWithAck(gameID, eventID, protocol.EventCombat, protocol.TypeActionResult, combatResult, func() {
 		// Called after all clients acknowledge (or timeout)
-		h.broadcastGameState(gameID)
-		go h.checkAndTriggerAI(gameID)
+		if !h.broadcastGameState(gameID) {
+			go h.checkAndTriggerAI(gameID)
+		}
 	})
 
 	return nil
