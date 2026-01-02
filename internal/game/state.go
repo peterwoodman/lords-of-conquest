@@ -102,18 +102,24 @@ func (g *GameState) GetCurrentPlayer() *Player {
 
 // IsGameOver checks if the game has ended.
 func (g *GameState) IsGameOver() bool {
-	// Check for single player remaining
+	return g.IsEliminationVictory() || g.IsCityVictory()
+}
+
+// IsEliminationVictory checks if only one player remains (elimination victory).
+// This should be checked immediately after combat.
+func (g *GameState) IsEliminationVictory() bool {
 	activePlayers := 0
 	for _, p := range g.Players {
 		if !p.Eliminated {
 			activePlayers++
 		}
 	}
-	if activePlayers <= 1 {
-		return true
-	}
+	return activePlayers <= 1
+}
 
-	// Check for victory by cities
+// IsCityVictory checks if any player has reached the victory city count.
+// This should only be checked at end of round (all players get a chance).
+func (g *GameState) IsCityVictory() bool {
 	for _, p := range g.Players {
 		if g.CountCities(p.ID) >= g.Settings.VictoryCities {
 			// Must be the only one at or above victory count
@@ -129,7 +135,6 @@ func (g *GameState) IsGameOver() bool {
 			}
 		}
 	}
-
 	return false
 }
 

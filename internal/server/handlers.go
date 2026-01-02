@@ -1768,6 +1768,14 @@ func (h *Handlers) aiConquest(gameID string, state *game.GameState) {
 				combatResult.CapturedFromTerritory = bestTarget
 			}
 
+			// Check for elimination victory (city victory waits for end of round)
+			if state.IsEliminationVictory() {
+				h.hub.notifyGamePlayers(gameID, protocol.TypeActionResult, combatResult)
+				h.saveAndBroadcastAIState(gameID, state)
+				h.handleGameOver(gameID, state)
+				return
+			}
+
 			// Use broadcastWithAck to wait for clients before proceeding
 			// Capture state for the closure
 			stateCopy := state
@@ -2758,8 +2766,9 @@ func (h *Handlers) handleExecuteAttack(client *Client, msg *protocol.Message) er
 		log.Printf("Player %s failed to conquer %s", client.Name, payload.TargetTerritory)
 	}
 
-	// Check for game over BEFORE broadcasting animation
-	if state.IsGameOver() {
+	// Check for elimination victory ONLY during combat (city victory waits for end of round)
+	// This handles the case where a player is eliminated by losing all territories
+	if state.IsEliminationVictory() {
 		// Still show combat result, but no AI trigger needed
 		eventID := fmt.Sprintf("combat-%s-%d", client.GameID, time.Now().UnixNano())
 		combatResult := protocol.CombatResultPayload{
