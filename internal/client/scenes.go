@@ -1247,7 +1247,7 @@ func (s *LobbyScene) onCreateConfirm() {
 	settings := protocol.GameSettings{
 		MaxPlayers:    4,
 		GameLevel:     "expert",
-		ChanceLevel:   "medium",
+		ChanceLevel:   "high",
 		VictoryCities: 3,
 		MapID:         s.generatedMap.ID,
 	}
@@ -1304,7 +1304,7 @@ type WaitingScene struct {
 func NewWaitingScene(game *Game) *WaitingScene {
 	s := &WaitingScene{game: game}
 
-	s.playerList = NewList(50, 150, 400, 300)
+	s.playerList = NewList(50, 135, 400, 300)
 
 	s.addAIBtn = &Button{
 		X: 500, Y: 150, W: 180, H: 40,
@@ -1320,14 +1320,14 @@ func NewWaitingScene(game *Game) *WaitingScene {
 	}
 
 	s.startBtn = &Button{
-		X: 500, Y: 260, W: 180, H: 40,
+		X: 500, Y: 250, W: 180, H: 40,
 		Text:    "Start Game",
 		Primary: true,
 		OnClick: func() { s.game.StartGame() },
 	}
 
 	s.leaveBtn = &Button{
-		X: 500, Y: 400, W: 180, H: 40,
+		X: 500, Y: 450, W: 180, H: 40,
 		Text: "Leave Game",
 		OnClick: func() {
 			s.game.LeaveGame()
@@ -1336,19 +1336,19 @@ func NewWaitingScene(game *Game) *WaitingScene {
 	}
 
 	s.copyCodeBtn = &Button{
-		X: 50, Y: 520, W: 200, H: 40,
-		Text: "Copy Join Code",
+		X: 280, Y: 68, W: 150, H: 30,
+		Text: "Copy Code",
 	}
 
 	// Host-only buttons for map and settings
 	s.mapBtn = &Button{
-		X: 500, Y: 320, W: 180, H: 40,
+		X: 500, Y: 300, W: 180, H: 40,
 		Text:    "Change Map",
 		OnClick: func() { s.onChangeMap() },
 	}
 
 	s.settingsBtn = &Button{
-		X: 500, Y: 370, W: 180, H: 40,
+		X: 500, Y: 350, W: 180, H: 40,
 		Text:    "Settings",
 		OnClick: func() { s.showSettings = true },
 	}
@@ -1482,18 +1482,18 @@ func (s *WaitingScene) Draw(screen *ebiten.Image) {
 
 	// Title
 	DrawText(screen, lobby.GameName, 50, 50, ColorText)
-	DrawText(screen, fmt.Sprintf("Join Code: %s", lobby.JoinCode), 50, 75, ColorPrimary)
 
-	// Settings summary
-	DrawText(screen, fmt.Sprintf("Players: %d/%d | Cities to win: %d",
-		len(lobby.Players), lobby.Settings.MaxPlayers, lobby.Settings.VictoryCities),
+	// Join code - large and prominent, next to copy button
+	DrawLargeText(screen, fmt.Sprintf("Join Code: %s", lobby.JoinCode), 50, 72, ColorPrimary)
+
+	// Settings summary (no level display)
+	DrawText(screen, fmt.Sprintf("Players: %d/%d | Cities to win: %d | Chance: %s",
+		len(lobby.Players), lobby.Settings.MaxPlayers, lobby.Settings.VictoryCities,
+		lobby.Settings.ChanceLevel),
 		50, 100, ColorTextMuted)
-	DrawText(screen, fmt.Sprintf("Level: %s | Chance: %s",
-		lobby.Settings.GameLevel, lobby.Settings.ChanceLevel),
-		50, 120, ColorTextMuted)
 
 	// Player list
-	DrawText(screen, "Players:", 50, 135, ColorTextMuted)
+	DrawText(screen, "Players:", 50, 120, ColorTextMuted)
 	s.playerList.Draw(screen)
 
 	// Buttons
@@ -1510,7 +1510,7 @@ func (s *WaitingScene) Draw(screen *ebiten.Image) {
 
 	// Host indicator
 	if isHost {
-		DrawText(screen, "(You are the host)", 500, 130, ColorTextMuted)
+		DrawText(screen, "(You are the host)", 500, 120, ColorTextMuted)
 	}
 
 	// Settings dialog overlay

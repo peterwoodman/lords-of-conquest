@@ -1037,14 +1037,15 @@ func createStatePayload(state *game.GameState, mapData *maps.Map) map[string]int
 	}
 
 	return map[string]interface{}{
-		"gameId":          state.ID,
-		"round":           state.Round,
-		"phase":           state.Phase.String(),
-		"currentPlayerId": state.CurrentPlayerID,
-		"playerOrder":     state.PlayerOrder,
-		"territories":     territories,
-		"players":         players,
-		"map":             mapInfo,
+		"gameId":                    state.ID,
+		"round":                     state.Round,
+		"phase":                     state.Phase.String(),
+		"currentPlayerId":           state.CurrentPlayerID,
+		"playerOrder":               state.PlayerOrder,
+		"territories":               territories,
+		"players":                   players,
+		"map":                       mapInfo,
+		"stockpilePlacementPending": state.StockpilePlacementPending,
 	}
 }
 
@@ -1436,11 +1437,9 @@ func (h *Handlers) checkAndTriggerAI(gameID string) {
 		return
 	}
 
-	// Check if game is over
-	if state.IsGameOver() {
-		log.Printf("AI: Game is over")
-		return
-	}
+	// Note: We don't check IsGameOver() here because city victory is only
+	// evaluated at end of round (after Conquest phase). The proper game over
+	// handling is done in NextPhase for Conquest.
 
 	// Get player info from database
 	players, err := h.hub.server.db.GetGamePlayers(gameID)
@@ -1696,6 +1695,13 @@ func (h *Handlers) aiConquest(gameID string, state *game.GameState) {
 	if player.AttacksRemaining <= 0 {
 		log.Printf("AI: No attacks remaining, ending conquest")
 		state.EndConquest(state.CurrentPlayerID)
+		// Check for game over - if still in Conquest phase, game is over
+		if state.Phase == game.PhaseConquest && state.IsGameOver() {
+			log.Printf("AI: Game over at end of Conquest phase")
+			h.saveAndBroadcastAIState(gameID, state)
+			h.handleGameOver(gameID, state)
+			return
+		}
 		if !h.saveAndBroadcastAIState(gameID, state) {
 			go h.checkAndTriggerAI(gameID)
 		}
@@ -1708,6 +1714,13 @@ func (h *Handlers) aiConquest(gameID string, state *game.GameState) {
 	if len(targets) == 0 {
 		log.Printf("AI: No attackable targets, ending conquest")
 		state.EndConquest(state.CurrentPlayerID)
+		// Check for game over - if still in Conquest phase, game is over
+		if state.Phase == game.PhaseConquest && state.IsGameOver() {
+			log.Printf("AI: Game over at end of Conquest phase")
+			h.saveAndBroadcastAIState(gameID, state)
+			h.handleGameOver(gameID, state)
+			return
+		}
 		if !h.saveAndBroadcastAIState(gameID, state) {
 			go h.checkAndTriggerAI(gameID)
 		}
@@ -1757,6 +1770,13 @@ func (h *Handlers) aiConquest(gameID string, state *game.GameState) {
 		if err != nil {
 			log.Printf("AI: Attack failed: %v", err)
 			state.EndConquest(attackerID)
+			// Check for game over - if still in Conquest phase, game is over
+			if state.Phase == game.PhaseConquest && state.IsGameOver() {
+				log.Printf("AI: Game over at end of Conquest phase")
+				h.saveAndBroadcastAIState(gameID, state)
+				h.handleGameOver(gameID, state)
+				return
+			}
 			if !h.saveAndBroadcastAIState(gameID, state) {
 				go h.checkAndTriggerAI(gameID)
 			}
@@ -1829,13 +1849,12 @@ func (h *Handlers) aiConquest(gameID string, state *game.GameState) {
 	// No favorable attacks - end conquest
 	log.Printf("AI: No favorable attacks (best odds: %.2f), ending conquest", bestOdds)
 
-	// Track round before ending conquest to detect round change
-	roundBefore := state.Round
 	state.EndConquest(state.CurrentPlayerID)
 
-	// Check for game over at end of round (when all players completed conquest)
-	if state.Round > roundBefore && state.IsGameOver() {
-		log.Printf("AI: Round ended after conquest - checking victory conditions")
+	// Check for game over - if still in Conquest phase after EndConquest, game is over
+	// (NextPhase doesn't advance past Conquest if game is over)
+	if state.Phase == game.PhaseConquest && state.IsGameOver() {
+		log.Printf("AI: Game over at end of Conquest phase")
 		h.saveAndBroadcastAIState(gameID, state)
 		h.handleGameOver(gameID, state)
 		return
@@ -2378,12 +2397,11 @@ func (h *Handlers) handleEndPhase(client *Client, msg *protocol.Message) error {
 			return err
 		}
 	case game.PhaseConquest:
-		// Track round before ending conquest to detect round change
-		roundBefore := state.Round
 		// End conquest phase for this player
 		state.EndConquest(client.PlayerID)
-		// Check for game over at end of round (when all players completed conquest)
-		if state.Round > roundBefore && state.IsGameOver() {
+		// Check for game over - if still in Conquest phase after EndConquest, game is over
+		// (NextPhase doesn't advance past Conquest if game is over)
+		if state.Phase == game.PhaseConquest && state.IsGameOver() {
 			// Save state before handling game over
 			stateJSON2, err := json.Marshal(state)
 			if err != nil {
@@ -2393,7 +2411,7 @@ func (h *Handlers) handleEndPhase(client *Client, msg *protocol.Message) error {
 				state.CurrentPlayerID, state.Round, state.Phase.String()); err != nil {
 				return err
 			}
-			log.Printf("Round ended after conquest - checking victory conditions")
+			log.Printf("Game over at end of Conquest phase")
 			h.handleGameOver(client.GameID, &state)
 			return nil
 		}

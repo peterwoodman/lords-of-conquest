@@ -1,6 +1,7 @@
 package client
 
 import (
+	"image"
 	"image/color"
 	"strings"
 
@@ -13,35 +14,35 @@ import (
 // Colors used in the UI - Retro 8-bit inspired palette
 var (
 	// Dark blues and purples for backgrounds
-	ColorBackground    = color.RGBA{15, 15, 35, 255}      // Deep space blue
-	ColorPanel         = color.RGBA{25, 25, 60, 255}      // Rich navy
-	ColorPanelLight    = color.RGBA{40, 40, 80, 255}      // Lighter navy
-	
+	ColorBackground = color.RGBA{15, 15, 35, 255} // Deep space blue
+	ColorPanel      = color.RGBA{25, 25, 60, 255} // Rich navy
+	ColorPanelLight = color.RGBA{40, 40, 80, 255} // Lighter navy
+
 	// Vibrant accent colors
-	ColorPrimary       = color.RGBA{100, 200, 255, 255}   // Bright cyan
-	ColorPrimaryHover  = color.RGBA{140, 220, 255, 255}   // Lighter cyan
-	ColorSecondary     = color.RGBA{80, 60, 120, 255}     // Purple
-	ColorSecondaryHover= color.RGBA{110, 90, 150, 255}    // Lighter purple
-	ColorSuccess       = color.RGBA{100, 255, 100, 255}   // Bright green
-	ColorDanger        = color.RGBA{255, 80, 120, 255}    // Hot pink
-	ColorWarning       = color.RGBA{255, 200, 50, 255}    // Bright yellow
-	
+	ColorPrimary        = color.RGBA{100, 200, 255, 255} // Bright cyan
+	ColorPrimaryHover   = color.RGBA{140, 220, 255, 255} // Lighter cyan
+	ColorSecondary      = color.RGBA{80, 60, 120, 255}   // Purple
+	ColorSecondaryHover = color.RGBA{110, 90, 150, 255}  // Lighter purple
+	ColorSuccess        = color.RGBA{100, 255, 100, 255} // Bright green
+	ColorDanger         = color.RGBA{255, 80, 120, 255}  // Hot pink
+	ColorWarning        = color.RGBA{255, 200, 50, 255}  // Bright yellow
+
 	// Text colors
-	ColorText          = color.RGBA{255, 255, 255, 255}   // Pure white
-	ColorTextMuted     = color.RGBA{160, 180, 220, 255}   // Light blue-grey
-	ColorTextDim       = color.RGBA{120, 140, 180, 255}   // Dimmer blue-grey for details
-	ColorTextShadow    = color.RGBA{0, 0, 0, 180}         // Text shadow
-	
+	ColorText       = color.RGBA{255, 255, 255, 255} // Pure white
+	ColorTextMuted  = color.RGBA{160, 180, 220, 255} // Light blue-grey
+	ColorTextDim    = color.RGBA{120, 140, 180, 255} // Dimmer blue-grey for details
+	ColorTextShadow = color.RGBA{0, 0, 0, 180}       // Text shadow
+
 	// UI elements
-	ColorBorder        = color.RGBA{100, 200, 255, 255}   // Bright cyan border
-	ColorBorderDark    = color.RGBA{50, 100, 150, 255}    // Darker border
-	ColorInputBg       = color.RGBA{20, 20, 45, 255}      // Input background
-	ColorInputFocus    = color.RGBA{100, 200, 255, 255}   // Focus highlight
-	
+	ColorBorder     = color.RGBA{100, 200, 255, 255} // Bright cyan border
+	ColorBorderDark = color.RGBA{50, 100, 150, 255}  // Darker border
+	ColorInputBg    = color.RGBA{20, 20, 45, 255}    // Input background
+	ColorInputFocus = color.RGBA{100, 200, 255, 255} // Focus highlight
+
 	// Accent colors for variety
-	ColorAccent1       = color.RGBA{255, 100, 200, 255}   // Pink
-	ColorAccent2       = color.RGBA{100, 255, 200, 255}   // Mint
-	ColorAccent3       = color.RGBA{255, 200, 100, 255}   // Orange
+	ColorAccent1 = color.RGBA{255, 100, 200, 255} // Pink
+	ColorAccent2 = color.RGBA{100, 255, 200, 255} // Mint
+	ColorAccent3 = color.RGBA{255, 200, 100, 255} // Orange
 )
 
 // Player colors
@@ -204,13 +205,13 @@ func (t *TextInput) IsFocused() bool {
 func DrawPanel(screen *ebiten.Image, x, y, w, h int) {
 	// Main panel background
 	vector.DrawFilledRect(screen, float32(x), float32(y), float32(w), float32(h), ColorPanel, false)
-	
+
 	// Outer border (bright)
 	vector.StrokeRect(screen, float32(x), float32(y), float32(w), float32(h), 2, ColorBorder, false)
-	
+
 	// Inner border (darker) for depth
 	vector.StrokeRect(screen, float32(x+2), float32(y+2), float32(w-4), float32(h-4), 1, ColorBorderDark, false)
-	
+
 	// Corner decorations
 	cornerSize := float32(6)
 	// Top-left
@@ -230,13 +231,13 @@ func DrawPanel(screen *ebiten.Image, x, y, w, h int) {
 // DrawFancyPanel draws a panel with animated border effect.
 func DrawFancyPanel(screen *ebiten.Image, x, y, w, h int, title string) {
 	DrawPanel(screen, x, y, w, h)
-	
+
 	// Title bar
 	if title != "" {
 		titleBarH := 30
 		vector.DrawFilledRect(screen, float32(x+2), float32(y+2), float32(w-4), float32(titleBarH), ColorPanelLight, false)
 		vector.StrokeLine(screen, float32(x+2), float32(y+titleBarH+2), float32(x+w-2), float32(y+titleBarH+2), 2, ColorBorder, false)
-		
+
 		// Title text
 		DrawText(screen, title, x+10, y+10, ColorText)
 	}
@@ -263,24 +264,24 @@ func DrawLargeText(screen *ebiten.Image, text string, x, y int, clr color.Color)
 	textW := len(text) * 6
 	textH := 12
 	tmpImg := ebiten.NewImage(textW, textH)
-	
+
 	// Render text to temp image
 	ebitenutil.DebugPrintAt(tmpImg, text, 0, 0)
-	
+
 	// Get color components
 	r, g, b, a := clr.RGBA()
 	rf := float32(r) / 0xffff
 	gf := float32(g) / 0xffff
 	bf := float32(b) / 0xffff
 	af := float32(a) / 0xffff
-	
+
 	// Draw shadow
 	opts := &ebiten.DrawImageOptions{}
 	opts.GeoM.Scale(2.0, 2.0)
 	opts.GeoM.Translate(float64(x+1), float64(y+1))
 	opts.ColorScale.Scale(0, 0, 0, af*0.5)
 	screen.DrawImage(tmpImg, opts)
-	
+
 	// Draw main scaled text with color
 	opts = &ebiten.DrawImageOptions{}
 	opts.GeoM.Scale(2.0, 2.0)
@@ -301,22 +302,22 @@ func DrawHugeTitle(screen *ebiten.Image, text string, x, y int) {
 	textW := len(text) * 6
 	textH := 12
 	tmpImg := ebiten.NewImage(textW, textH)
-	
+
 	// Render text to temp image
 	ebitenutil.DebugPrintAt(tmpImg, text, 0, 0)
-	
+
 	// Gold/amber color for title
 	rf := float32(1.0)
 	gf := float32(0.85)
 	bf := float32(0.3)
-	
+
 	// Draw shadow
 	opts := &ebiten.DrawImageOptions{}
 	opts.GeoM.Scale(3.0, 3.0)
 	opts.GeoM.Translate(float64(x+2), float64(y+2))
 	opts.ColorScale.Scale(0, 0, 0, 0.6)
 	screen.DrawImage(tmpImg, opts)
-	
+
 	// Draw main scaled text with color
 	opts = &ebiten.DrawImageOptions{}
 	opts.GeoM.Scale(3.0, 3.0)
@@ -419,38 +420,44 @@ func (l *List) Draw(screen *ebiten.Image) {
 		itemHeight = 60 // default
 	}
 
+	// Create a clipped sub-image for drawing list contents
+	// This prevents items from rendering outside the list bounds
+	clipRect := image.Rect(l.X, l.Y, l.X+l.W, l.Y+l.H)
+	clippedScreen := screen.SubImage(clipRect).(*ebiten.Image)
+
 	// Draw items
 	visibleStart := l.scrollOffset / itemHeight
-	visibleEnd := (l.scrollOffset + l.H) / itemHeight + 1
+	visibleEnd := (l.scrollOffset+l.H)/itemHeight + 2 // +2 to include partially visible items
 
 	for i := visibleStart; i < visibleEnd && i < len(l.Items); i++ {
 		item := l.Items[i]
 		itemY := l.Y + i*itemHeight - l.scrollOffset
 
-		if itemY < l.Y-itemHeight || itemY > l.Y+l.H {
+		// Skip items completely outside bounds
+		if itemY+itemHeight < l.Y || itemY > l.Y+l.H {
 			continue
 		}
 
-		// Draw selection highlight
+		// Draw selection highlight (to clipped screen)
 		if i == l.selectedIdx {
-			vector.DrawFilledRect(screen, float32(l.X+4), float32(itemY+4),
+			vector.DrawFilledRect(clippedScreen, float32(l.X+4), float32(itemY+4),
 				float32(l.W-8), float32(itemHeight-8), ColorPanelLight, false)
 			// Bright border for selected item
-			vector.StrokeRect(screen, float32(l.X+4), float32(itemY+4),
+			vector.StrokeRect(clippedScreen, float32(l.X+4), float32(itemY+4),
 				float32(l.W-8), float32(itemHeight-8), 2, ColorBorder, false)
 		}
 
-		// Draw text - larger
-		DrawLargeText(screen, item.Text, l.X+15, itemY+6, ColorText)
+		// Draw text to clipped screen
+		DrawLargeText(clippedScreen, item.Text, l.X+15, itemY+6, ColorText)
 		if item.Subtext != "" {
-			DrawText(screen, item.Subtext, l.X+15, itemY+28, ColorTextMuted)
+			DrawText(clippedScreen, item.Subtext, l.X+15, itemY+28, ColorTextMuted)
 		}
 		if item.Detail != "" {
-			DrawText(screen, item.Detail, l.X+15, itemY+44, ColorTextDim)
+			DrawText(clippedScreen, item.Detail, l.X+15, itemY+44, ColorTextDim)
 		}
 	}
 
-	// Draw scrollbar if needed
+	// Draw scrollbar if needed (on main screen, outside clip area)
 	totalHeight := len(l.Items) * itemHeight
 	if totalHeight > l.H {
 		scrollbarHeight := float32(l.H) * float32(l.H) / float32(totalHeight)
@@ -513,4 +520,3 @@ func (l *List) ClearSelection() {
 func Contains(s, substr string) bool {
 	return strings.Contains(strings.ToLower(s), strings.ToLower(substr))
 }
-

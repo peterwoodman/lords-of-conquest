@@ -252,12 +252,93 @@ func (g *GameState) advanceDevelopmentTurn() {
 	// Check if we've completed all players (wrapped around to start)
 	if nextIdx <= currentIdx {
 		// All players completed Development - move to Production phase (same round)
-		log.Printf("advanceDevelopmentTurn: Wrapped around, moving to Production phase")
-		pm := NewPhaseManager(g)
-		pm.NextPhase() // Development → Production
+		log.Printf("advanceDevelopmentTurn: Wrapped around, transitioning to Production")
+		g.transitionToProduction()
 	} else {
 		log.Printf("advanceDevelopmentTurn: Moving to next player %s", g.PlayerOrder[nextIdx])
 		g.CurrentPlayerID = g.PlayerOrder[nextIdx]
+	}
+}
+
+// transitionToProduction handles the Development → Production transition.
+// This is called after all players complete Development (same round).
+func (g *GameState) transitionToProduction() {
+	// Clear any previous skipped phases
+	g.SkippedPhases = nil
+
+	// Reset first player for production phase
+	for _, pid := range g.PlayerOrder {
+		if !g.Players[pid].Eliminated {
+			g.CurrentPlayerID = pid
+			break
+		}
+	}
+
+	// Check if any player needs to place a stockpile (lost it last round)
+	if g.NeedsStockpilePlacement() {
+		playersNeeding := g.GetPlayersNeedingStockpile()
+		log.Printf("transitionToProduction: Players need to place stockpiles: %v", playersNeeding)
+		g.Phase = PhaseProduction
+		g.StockpilePlacementPending = true
+		// Set current player to first player needing stockpile
+		for _, pid := range g.PlayerOrder {
+			p := g.Players[pid]
+			if p != nil && !p.Eliminated && p.StockpileTerritory == "" {
+				g.CurrentPlayerID = pid
+				break
+			}
+		}
+		return
+	}
+
+	// Check for production phase skip
+	if ShouldSkipPhase(PhaseProduction, g.Settings.ChanceLevel) {
+		g.SkippedPhases = append(g.SkippedPhases, PhaseSkipInfo{
+			Phase:  PhaseProduction,
+			Reason: GetSkipReason(PhaseProduction),
+		})
+		log.Printf("transitionToProduction: Skipping production - %s", g.SkippedPhases[len(g.SkippedPhases)-1].Reason)
+		g.skipToAfterProduction()
+		return
+	}
+
+	// Normal production - set pending flag for animation
+	g.Phase = PhaseProduction
+	g.ProductionPending = true
+	log.Printf("transitionToProduction: Production pending, waiting for animation")
+}
+
+// skipToAfterProduction advances past production, checking for additional skips.
+func (g *GameState) skipToAfterProduction() {
+	if len(g.Players) >= 3 {
+		if ShouldSkipPhase(PhaseTrade, g.Settings.ChanceLevel) {
+			g.SkippedPhases = append(g.SkippedPhases, PhaseSkipInfo{
+				Phase:  PhaseTrade,
+				Reason: GetSkipReason(PhaseTrade),
+			})
+			log.Printf("skipToAfterProduction: Skipping trade - %s", g.SkippedPhases[len(g.SkippedPhases)-1].Reason)
+			g.Phase = PhaseShipment
+			if ShouldSkipPhase(PhaseShipment, g.Settings.ChanceLevel) {
+				g.SkippedPhases = append(g.SkippedPhases, PhaseSkipInfo{
+					Phase:  PhaseShipment,
+					Reason: GetSkipReason(PhaseShipment),
+				})
+				log.Printf("skipToAfterProduction: Skipping shipment - %s", g.SkippedPhases[len(g.SkippedPhases)-1].Reason)
+				g.Phase = PhaseConquest
+			}
+		} else {
+			g.Phase = PhaseTrade
+		}
+	} else {
+		g.Phase = PhaseShipment
+		if ShouldSkipPhase(PhaseShipment, g.Settings.ChanceLevel) {
+			g.SkippedPhases = append(g.SkippedPhases, PhaseSkipInfo{
+				Phase:  PhaseShipment,
+				Reason: GetSkipReason(PhaseShipment),
+			})
+			log.Printf("skipToAfterProduction: Skipping shipment - %s", g.SkippedPhases[len(g.SkippedPhases)-1].Reason)
+			g.Phase = PhaseConquest
+		}
 	}
 }
 

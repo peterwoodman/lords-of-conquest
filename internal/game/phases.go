@@ -162,22 +162,10 @@ func (pm *PhaseManager) NextPhase() (Phase, bool) {
 		return s.Phase, false
 
 	case PhaseDevelopment:
-		// After Development → Production
+		// Development → Production transition is handled by transitionToProduction()
+		// This case should not be called directly; advanceDevelopmentTurn handles it
+		log.Printf("WARNING: NextPhase called for Development - use advanceDevelopmentTurn instead")
 		s.Phase = PhaseProduction
-		// Check for skip
-		if ShouldSkipPhase(PhaseProduction, s.Settings.ChanceLevel) {
-			if len(s.Players) >= 3 {
-				s.Phase = PhaseTrade
-			} else {
-				s.Phase = PhaseShipment
-				if ShouldSkipPhase(PhaseShipment, s.Settings.ChanceLevel) {
-					s.Phase = PhaseConquest
-				}
-			}
-			return s.Phase, true // skipped
-		}
-		// Production needs animation - set pending flag
-		s.ProductionPending = true
 		return s.Phase, false
 
 	case PhaseProduction:
@@ -208,26 +196,22 @@ func (pm *PhaseManager) NextPhase() (Phase, bool) {
 		return s.Phase, false
 
 	case PhaseConquest:
-		// End of round - increment round and go to Development
-		s.Round++
-		pm.shufflePlayerOrder()
-		pm.resetPlayerTurns()
-
-		// Check if any player needs to place a stockpile (lost it last round)
-		if s.NeedsStockpilePlacement() {
-			s.Phase = PhaseProduction
-			s.StockpilePlacementPending = true
-			// Set current player to first player needing stockpile
-			for _, pid := range s.PlayerOrder {
-				p := s.Players[pid]
-				if p != nil && !p.Eliminated && p.StockpileTerritory == "" {
-					s.CurrentPlayerID = pid
-					break
-				}
-			}
+		// End of round - check for victory BEFORE advancing
+		// Victory conditions are checked at end of round so all players have equal chances
+		if s.IsGameOver() {
+			log.Printf("NextPhase: Game is over at end of round %d - not advancing to next round", s.Round)
+			// Don't change phase - keep in Conquest, game is over
 			return s.Phase, false
 		}
 
+		// Game continues - increment round and go to Development
+		s.Round++
+		log.Printf("NextPhase: Advancing to round %d, Development phase", s.Round)
+		pm.shufflePlayerOrder()
+		pm.resetPlayerTurns()
+
+		// Always go to Development first (Year 2+)
+		// Stockpile placement will be handled when Production phase starts
 		s.Phase = PhaseDevelopment
 		return s.Phase, false
 	}

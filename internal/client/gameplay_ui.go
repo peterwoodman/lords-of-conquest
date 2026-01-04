@@ -451,7 +451,7 @@ func (s *GameplayScene) drawBottomBar(screen *ebiten.Image) {
 			DrawLargeText(screen, "PLACE YOUR STOCKPILE", rightX, barY+18, ColorWarning)
 			DrawText(screen, "Click one of YOUR territories to place your stockpile", rightX, barY+45, ColorText)
 			if s.round == 1 {
-				DrawText(screen, "All players place stockpiles simultaneously", rightX, barY+62, ColorTextMuted)
+				DrawText(screen, "", rightX, barY+62, ColorTextMuted)
 			} else {
 				DrawText(screen, "Your stockpile was captured - place a new one!", rightX, barY+62, ColorTextMuted)
 			}
