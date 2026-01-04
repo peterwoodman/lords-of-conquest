@@ -7,15 +7,19 @@ import (
 )
 
 // GeneratorOptions contains settings for map generation.
+// All values are now numeric for fine-grained control via sliders.
 type GeneratorOptions struct {
-	Size        MapSize        // S, M, L
-	Territories TerritoryCount // Low, Medium, High
-	WaterBorder bool           // Whether to surround map with water
-	Islands     IslandAmount   // Low, Medium, High - controls land clustering
-	Resources   ResourceAmount // Low, Medium, High
+	Width       int  // Map width: 20-60
+	Territories int  // Target territory count: 24-90
+	WaterBorder bool // Whether to surround map with water
+	Islands     int  // Island spread: 1-5 (1=one landmass, 5=many islands)
+	Resources   int  // Resource coverage percentage: 10-80
 }
 
-// MapSize represents map dimensions.
+// Legacy enum types kept for backwards compatibility during transition
+// TODO: Remove these once all code is updated
+
+// MapSize represents map dimensions (legacy).
 type MapSize int
 
 const (
@@ -24,7 +28,7 @@ const (
 	MapSizeLarge
 )
 
-// TerritoryCount represents number of territories.
+// TerritoryCount represents number of territories (legacy).
 type TerritoryCount int
 
 const (
@@ -33,7 +37,7 @@ const (
 	TerritoryCountHigh
 )
 
-// IslandAmount represents how spread out/clustered land is.
+// IslandAmount represents how spread out/clustered land is (legacy).
 type IslandAmount int
 
 const (
@@ -42,7 +46,7 @@ const (
 	IslandAmountHigh                        // Many small islands
 )
 
-// ResourceAmount represents resource density.
+// ResourceAmount represents resource density (legacy).
 type ResourceAmount int
 
 const (
@@ -84,16 +88,25 @@ func NewGenerator(opts GeneratorOptions) *Generator {
 		steps:       make([]GeneratorStep, 0),
 	}
 
-	switch opts.Size {
-	case MapSizeSmall:
-		g.width, g.height = 20, 15
-	case MapSizeMedium:
-		g.width, g.height = 28, 21
-	case MapSizeLarge:
-		g.width, g.height = 38, 28
+	// Use numeric width directly, calculate height as 75% of width (aspect ratio)
+	g.width = clamp(opts.Width, 20, 60)
+	g.height = g.width * 3 / 4
+	if g.height < 15 {
+		g.height = 15
 	}
 
 	return g
+}
+
+// clamp restricts a value to a range
+func clamp(val, min, max int) int {
+	if val < min {
+		return min
+	}
+	if val > max {
+		return max
+	}
+	return val
 }
 
 // Generate creates the map. Water is whatever is left after territories are placed.
@@ -324,60 +337,42 @@ func (g *Generator) mergeTinyTerritories(minSize int) {
 }
 
 func (g *Generator) calculateTerritoryCount() int {
-	// Base on map size
+	// Use the requested territory count directly
+	requested := clamp(g.options.Territories, 24, 90)
+	
+	// But cap it based on what can fit on the map
 	totalCells := g.width * g.height
 	
-	// How much of the map should be land vs water?
-	var landRatio float64
-	switch g.options.Islands {
-	case IslandAmountLow:
-		landRatio = 0.85 // Mostly land, little water
-	case IslandAmountMedium:
-		landRatio = 0.70 // Some water channels
-	case IslandAmountHigh:
-		landRatio = 0.50 // Lots of water, many islands
-	}
-
 	// Account for water border
 	if g.options.WaterBorder {
-		// Border takes up perimeter
 		borderCells := 2*g.width + 2*(g.height-2)
 		totalCells -= borderCells
 	}
-
+	
+	// Calculate land ratio based on islands setting (1-5)
+	// 1 = mostly land (85%), 5 = lots of water (50%)
+	islandLevel := clamp(g.options.Islands, 1, 5)
+	landRatio := 0.85 - float64(islandLevel-1)*0.0875 // 0.85, 0.7625, 0.675, 0.5875, 0.50
+	
 	landCells := int(float64(totalCells) * landRatio)
-
-	// Average territory size based on territory count setting
-	var avgSize int
-	switch g.options.Territories {
-	case TerritoryCountLow:
-		avgSize = 12 // Fewer, larger
-	case TerritoryCountMedium:
-		avgSize = 9
-	case TerritoryCountHigh:
-		avgSize = 6 // More, smaller
+	
+	// Minimum 5 cells per territory for it to be playable
+	maxPossible := landCells / 5
+	if maxPossible < 6 {
+		maxPossible = 6
 	}
-
-	count := landCells / avgSize
-	if count < 6 {
-		count = 6
+	
+	// Return the smaller of requested vs what can fit
+	if requested > maxPossible {
+		return maxPossible
 	}
-	if count > 60 {
-		count = 60
-	}
-	return count
+	return requested
 }
 
 func (g *Generator) getTerritorySizeRange() (int, int) {
-	switch g.options.Territories {
-	case TerritoryCountLow:
-		return 10, 15
-	case TerritoryCountMedium:
-		return 7, 12
-	case TerritoryCountHigh:
-		return 5, 9
-	}
-	return 5, 15
+	// Fixed territory size range - consistent regardless of territory count
+	// This creates natural variation in territory shapes while keeping them similar in size
+	return 6, 12
 }
 
 func (g *Generator) placeSeeds(count int) [][2]int {
@@ -392,15 +387,9 @@ func (g *Generator) placeSeeds(count int) [][2]int {
 	}
 
 	// Minimum spacing between seeds - more spacing for more islands (more water between)
-	var minSpacing int
-	switch g.options.Islands {
-	case IslandAmountLow:
-		minSpacing = 2 // Seeds close together = connected land
-	case IslandAmountMedium:
-		minSpacing = 4 // Moderate spacing
-	case IslandAmountHigh:
-		minSpacing = 6 // Seeds far apart = separate islands with water between
-	}
+	// Islands setting: 1=close (2), 2=slight (3), 3=moderate (4), 4=spread (5), 5=far (6)
+	islandLevel := clamp(g.options.Islands, 1, 5)
+	minSpacing := islandLevel + 1
 
 	// Try to place all seeds
 	attempts := 0
@@ -627,15 +616,9 @@ func (g *Generator) buildMap() *Map {
 }
 
 func (g *Generator) assignResources(raw *RawMap) {
-	var ratio float64
-	switch g.options.Resources {
-	case ResourceAmountLow:
-		ratio = 0.25
-	case ResourceAmountMedium:
-		ratio = 0.45
-	case ResourceAmountHigh:
-		ratio = 0.65
-	}
+	// Resources setting is a percentage (10-80)
+	resourcePct := clamp(g.options.Resources, 10, 80)
+	ratio := float64(resourcePct) / 100.0
 
 	ids := make([]int, 0, len(g.territories))
 	for tid := range g.territories {
@@ -655,10 +638,11 @@ func (g *Generator) assignResources(raw *RawMap) {
 	// Always include at least one of each critical resource
 	guaranteed := []string{"coal", "gold", "iron", "timber", "grassland"}
 	
-	// On island maps, add extra timber and gold for boat building
-	if g.options.Islands == IslandAmountHigh {
+	// On island maps (level 4-5), add extra timber and gold for boat building
+	islandLevel := clamp(g.options.Islands, 1, 5)
+	if islandLevel >= 4 {
 		guaranteed = append(guaranteed, "timber", "gold", "timber") // Extra boat resources
-	} else if g.options.Islands == IslandAmountMedium {
+	} else if islandLevel >= 3 {
 		guaranteed = append(guaranteed, "timber", "gold") // Some extra
 	}
 
@@ -703,10 +687,10 @@ func (g *Generator) genName(id int) string {
 // DefaultOptions returns default generator options.
 func DefaultOptions() GeneratorOptions {
 	return GeneratorOptions{
-		Size:        MapSizeMedium,
-		Territories: TerritoryCountMedium,
+		Width:       30,  // Medium width
+		Territories: 40,  // Moderate territory count
 		WaterBorder: true,
-		Islands:     IslandAmountMedium,
-		Resources:   ResourceAmountMedium,
+		Islands:     3,   // Medium islands (1-5 scale)
+		Resources:   45,  // 45% resource coverage
 	}
 }

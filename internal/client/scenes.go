@@ -521,19 +521,15 @@ type LobbyScene struct {
 	createCancelBtn  *Button
 	createPublic     bool
 
-	// Map generation options
-	mapSizeBtn     [3]*Button // S, M, L
-	mapSize        int        // 0=S, 1=M, 2=L
-	territoriesBtn [3]*Button // L, M, H
-	territories    int        // 0=L, 1=M, 2=H
-	waterBorderBtn *Button
-	waterBorder    bool
-	islandsBtn     [3]*Button // L, M, H
-	islands        int        // 0=L, 1=M, 2=H
-	resourcesBtn   [3]*Button // L, M, H
-	resources      int        // 0=L, 1=M, 2=H
-	generateBtn    *Button
-	regenerateBtn  *Button
+	// Map generation options (numeric sliders)
+	mapWidthSlider      *Slider // 20-60
+	territoriesSlider   *Slider // 24-90
+	islandsSlider       *Slider // 1-5
+	resourcesSlider     *Slider // 10-80 (percentage)
+	waterBorderBtn      *Button
+	waterBorder         bool
+	generateBtn         *Button
+	regenerateBtn       *Button
 
 	// Map preview
 	generatedMap   *maps.Map
@@ -633,54 +629,34 @@ func NewLobbyScene(game *Game) *LobbyScene {
 
 	s.createPublic = true
 
-	// Map size buttons
-	sizes := []string{"S", "M", "L"}
-	for i := 0; i < 3; i++ {
-		idx := i
-		s.mapSizeBtn[i] = &Button{
-			Text:    sizes[i],
-			OnClick: func() { s.mapSize = idx },
-		}
+	// Map generation sliders
+	s.mapWidthSlider = &Slider{
+		Min:   20,
+		Max:   60,
+		Value: 30,
+		Label: "Map Width",
 	}
-	s.mapSize = 1 // Default medium
-
-	// Territory count buttons
-	counts := []string{"Low", "Med", "High"}
-	for i := 0; i < 3; i++ {
-		idx := i
-		s.territoriesBtn[i] = &Button{
-			Text:    counts[i],
-			OnClick: func() { s.territories = idx },
-		}
+	
+	s.territoriesSlider = &Slider{
+		Min:   24,
+		Max:   90,
+		Value: 40,
+		Label: "Territories",
 	}
-	s.territories = 1 // Default medium
-
-	// Water border button
-	s.waterBorderBtn = &Button{
-		Text:    "Water Border",
-		OnClick: func() { s.waterBorder = !s.waterBorder },
+	
+	s.islandsSlider = &Slider{
+		Min:   1,
+		Max:   5,
+		Value: 3,
+		Label: "Islands",
 	}
-	s.waterBorder = true // Default on
-
-	// Islands buttons
-	for i := 0; i < 3; i++ {
-		idx := i
-		s.islandsBtn[i] = &Button{
-			Text:    counts[i],
-			OnClick: func() { s.islands = idx },
-		}
+	
+	s.resourcesSlider = &Slider{
+		Min:   10,
+		Max:   80,
+		Value: 45,
+		Label: "Resources %",
 	}
-	s.islands = 1 // Default medium
-
-	// Resources buttons
-	for i := 0; i < 3; i++ {
-		idx := i
-		s.resourcesBtn[i] = &Button{
-			Text:    counts[i],
-			OnClick: func() { s.resources = idx },
-		}
-	}
-	s.resources = 1 // Default medium
 
 	// Generate buttons
 	s.generateBtn = &Button{
@@ -718,17 +694,11 @@ func (s *LobbyScene) Update() error {
 		s.createPublicBtn.Primary = s.createPublic
 		s.createPrivateBtn.Primary = !s.createPublic
 
-		// Update map generation buttons
-		for i := 0; i < 3; i++ {
-			s.mapSizeBtn[i].Update()
-			s.mapSizeBtn[i].Primary = s.mapSize == i
-			s.territoriesBtn[i].Update()
-			s.territoriesBtn[i].Primary = s.territories == i
-			s.islandsBtn[i].Update()
-			s.islandsBtn[i].Primary = s.islands == i
-			s.resourcesBtn[i].Update()
-			s.resourcesBtn[i].Primary = s.resources == i
-		}
+		// Update map generation sliders and buttons
+		s.mapWidthSlider.Update()
+		s.territoriesSlider.Update()
+		s.islandsSlider.Update()
+		s.resourcesSlider.Update()
 		s.waterBorderBtn.Update()
 		s.waterBorderBtn.Primary = s.waterBorder
 		s.generateBtn.Update()
@@ -737,7 +707,7 @@ func (s *LobbyScene) Update() error {
 		// Animate map generation (one territory at a time)
 		if s.animating && s.generatedSteps != nil {
 			s.animTicker++
-			if s.animTicker >= 8 { // Show each territory for ~8 frames
+			if s.animTicker >= 4 { // Show each territory for ~4 frames (faster animation)
 				s.animTicker = 0
 				if s.animStep < len(s.generatedSteps) {
 					step := s.generatedSteps[s.animStep]
@@ -935,30 +905,39 @@ func (s *LobbyScene) Draw(screen *ebiten.Image) {
 		s.createPublicBtn.Draw(screen)
 		s.createPrivateBtn.Draw(screen)
 
-		optY += 65
-		// Map Size
-		DrawText(screen, "Map Size:", optX, optY, ColorTextMuted)
-		btn3W := (optW - 20) / 3
-		for i := 0; i < 3; i++ {
-			s.mapSizeBtn[i].X = optX + i*(btn3W+10)
-			s.mapSizeBtn[i].Y = optY + 20
-			s.mapSizeBtn[i].W = btn3W
-			s.mapSizeBtn[i].H = 32
-			s.mapSizeBtn[i].Draw(screen)
-		}
+		optY += 55
+		// Map Width slider
+		s.mapWidthSlider.X = optX
+		s.mapWidthSlider.Y = optY
+		s.mapWidthSlider.W = optW
+		s.mapWidthSlider.H = 35
+		s.mapWidthSlider.Draw(screen)
 
-		optY += 65
-		// Territories
-		DrawText(screen, "Territories:", optX, optY, ColorTextMuted)
-		for i := 0; i < 3; i++ {
-			s.territoriesBtn[i].X = optX + i*(btn3W+10)
-			s.territoriesBtn[i].Y = optY + 20
-			s.territoriesBtn[i].W = btn3W
-			s.territoriesBtn[i].H = 32
-			s.territoriesBtn[i].Draw(screen)
-		}
+		optY += 45
+		// Territories slider
+		s.territoriesSlider.X = optX
+		s.territoriesSlider.Y = optY
+		s.territoriesSlider.W = optW
+		s.territoriesSlider.H = 35
+		s.territoriesSlider.Draw(screen)
 
-		optY += 65
+		optY += 45
+		// Islands slider
+		s.islandsSlider.X = optX
+		s.islandsSlider.Y = optY
+		s.islandsSlider.W = optW
+		s.islandsSlider.H = 35
+		s.islandsSlider.Draw(screen)
+
+		optY += 45
+		// Resources slider
+		s.resourcesSlider.X = optX
+		s.resourcesSlider.Y = optY
+		s.resourcesSlider.W = optW
+		s.resourcesSlider.H = 35
+		s.resourcesSlider.Draw(screen)
+
+		optY += 45
 		// Water Border
 		s.waterBorderBtn.X = optX
 		s.waterBorderBtn.Y = optY
@@ -966,29 +945,7 @@ func (s *LobbyScene) Draw(screen *ebiten.Image) {
 		s.waterBorderBtn.H = 32
 		s.waterBorderBtn.Draw(screen)
 
-		optY += 50
-		// Islands
-		DrawText(screen, "Islands:", optX, optY, ColorTextMuted)
-		for i := 0; i < 3; i++ {
-			s.islandsBtn[i].X = optX + i*(btn3W+10)
-			s.islandsBtn[i].Y = optY + 20
-			s.islandsBtn[i].W = btn3W
-			s.islandsBtn[i].H = 32
-			s.islandsBtn[i].Draw(screen)
-		}
-
-		optY += 65
-		// Resources
-		DrawText(screen, "Resources:", optX, optY, ColorTextMuted)
-		for i := 0; i < 3; i++ {
-			s.resourcesBtn[i].X = optX + i*(btn3W+10)
-			s.resourcesBtn[i].Y = optY + 20
-			s.resourcesBtn[i].W = btn3W
-			s.resourcesBtn[i].H = 32
-			s.resourcesBtn[i].Draw(screen)
-		}
-
-		optY += 65
+		optY += 45
 		// Generate button
 		s.generateBtn.X = optX
 		s.generateBtn.Y = optY
@@ -1083,11 +1040,11 @@ func (s *LobbyScene) initMapGeneration() {
 // onGenerateMap generates a new map with current options
 func (s *LobbyScene) onGenerateMap() {
 	opts := maps.GeneratorOptions{
-		Size:        maps.MapSize(s.mapSize),
-		Territories: maps.TerritoryCount(s.territories),
+		Width:       s.mapWidthSlider.Value,
+		Territories: s.territoriesSlider.Value,
 		WaterBorder: s.waterBorder,
-		Islands:     maps.IslandAmount(s.islands),
-		Resources:   maps.ResourceAmount(s.resources),
+		Islands:     s.islandsSlider.Value,
+		Resources:   s.resourcesSlider.Value,
 	}
 
 	gen := maps.NewGenerator(opts)
@@ -1296,7 +1253,7 @@ type WaitingScene struct {
 	showSettings      bool
 	chanceLevelBtns   [3]*Button // Low, Medium, High
 	victoryCitiesBtns [4]*Button // 3, 4, 5, 6
-	maxPlayersBtns    [3]*Button // 2, 3, 4
+	maxPlayersBtns    [7]*Button // 2, 3, 4, 5, 6, 7, 8
 	settingsCloseBtn  *Button
 }
 
@@ -1376,7 +1333,7 @@ func NewWaitingScene(game *Game) *WaitingScene {
 		}
 	}
 
-	maxPlayers := []string{"2", "3", "4"}
+	maxPlayers := []string{"2", "3", "4", "5", "6", "7", "8"}
 	for i, label := range maxPlayers {
 		idx := i
 		s.maxPlayersBtns[i] = &Button{
@@ -1562,13 +1519,16 @@ func (s *WaitingScene) drawSettingsDialog(screen *ebiten.Image, lobby *protocol.
 	}
 
 	y += 55
-	// Max Players
+	// Max Players (7 buttons: 2-8)
 	DrawText(screen, "Max Players:", dialogX+20, y, ColorText)
 	y += 25
+	// Use smaller buttons to fit 7 in the dialog
+	playerBtnW := 45
+	playerBtnGap := 5
 	for i, btn := range s.maxPlayersBtns {
-		btn.X = dialogX + 20 + i*(60+10)
+		btn.X = dialogX + 20 + i*(playerBtnW+playerBtnGap)
 		btn.Y = y
-		btn.W = 60
+		btn.W = playerBtnW
 		btn.H = btnH
 		btn.Primary = fmt.Sprintf("%d", lobby.Settings.MaxPlayers) == btn.Text
 		btn.Draw(screen)

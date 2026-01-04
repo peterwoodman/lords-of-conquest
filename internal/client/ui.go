@@ -270,6 +270,102 @@ func (t *TextInput) IsFocused() bool {
 	return t.focused
 }
 
+// Slider represents a draggable slider control.
+type Slider struct {
+	X, Y, W, H int
+	Min, Max   int    // Value range
+	Value      int    // Current value
+	Label      string // Label to display
+	OnChange   func(int)
+	dragging   bool
+	hovered    bool
+}
+
+// Update handles slider input.
+func (s *Slider) Update() {
+	mx, my := ebiten.CursorPosition()
+	
+	// Track area (center bar of slider)
+	trackY := s.Y + s.H/2 - 4
+	trackH := 8
+	s.hovered = mx >= s.X && mx < s.X+s.W && my >= trackY && my < trackY+trackH+16
+	
+	// Handle dragging
+	if inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) && s.hovered {
+		s.dragging = true
+	}
+	if inpututil.IsMouseButtonJustReleased(ebiten.MouseButtonLeft) {
+		s.dragging = false
+	}
+	
+	if s.dragging {
+		// Calculate value from mouse position
+		relX := mx - s.X
+		if relX < 0 {
+			relX = 0
+		}
+		if relX > s.W {
+			relX = s.W
+		}
+		
+		newValue := s.Min + (s.Max-s.Min)*relX/s.W
+		if newValue != s.Value {
+			s.Value = newValue
+			if s.OnChange != nil {
+				s.OnChange(s.Value)
+			}
+		}
+	}
+}
+
+// Draw renders the slider.
+func (s *Slider) Draw(screen *ebiten.Image) {
+	// Label and value display
+	labelText := s.Label
+	if labelText != "" {
+		labelText += ":"
+	}
+	DrawText(screen, labelText, s.X, s.Y, ColorText)
+	
+	// Value display on the right
+	valueStr := ""
+	switch {
+	case s.Max <= 10:
+		valueStr = []string{"Low", "Med-Low", "Medium", "Med-High", "High"}[(s.Value-s.Min)*4/(s.Max-s.Min)]
+	default:
+		valueStr = string(rune('0'+s.Value/100%10)) + string(rune('0'+s.Value/10%10)) + string(rune('0'+s.Value%10))
+		// Trim leading zeros for cleaner look
+		for len(valueStr) > 1 && valueStr[0] == '0' {
+			valueStr = valueStr[1:]
+		}
+	}
+	DrawText(screen, valueStr, s.X+s.W-len(valueStr)*6, s.Y, ColorPrimary)
+	
+	// Track background
+	trackY := s.Y + 18
+	trackH := 8
+	vector.DrawFilledRect(screen, float32(s.X), float32(trackY), float32(s.W), float32(trackH), ColorInputBg, false)
+	vector.StrokeRect(screen, float32(s.X), float32(trackY), float32(s.W), float32(trackH), 1, ColorBorderDark, false)
+	
+	// Filled portion
+	fillW := float32(s.W) * float32(s.Value-s.Min) / float32(s.Max-s.Min)
+	if fillW > 0 {
+		vector.DrawFilledRect(screen, float32(s.X), float32(trackY), fillW, float32(trackH), ColorPrimary, false)
+	}
+	
+	// Handle (knob)
+	handleX := float32(s.X) + fillW - 6
+	if handleX < float32(s.X) {
+		handleX = float32(s.X)
+	}
+	handleColor := ColorPrimary
+	if s.hovered || s.dragging {
+		handleColor = ColorPrimaryHover
+	}
+	vector.DrawFilledRect(screen, handleX, float32(trackY-4), 12, float32(trackH+8), handleColor, false)
+	vector.StrokeRect(screen, handleX, float32(trackY-4), 12, float32(trackH+8), 1, ColorBorder, false)
+}
+
 // Panel draws a panel background.
 // DrawPanel draws a retro-style panel with decorative borders.
 func DrawPanel(screen *ebiten.Image, x, y, w, h int) {

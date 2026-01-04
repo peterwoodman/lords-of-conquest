@@ -188,7 +188,7 @@ func (db *DB) UpdateGameSetting(gameID, key, value string) error {
 	case "max_players":
 		var maxPlayers int
 		fmt.Sscanf(value, "%d", &maxPlayers)
-		if maxPlayers >= 2 && maxPlayers <= 4 {
+		if maxPlayers >= 2 && maxPlayers <= 8 {
 			game.Settings.MaxPlayers = maxPlayers
 		}
 	default:
