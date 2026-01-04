@@ -35,16 +35,18 @@ func (s *GameplayScene) drawLeftSidebar(screen *ebiten.Image) {
 
 		DrawLargeText(screen, playerName, sidebarX+15, sidebarY+30, ColorText)
 
-		// Color indicator
+		// Color indicator (clickable)
 		if pc, ok := PlayerColors[playerColor]; ok {
 			colorSize := float32(32)
 			colorX := float32(sidebarX + sidebarW - 48)
 			colorY := float32(sidebarY + 28)
 			vector.DrawFilledRect(screen, colorX, colorY, colorSize, colorSize, pc, false)
 			vector.StrokeRect(screen, colorX, colorY, colorSize, colorSize, 2, ColorBorder, false)
+			// Store bounds for click detection
+			s.myColorBlockBounds = [4]int{int(colorX), int(colorY), int(colorSize), int(colorSize)}
 		}
 
-		DrawText(screen, playerColor, sidebarX+15, sidebarY+58, ColorTextMuted)
+		DrawText(screen, playerColor+" (click to change)", sidebarX+15, sidebarY+58, ColorTextMuted)
 	}
 
 	// Players list - compact height based on player count
@@ -905,4 +907,144 @@ func (s *GameplayScene) drawHoverInfo(screen *ebiten.Image) {
 			DrawText(screen, oddsText, boxX+120, contentY+27, oddsColor)
 		}
 	}
+}
+
+// isClickInBounds checks if a click is within the given bounds [x, y, w, h].
+func (s *GameplayScene) isClickInBounds(mx, my int, bounds [4]int) bool {
+	return mx >= bounds[0] && mx < bounds[0]+bounds[2] &&
+		my >= bounds[1] && my < bounds[1]+bounds[3]
+}
+
+// openColorPicker opens the color picker dialog.
+func (s *GameplayScene) openColorPicker() {
+	// Build the list of used colors (by other players)
+	s.usedColors = make(map[string]bool)
+	myColor := ""
+
+	if myPlayer, ok := s.players[s.game.config.PlayerID]; ok {
+		player := myPlayer.(map[string]interface{})
+		myColor = player["color"].(string)
+	}
+
+	for playerID, playerData := range s.players {
+		if playerID == s.game.config.PlayerID {
+			continue // Skip self
+		}
+		player := playerData.(map[string]interface{})
+		if colorVal, ok := player["color"].(string); ok {
+			s.usedColors[colorVal] = true
+		}
+	}
+
+	// Create buttons for each color
+	s.colorPickerBtns = make([]*Button, len(PlayerColorOrder))
+	for i, colorName := range PlayerColorOrder {
+		cn := colorName // Capture for closure
+		isUsed := s.usedColors[colorName]
+		isMine := colorName == myColor
+
+		s.colorPickerBtns[i] = &Button{
+			Text:     colorName,
+			Disabled: isUsed,
+			Primary:  isMine,
+			OnClick: func() {
+				if !s.usedColors[cn] {
+					s.selectColor(cn)
+				}
+			},
+		}
+	}
+
+	s.showColorPicker = true
+}
+
+// selectColor sends the color change request to the server.
+func (s *GameplayScene) selectColor(colorName string) {
+	s.game.ChangeColor(colorName)
+	s.showColorPicker = false
+}
+
+// drawColorPicker draws the color picker dialog.
+func (s *GameplayScene) drawColorPicker(screen *ebiten.Image) {
+	// Semi-transparent overlay
+	vector.DrawFilledRect(screen, 0, 0, float32(ScreenWidth), float32(ScreenHeight),
+		color.RGBA{0, 0, 0, 180}, false)
+
+	// Dialog panel
+	dialogW := 400
+	dialogH := 380
+	dialogX := (ScreenWidth - dialogW) / 2
+	dialogY := (ScreenHeight - dialogH) / 2
+
+	DrawFancyPanel(screen, dialogX, dialogY, dialogW, dialogH, "Choose Your Color")
+
+	// Description
+	DrawText(screen, "Select a color. Colors in use are disabled.", dialogX+20, dialogY+50, ColorTextMuted)
+
+	// Color grid (4 columns x 3 rows)
+	btnW := 80
+	btnH := 55
+	startX := dialogX + 25
+	startY := dialogY + 80
+	spacing := 10
+	colsPerRow := 4
+
+	for i, btn := range s.colorPickerBtns {
+		col := i % colsPerRow
+		row := i / colsPerRow
+
+		btn.X = startX + col*(btnW+spacing)
+		btn.Y = startY + row*(btnH+spacing)
+		btn.W = btnW
+		btn.H = btnH
+
+		// Draw colored background for the button
+		colorName := PlayerColorOrder[i]
+		if pc, ok := PlayerColors[colorName]; ok {
+			bgX := float32(btn.X)
+			bgY := float32(btn.Y)
+			bgW := float32(btn.W)
+			bgH := float32(btn.H)
+
+			// Draw color swatch
+			if btn.Disabled {
+				// Dimmed color for disabled (used by others)
+				dimColor := color.RGBA{pc.R / 2, pc.G / 2, pc.B / 2, 200}
+				vector.DrawFilledRect(screen, bgX, bgY, bgW, bgH, dimColor, false)
+				// Draw X over it
+				vector.StrokeLine(screen, bgX+5, bgY+5, bgX+bgW-5, bgY+bgH-5, 2, color.RGBA{150, 150, 150, 255}, false)
+				vector.StrokeLine(screen, bgX+bgW-5, bgY+5, bgX+5, bgY+bgH-5, 2, color.RGBA{150, 150, 150, 255}, false)
+			} else {
+				vector.DrawFilledRect(screen, bgX, bgY, bgW, bgH, pc, false)
+			}
+
+			// Border - brighter for current/hovered
+			borderColor := ColorBorder
+			if btn.Primary {
+				borderColor = ColorSuccess
+				vector.StrokeRect(screen, bgX, bgY, bgW, bgH, 3, borderColor, false)
+				// Draw checkmark
+				DrawText(screen, "CURRENT", btn.X+10, btn.Y+btn.H-18, ColorText)
+			} else {
+				vector.StrokeRect(screen, bgX, bgY, bgW, bgH, 2, borderColor, false)
+			}
+
+			// Color name
+			if !btn.Disabled {
+				DrawText(screen, colorName, btn.X+8, btn.Y+8, ColorText)
+			}
+		}
+
+		// Handle clicks (button logic is simpler here - just detect clicks)
+		if !btn.Disabled {
+			btn.Update()
+		}
+	}
+
+	// Cancel button
+	s.cancelColorBtn.X = dialogX + dialogW/2 - 50
+	s.cancelColorBtn.Y = dialogY + dialogH - 50
+	s.cancelColorBtn.W = 100
+	s.cancelColorBtn.H = 35
+	s.cancelColorBtn.Draw(screen)
 }

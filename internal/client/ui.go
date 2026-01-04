@@ -57,7 +57,7 @@ var (
 	ColorAccent3 = color.RGBA{255, 200, 100, 255} // Orange
 )
 
-// Player colors
+// Player colors - 12 colors bright enough to see black icons
 var PlayerColors = map[string]color.RGBA{
 	"orange": {255, 140, 0, 255},
 	"cyan":   {0, 200, 200, 255},
@@ -66,6 +66,18 @@ var PlayerColors = map[string]color.RGBA{
 	"purple": {160, 80, 200, 255},
 	"red":    {200, 50, 50, 255},
 	"blue":   {80, 100, 200, 255},
+	"pink":   {255, 120, 180, 255},
+	"lime":   {140, 220, 80, 255},
+	"teal":   {60, 180, 150, 255},
+	"coral":  {255, 100, 100, 255},
+	"sky":    {100, 180, 255, 255},
+}
+
+// PlayerColorOrder defines the display order for color picker
+var PlayerColorOrder = []string{
+	"orange", "yellow", "lime", "green",
+	"teal", "cyan", "sky", "blue",
+	"purple", "pink", "coral", "red",
 }
 
 // Button represents a clickable button.

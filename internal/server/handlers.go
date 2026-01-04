@@ -47,6 +47,8 @@ func (h *Handlers) Handle(client *Client, msg *protocol.Message) {
 		err = h.handleUpdateSettings(client, msg)
 	case protocol.TypePlayerReady:
 		err = h.handlePlayerReady(client, msg)
+	case protocol.TypeChangeColor:
+		err = h.handleChangeColor(client, msg)
 	case protocol.TypeStartGame:
 		err = h.handleStartGame(client, msg)
 	case protocol.TypeSelectTerritory:
@@ -494,6 +496,90 @@ func (h *Handlers) handlePlayerReady(client *Client, msg *protocol.Message) erro
 
 	// Broadcast updated lobby state
 	h.broadcastLobbyState(client.GameID)
+
+	return nil
+}
+
+// handleChangeColor handles a player changing their color.
+func (h *Handlers) handleChangeColor(client *Client, msg *protocol.Message) error {
+	if client.GameID == "" {
+		return errors.New("not in a game")
+	}
+
+	var payload protocol.ChangeColorPayload
+	if err := msg.ParsePayload(&payload); err != nil {
+		return err
+	}
+
+	// Validate the color is one of the allowed colors
+	validColors := map[string]bool{
+		"orange": true, "cyan": true, "green": true, "yellow": true,
+		"purple": true, "red": true, "blue": true, "pink": true,
+		"lime": true, "teal": true, "coral": true, "sky": true,
+	}
+	if !validColors[payload.Color] {
+		return errors.New("invalid color")
+	}
+
+	// Get current players to check if color is taken
+	players, err := h.hub.server.db.GetGamePlayers(client.GameID)
+	if err != nil {
+		return err
+	}
+
+	// Check if color is already used by another player
+	for _, p := range players {
+		if p.Color == payload.Color && p.PlayerID != client.PlayerID {
+			return errors.New("color already taken by another player")
+		}
+	}
+
+	// Update the player's color in the database
+	if err := h.hub.server.db.UpdatePlayerColor(client.GameID, client.PlayerID, payload.Color); err != nil {
+		return err
+	}
+
+	log.Printf("Player %s changed color to %s", client.Name, payload.Color)
+
+	// Check if game has started - need to update game state too
+	dbGame, err := h.hub.server.db.GetGame(client.GameID)
+	if err != nil {
+		return err
+	}
+
+	if dbGame.Status == database.GameStatusStarted {
+		// Update game state with new color
+		stateJSON, err := h.hub.server.db.GetGameState(client.GameID)
+		if err != nil {
+			return err
+		}
+
+		var state game.GameState
+		if err := json.Unmarshal([]byte(stateJSON), &state); err != nil {
+			return err
+		}
+
+		// Update player color in state
+		if player := state.Players[client.PlayerID]; player != nil {
+			player.Color = game.PlayerColor(payload.Color)
+		}
+
+		// Save updated state
+		newStateJSON, err := json.Marshal(state)
+		if err != nil {
+			return err
+		}
+		if err := h.hub.server.db.SaveGameState(client.GameID, string(newStateJSON),
+			state.CurrentPlayerID, state.Round, state.Phase.String()); err != nil {
+			return err
+		}
+
+		// Broadcast updated game state
+		h.broadcastGameState(client.GameID)
+	} else {
+		// Game is in lobby - broadcast lobby state
+		h.broadcastLobbyState(client.GameID)
+	}
 
 	return nil
 }

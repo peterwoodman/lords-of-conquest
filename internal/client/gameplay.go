@@ -35,6 +35,9 @@ type GameplayScene struct {
 	historyScroll      int    // Scroll offset for history panel
 	historyPanelBounds [4]int // x, y, w, h for scroll detection
 
+	// Color block bounds for click detection
+	myColorBlockBounds [4]int // x, y, w, h
+
 	// Rendering
 	cellSize    int
 	offsetX     int
@@ -149,6 +152,12 @@ type GameplayScene struct {
 	moveBoatBtn           *Button
 	cancelShipmentBtn     *Button
 	shipmentConfirmBtn    *Button
+
+	// Color picker UI
+	showColorPicker    bool
+	colorPickerBtns    []*Button
+	cancelColorBtn     *Button
+	usedColors         map[string]bool // Colors already used by other players
 
 	// Trade phase UI
 	proposeTradeBtn     *Button
@@ -515,6 +524,14 @@ func NewGameplayScene(game *Game) *GameplayScene {
 		OnClick: func() { s.showTradeResult = false },
 	}
 
+	// Color picker buttons
+	s.cancelColorBtn = &Button{
+		X: 0, Y: 0, W: 100, H: 35,
+		Text:    "Cancel",
+		OnClick: func() { s.showColorPicker = false },
+	}
+	s.usedColors = make(map[string]bool)
+
 	return s
 }
 
@@ -582,6 +599,18 @@ func (s *GameplayScene) Update() error {
 		s.tradeResultOkBtn.Update()
 		if inpututil.IsKeyJustPressed(ebiten.KeyEscape) || inpututil.IsKeyJustPressed(ebiten.KeyEnter) {
 			s.showTradeResult = false
+		}
+		return nil
+	}
+
+	// Handle color picker popup
+	if s.showColorPicker {
+		s.cancelColorBtn.Update()
+		for _, btn := range s.colorPickerBtns {
+			btn.Update()
+		}
+		if inpututil.IsKeyJustPressed(ebiten.KeyEscape) {
+			s.showColorPicker = false
 		}
 		return nil
 	}
@@ -742,7 +771,10 @@ func (s *GameplayScene) Update() error {
 
 	// Handle click
 	if inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) {
-		if s.hoveredCell[0] >= 0 {
+		// Check if clicked on color block
+		if s.isClickInBounds(mx, my, s.myColorBlockBounds) {
+			s.openColorPicker()
+		} else if s.hoveredCell[0] >= 0 {
 			s.handleCellClick(s.hoveredCell[0], s.hoveredCell[1])
 		}
 	}
@@ -840,6 +872,10 @@ func (s *GameplayScene) Draw(screen *ebiten.Image) {
 	}
 	if s.waitingForTrade {
 		s.drawTradeWaiting(screen)
+	}
+	// Draw color picker popup
+	if s.showColorPicker {
+		s.drawColorPicker(screen)
 	}
 	// Draw phase skip popup overlay
 	if s.showPhaseSkip {

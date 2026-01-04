@@ -351,6 +351,14 @@ func (db *DB) SetPlayerConnected(gameID, playerID string, connected bool) error 
 	return err
 }
 
+// UpdatePlayerColor updates a player's color in a game.
+func (db *DB) UpdatePlayerColor(gameID, playerID, color string) error {
+	_, err := db.conn.Exec(`
+		UPDATE game_players SET color = ? WHERE game_id = ? AND player_id = ?
+	`, color, gameID, playerID)
+	return err
+}
+
 // SetAllianceSetting sets a player's alliance preference.
 // setting can be "ask", "neutral", "defender", or a player_id
 func (db *DB) SetAllianceSetting(gameID, playerID, setting string) error {

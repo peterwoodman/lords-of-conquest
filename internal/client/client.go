@@ -199,6 +199,14 @@ func (g *Game) SetReady(ready bool) error {
 	return g.network.SendPayload(protocol.TypePlayerReady, payload)
 }
 
+// ChangeColor changes the player's color.
+func (g *Game) ChangeColor(color string) error {
+	payload := protocol.ChangeColorPayload{
+		Color: color,
+	}
+	return g.network.SendPayload(protocol.TypeChangeColor, payload)
+}
+
 // StartGame starts the current game (host only).
 func (g *Game) StartGame() error {
 	return g.network.SendPayload(protocol.TypeStartGame, struct{}{})

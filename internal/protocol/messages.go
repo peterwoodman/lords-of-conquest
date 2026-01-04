@@ -31,6 +31,7 @@ const (
 	TypeRemovePlayer   MessageType = "remove_player"
 	TypeUpdateSettings MessageType = "update_settings"
 	TypePlayerReady    MessageType = "player_ready"
+	TypeChangeColor    MessageType = "change_color"
 	TypeStartGame      MessageType = "start_game"
 	TypeListGames      MessageType = "list_games"
 	TypeGameList       MessageType = "game_list"

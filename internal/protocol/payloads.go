@@ -118,6 +118,11 @@ type PlayerReadyPayload struct {
 	Ready bool `json:"ready"`
 }
 
+// ChangeColorPayload is sent to change a player's color.
+type ChangeColorPayload struct {
+	Color string `json:"color"`
+}
+
 // GameListPayload contains a list of games.
 type GameListPayload struct {
 	Games []GameListItem `json:"games"`
