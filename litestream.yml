@@ -1,0 +1,11 @@
+dbs:
+  - path: /data/lords.db
+    replicas:
+      - type: s3
+        endpoint: ${DO_SPACES_ENDPOINT}
+        bucket: ${DO_SPACES_BUCKET}
+        path: lords-of-conquest
+        access-key-id: ${DO_SPACES_KEY}
+        secret-access-key: ${DO_SPACES_SECRET}
+        # Skip bucket creation check (DigitalOcean doesn't support it)
+        skip-verify: true

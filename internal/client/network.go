@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"log"
+	"net/http"
 	"strings"
 	"sync"
 	"time"
@@ -14,6 +15,9 @@ import (
 	"github.com/coder/websocket"
 )
 
+// How often to ping the health endpoint to keep cloud instances alive
+const healthPingInterval = 5 * time.Minute
+
 // NetworkClient handles WebSocket communication with the server.
 type NetworkClient struct {
 	conn     *websocket.Conn
@@ -21,6 +25,9 @@ type NetworkClient struct {
 	recvChan chan *protocol.Message
 	done     chan struct{}
 	mu       sync.Mutex
+
+	// Base HTTP URL for health pings (e.g., "https://example.onrender.com")
+	healthURL string
 
 	// Callbacks
 	OnMessage    func(*protocol.Message)
@@ -45,14 +52,15 @@ func (c *NetworkClient) Connect(serverAddr string) error {
 	defer c.mu.Unlock()
 
 	log.Printf("Attempting to connect to: %s", serverAddr)
-	
+
 	// Determine WebSocket URL scheme based on address
 	// Use wss:// for .onrender.com and other cloud hosts, ws:// for localhost
 	var url string
-	if strings.Contains(serverAddr, ".onrender.com") || 
-	   strings.Contains(serverAddr, ".herokuapp.com") ||
-	   strings.Contains(serverAddr, ".fly.dev") ||
-	   strings.HasPrefix(serverAddr, "wss://") {
+	var isCloud bool
+	if strings.Contains(serverAddr, ".onrender.com") ||
+		strings.Contains(serverAddr, ".herokuapp.com") ||
+		strings.Contains(serverAddr, ".fly.dev") ||
+		strings.HasPrefix(serverAddr, "wss://") {
 		// Cloud deployment - use secure WebSocket without port
 		host := strings.TrimPrefix(serverAddr, "wss://")
 		// Remove any port if specified (cloud providers use standard 443)
@@ -60,14 +68,18 @@ func (c *NetworkClient) Connect(serverAddr string) error {
 			host = host[:colonIdx]
 		}
 		url = "wss://" + host + "/ws"
+		c.healthURL = "https://" + host + "/health"
+		isCloud = true
 	} else {
 		url = "ws://" + serverAddr + "/ws"
+		c.healthURL = "http://" + serverAddr + "/health"
+		isCloud = false
 	}
 	log.Printf("Full WebSocket URL: %s", url)
-	
+
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	
+
 	conn, _, err := websocket.Dial(ctx, url, nil)
 	if err != nil {
 		log.Printf("WebSocket dial failed: %v", err)
@@ -81,6 +93,11 @@ func (c *NetworkClient) Connect(serverAddr string) error {
 
 	go c.readPump()
 	go c.writePump()
+
+	// Start health pings for cloud deployments to prevent instance spin-down
+	if isCloud {
+		go c.healthPingLoop()
+	}
 
 	if c.OnConnect != nil {
 		c.OnConnect()
@@ -163,7 +180,7 @@ func (c *NetworkClient) readPump() {
 		// Read with no timeout - rely on ping/pong to detect dead connections
 		ctx := context.Background()
 		msgType, data, err := c.conn.Read(ctx)
-		
+
 		if err != nil {
 			status := websocket.CloseStatus(err)
 			if status != websocket.StatusNormalClosure && status != websocket.StatusGoingAway {
@@ -212,7 +229,7 @@ func (c *NetworkClient) writePump() {
 
 			err = c.conn.Write(ctx, websocket.MessageText, data)
 			cancel()
-			
+
 			if err != nil {
 				log.Printf("WebSocket write error: %v", err)
 				return
@@ -222,10 +239,51 @@ func (c *NetworkClient) writePump() {
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			err := c.conn.Ping(ctx)
 			cancel()
-			
+
 			if err != nil {
 				return
 			}
 		}
+	}
+}
+
+// healthPingLoop periodically pings the server's health endpoint via HTTP.
+// This keeps cloud instances (like Render free tier) from spinning down
+// due to inactivity, since WebSocket ping/pong doesn't count as HTTP traffic.
+func (c *NetworkClient) healthPingLoop() {
+	ticker := time.NewTicker(healthPingInterval)
+	defer ticker.Stop()
+
+	// Do an initial ping right away
+	c.pingHealth()
+
+	for {
+		select {
+		case <-c.done:
+			return
+		case <-ticker.C:
+			c.pingHealth()
+		}
+	}
+}
+
+// pingHealth makes an HTTP GET request to the health endpoint.
+func (c *NetworkClient) pingHealth() {
+	if c.healthURL == "" {
+		return
+	}
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Get(c.healthURL)
+	if err != nil {
+		log.Printf("Health ping failed: %v", err)
+		return
+	}
+	resp.Body.Close()
+
+	if resp.StatusCode == http.StatusOK {
+		log.Printf("Health ping OK")
+	} else {
+		log.Printf("Health ping returned status: %d", resp.StatusCode)
 	}
 }
