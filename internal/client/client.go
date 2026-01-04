@@ -63,6 +63,9 @@ func NewGame() (*Game, error) {
 	// Load title screens
 	LoadTitleScreens()
 
+	// Initialize clipboard for paste support
+	InitClipboard()
+
 	// Initialize audio
 	InitAudio()
 	LoadAudio()

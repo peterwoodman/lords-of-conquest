@@ -3,13 +3,25 @@ package client
 import (
 	"image"
 	"image/color"
+	"runtime"
 	"strings"
 
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
 	"github.com/hajimehoshi/ebiten/v2/inpututil"
 	"github.com/hajimehoshi/ebiten/v2/vector"
+	"golang.design/x/clipboard"
 )
+
+var clipboardInitialized bool
+
+// InitClipboard initializes the clipboard for paste support.
+// Call this once at startup.
+func InitClipboard() {
+	if err := clipboard.Init(); err == nil {
+		clipboardInitialized = true
+	}
+}
 
 // Colors used in the UI - Retro 8-bit inspired palette
 var (
@@ -141,6 +153,11 @@ func (t *TextInput) Update() {
 
 	t.cursorBlink++
 
+	// Handle paste (Ctrl+V on Windows/Linux, Cmd+V on Mac)
+	if t.isPastePressed() {
+		t.pasteFromClipboard()
+	}
+
 	// Handle text input
 	chars := ebiten.AppendInputChars(nil)
 	for _, c := range chars {
@@ -153,6 +170,47 @@ func (t *TextInput) Update() {
 	if inpututil.IsKeyJustPressed(ebiten.KeyBackspace) || inpututil.KeyPressDuration(ebiten.KeyBackspace) > 30 {
 		if len(t.Text) > 0 {
 			t.Text = t.Text[:len(t.Text)-1]
+		}
+	}
+}
+
+// isPastePressed returns true if the paste shortcut is pressed.
+// Ctrl+V on Windows/Linux, Cmd+V on Mac.
+func (t *TextInput) isPastePressed() bool {
+	if !inpututil.IsKeyJustPressed(ebiten.KeyV) {
+		return false
+	}
+
+	// On Mac, use Cmd (Meta). On Windows/Linux, use Ctrl.
+	if runtime.GOOS == "darwin" {
+		return ebiten.IsKeyPressed(ebiten.KeyMeta)
+	}
+	return ebiten.IsKeyPressed(ebiten.KeyControl)
+}
+
+// pasteFromClipboard pastes text from the clipboard into the input.
+func (t *TextInput) pasteFromClipboard() {
+	if !clipboardInitialized {
+		return
+	}
+
+	data := clipboard.Read(clipboard.FmtText)
+	if len(data) == 0 {
+		return
+	}
+
+	text := string(data)
+	// Remove any newlines/carriage returns for single-line input
+	text = strings.ReplaceAll(text, "\r\n", "")
+	text = strings.ReplaceAll(text, "\n", "")
+	text = strings.ReplaceAll(text, "\r", "")
+
+	// Append text respecting max length
+	for _, c := range text {
+		if t.MaxLength == 0 || len(t.Text) < t.MaxLength {
+			t.Text += string(c)
+		} else {
+			break
 		}
 	}
 }
