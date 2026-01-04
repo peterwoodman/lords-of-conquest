@@ -4,18 +4,16 @@
 services:
   - type: web
     name: lords-of-conquest
-    runtime: go
-    buildCommand: go build -o bin/server ./cmd/server
-    startCommand: ./bin/server
+    runtime: docker
+    # Dockerfile is auto-detected in repo root
     envVars:
-      - key: GO_VERSION
-        value: "1.24"
-      - key: DB_PATH
-        value: "/data/lords.db"
+      - key: DO_SPACES_ENDPOINT
+        sync: false  # Set manually in dashboard
+      - key: DO_SPACES_BUCKET
+        sync: false
+      - key: DO_SPACES_KEY
+        sync: false
+      - key: DO_SPACES_SECRET
+        sync: false
     # Health check endpoint
     healthCheckPath: /health
-    # Disk for SQLite database persistence
-    disk:
-      name: data
-      mountPath: /data
-      sizeGB: 1
