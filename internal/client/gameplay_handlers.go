@@ -301,7 +301,8 @@ func (s *GameplayScene) handleDevelopment(territoryID string) {
 		// Build immediately
 		log.Printf("Building %s at %s (useGold: %v)", s.selectedBuildType, territoryID, s.buildUseGold)
 		s.game.Build(s.selectedBuildType, territoryID, s.buildUseGold)
-		// Keep the build type selected so player can quickly build more
+		// Deselect after building
+		s.selectedBuildType = ""
 	} else {
 		log.Printf("Territory not found: %s", territoryID)
 	}
@@ -320,7 +321,8 @@ func (s *GameplayScene) doBuildBoatInWater(waterBodyID string) {
 	s.showWaterBodySelect = false
 	s.waterBodyOptions = nil
 	s.buildMenuTerritory = ""
-	// Keep selectedBuildType and buildUseGold so player can build more boats quickly
+	// Deselect after building
+	s.selectedBuildType = ""
 }
 
 // handleWaterBodyClick handles clicking on a water cell during water body selection

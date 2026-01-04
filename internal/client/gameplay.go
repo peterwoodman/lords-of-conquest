@@ -44,6 +44,16 @@ type GameplayScene struct {
 	offsetY     int
 	hoveredCell [2]int
 
+	// Pan and zoom
+	zoom       float64 // 1.0 = 100%, 0.5 = 50%, 2.0 = 200%
+	panX       int     // Pan offset in pixels
+	panY       int
+	isPanning  bool    // True while right mouse button is held
+	panStartX  int     // Mouse position when pan started
+	panStartY  int
+	panOffsetX int     // Pan offset when pan started
+	panOffsetY int
+
 	// UI
 	infoPanel         *Panel
 	actionPanel       *Panel
@@ -332,6 +342,7 @@ func NewGameplayScene(game *Game) *GameplayScene {
 		offsetX:     260, // Leave room for left sidebar
 		offsetY:     30,  // Top margin
 		hoveredCell: [2]int{-1, -1},
+		zoom:        1.0, // Default zoom level
 	}
 
 	// End phase button (positioned in drawBottomBar)
@@ -749,7 +760,25 @@ func (s *GameplayScene) Update() error {
 	mx, my := ebiten.CursorPosition()
 	s.hoveredCell = s.screenToGrid(mx, my)
 
-	// Handle mouse wheel scrolling for history panel
+	// Handle right mouse button for panning
+	if ebiten.IsMouseButtonPressed(ebiten.MouseButtonRight) {
+		if !s.isPanning {
+			// Start panning
+			s.isPanning = true
+			s.panStartX = mx
+			s.panStartY = my
+			s.panOffsetX = s.panX
+			s.panOffsetY = s.panY
+		} else {
+			// Continue panning
+			s.panX = s.panOffsetX + (mx - s.panStartX)
+			s.panY = s.panOffsetY + (my - s.panStartY)
+		}
+	} else {
+		s.isPanning = false
+	}
+
+	// Handle mouse wheel scrolling
 	_, dy := ebiten.Wheel()
 	if dy != 0 {
 		// Check if mouse is over history panel
@@ -759,10 +788,36 @@ func (s *GameplayScene) Update() error {
 			// Scroll the history panel
 			if dy > 0 {
 				s.historyScroll-- // Scroll up (show newer)
-	} else {
+			} else {
 				s.historyScroll++ // Scroll down (show older)
 			}
 			// Bounds clamping is done in drawHistoryPanel
+		} else {
+			// Zoom the map (scroll wheel outside history panel)
+			oldZoom := s.zoom
+			if dy > 0 {
+				s.zoom *= 1.1 // Zoom in
+			} else {
+				s.zoom /= 1.1 // Zoom out
+			}
+			// Clamp zoom to reasonable bounds
+			if s.zoom < 1.0 {
+				s.zoom = 1.0
+			}
+			if s.zoom > 3.0 {
+				s.zoom = 3.0
+			}
+			// Adjust pan to zoom toward mouse position
+			if s.zoom != oldZoom {
+				// Calculate the map area center for zoom adjustment
+				sidebarWidth := 270
+				mapCenterX := sidebarWidth + (ScreenWidth-sidebarWidth)/2
+				mapCenterY := (ScreenHeight - 120) / 2
+				// Adjust pan to keep the point under the mouse stationary
+				zoomRatio := s.zoom / oldZoom
+				s.panX = int(float64(s.panX-(mx-mapCenterX))*(zoomRatio)) + (mx - mapCenterX)
+				s.panY = int(float64(s.panY-(my-mapCenterY))*(zoomRatio)) + (my - mapCenterY)
+			}
 		}
 	}
 
@@ -792,6 +847,13 @@ func (s *GameplayScene) Update() error {
 	// ESC to cancel selection
 	if inpututil.IsKeyJustPressed(ebiten.KeyEscape) {
 		s.selectedTerritory = ""
+	}
+
+	// Home key to reset zoom and pan
+	if inpututil.IsKeyJustPressed(ebiten.KeyHome) {
+		s.zoom = 1.0
+		s.panX = 0
+		s.panY = 0
 	}
 
 	return nil

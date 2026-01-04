@@ -329,40 +329,45 @@ func (s *GameplayScene) drawMapArea(screen *ebiten.Image) {
 	availableWidth := ScreenWidth - sidebarWidth - 20
 	availableHeight := ScreenHeight - bottomBarHeight - 20
 
-	// Calculate cell size to fit the map in available space
+	// Calculate base cell size to fit the map in available space (before zoom)
 	cellW := availableWidth / width
 	cellH := availableHeight / height
-	s.cellSize = cellW
+	baseCellSize := cellW
 	if cellH < cellW {
-		s.cellSize = cellH
+		baseCellSize = cellH
 	}
-	// Clamp cell size to reasonable bounds
-	if s.cellSize < 16 {
-		s.cellSize = 16
+	// Clamp base cell size to reasonable bounds
+	if baseCellSize < 8 {
+		baseCellSize = 8
 	}
-	if s.cellSize > 40 {
-		s.cellSize = 40
+	if baseCellSize > 40 {
+		baseCellSize = 40
 	}
 
-	// Map dimensions with calculated cell size
+	// Apply zoom to cell size
+	s.cellSize = int(float64(baseCellSize) * s.zoom)
+	if s.cellSize < 4 {
+		s.cellSize = 4
+	}
+
+	// Map dimensions with zoomed cell size
 	mapW := width * s.cellSize
 	mapH := height * s.cellSize
 
-	// Center the map in available space
-	s.offsetX = sidebarWidth + (availableWidth-mapW)/2
-	s.offsetY = 10 + (availableHeight-mapH)/2
-
-	// Frame around map
-	frameX := s.offsetX - 10
-	frameY := s.offsetY - 10
-	frameW := mapW + 20
-	frameH := mapH + 20
-
-	// Draw fancy frame
-	DrawFancyPanel(screen, frameX, frameY, frameW, frameH, "")
+	// Center the map in available space, then apply pan offset
+	baseOffsetX := sidebarWidth + (availableWidth-mapW)/2
+	baseOffsetY := 10 + (availableHeight-mapH)/2
+	s.offsetX = baseOffsetX + s.panX
+	s.offsetY = baseOffsetY + s.panY
 
 	// Draw the map
 	s.drawMap(screen)
+
+	// Show zoom indicator if not at default zoom/pan
+	if s.zoom != 1.0 || s.panX != 0 || s.panY != 0 {
+		zoomText := fmt.Sprintf("Zoom: %.0f%% (Home to reset)", s.zoom*100)
+		DrawText(screen, zoomText, sidebarWidth+10, ScreenHeight-bottomBarHeight-25, ColorTextMuted)
+	}
 }
 
 // drawBottomBar draws phase/turn information with two sections.
@@ -754,6 +759,46 @@ func (s *GameplayScene) drawDevelopmentControls(screen *ebiten.Image, startX, ba
 	barW := ScreenWidth - 20
 	barX := 10
 
+	// Get player resources
+	coal, gold, iron, timber := 0, 0, 0, 0
+	if myPlayer, ok := s.players[s.game.config.PlayerID]; ok {
+		player := myPlayer.(map[string]interface{})
+		if stockpile, ok := player["stockpile"].(map[string]interface{}); ok {
+			if v, ok := stockpile["coal"].(float64); ok {
+				coal = int(v)
+			}
+			if v, ok := stockpile["gold"].(float64); ok {
+				gold = int(v)
+			}
+			if v, ok := stockpile["iron"].(float64); ok {
+				iron = int(v)
+			}
+			if v, ok := stockpile["timber"].(float64); ok {
+				timber = int(v)
+			}
+		}
+	}
+
+	// Calculate affordability based on gold toggle
+	var canAffordCity, canAffordWeapon, canAffordBoat bool
+	var cityTooltip, weaponTooltip, boatTooltip string
+
+	if s.buildUseGold {
+		canAffordCity = gold >= 4
+		canAffordWeapon = gold >= 2
+		canAffordBoat = gold >= 3
+		cityTooltip = fmt.Sprintf("4 Gold (have %d)", gold)
+		weaponTooltip = fmt.Sprintf("2 Gold (have %d)", gold)
+		boatTooltip = fmt.Sprintf("3 Gold (have %d)", gold)
+	} else {
+		canAffordCity = coal >= 1 && gold >= 1 && iron >= 1 && timber >= 1
+		canAffordWeapon = coal >= 1 && iron >= 1
+		canAffordBoat = timber >= 3
+		cityTooltip = fmt.Sprintf("1 each: C/G/I/T (have %d/%d/%d/%d)", coal, gold, iron, timber)
+		weaponTooltip = fmt.Sprintf("1 Coal + 1 Iron (have %d/%d)", coal, iron)
+		boatTooltip = fmt.Sprintf("3 Timber (have %d)", timber)
+	}
+
 	// Turn indicator with color block
 	indicatorX := startX
 	if myPlayer, ok := s.players[s.game.config.PlayerID]; ok {
@@ -786,6 +831,8 @@ func (s *GameplayScene) drawDevelopmentControls(screen *ebiten.Image, startX, ba
 	s.devCityBtn.W = btnW
 	s.devCityBtn.H = btnH
 	s.devCityBtn.Primary = s.selectedBuildType == "city"
+	s.devCityBtn.Disabled = !canAffordCity
+	s.devCityBtn.Tooltip = cityTooltip
 	s.devCityBtn.Draw(screen)
 	btnX += btnW + 10
 
@@ -795,6 +842,8 @@ func (s *GameplayScene) drawDevelopmentControls(screen *ebiten.Image, startX, ba
 	s.devWeaponBtn.W = btnW
 	s.devWeaponBtn.H = btnH
 	s.devWeaponBtn.Primary = s.selectedBuildType == "weapon"
+	s.devWeaponBtn.Disabled = !canAffordWeapon
+	s.devWeaponBtn.Tooltip = weaponTooltip
 	s.devWeaponBtn.Draw(screen)
 	btnX += btnW + 10
 
@@ -804,6 +853,8 @@ func (s *GameplayScene) drawDevelopmentControls(screen *ebiten.Image, startX, ba
 	s.devBoatBtn.W = btnW
 	s.devBoatBtn.H = btnH
 	s.devBoatBtn.Primary = s.selectedBuildType == "boat"
+	s.devBoatBtn.Disabled = !canAffordBoat
+	s.devBoatBtn.Tooltip = boatTooltip
 	s.devBoatBtn.Draw(screen)
 	btnX += btnW + 20
 

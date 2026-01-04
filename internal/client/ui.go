@@ -84,6 +84,7 @@ var PlayerColorOrder = []string{
 type Button struct {
 	X, Y, W, H int
 	Text       string
+	Tooltip    string // Shown on hover
 	OnClick    func()
 	Disabled   bool
 	Primary    bool
@@ -138,6 +139,29 @@ func (b *Button) Draw(screen *ebiten.Image) {
 		textColor = ColorTextMuted
 	}
 	DrawTextCentered(screen, b.Text, b.X+b.W/2, b.Y+b.H/2-6, textColor)
+
+	// Draw tooltip if hovered and has tooltip text
+	if b.hovered && b.Tooltip != "" {
+		// Draw tooltip above the button
+		tooltipY := b.Y - 22
+		tooltipW := len(b.Tooltip)*7 + 10
+		tooltipX := b.X + b.W/2 - tooltipW/2
+
+		// Keep tooltip on screen
+		if tooltipX < 5 {
+			tooltipX = 5
+		}
+		if tooltipX+tooltipW > ScreenWidth-5 {
+			tooltipX = ScreenWidth - 5 - tooltipW
+		}
+
+		// Background
+		vector.DrawFilledRect(screen, float32(tooltipX), float32(tooltipY), float32(tooltipW), 20, color.RGBA{40, 40, 40, 240}, false)
+		vector.StrokeRect(screen, float32(tooltipX), float32(tooltipY), float32(tooltipW), 20, 1, ColorBorder, false)
+
+		// Text
+		DrawText(screen, b.Tooltip, tooltipX+5, tooltipY+4, ColorText)
+	}
 }
 
 // TextInput represents a text input field.
