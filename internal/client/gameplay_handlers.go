@@ -270,29 +270,22 @@ func (s *GameplayScene) handleDevelopment(territoryID string) {
 		return
 	}
 
-	// Check if the territory belongs to us
-	if terr, ok := s.territories[territoryID].(map[string]interface{}); ok {
-		owner := terr["owner"].(string)
-		if owner == s.game.config.PlayerID {
-			// Our territory - show build menu
-			s.buildMenuTerritory = territoryID
-			s.showBuildMenu = true
-			log.Printf("Opened build menu for %s", territoryID)
-		} else {
-			log.Printf("Cannot build on enemy territory")
-		}
-	}
-}
-
-// doBuild executes a build action
-func (s *GameplayScene) doBuild(buildType string) {
-	if s.buildMenuTerritory == "" {
+	// Must have a build type selected first
+	if s.selectedBuildType == "" {
+		log.Printf("Select what to build first (City, Weapon, or Boat)")
 		return
 	}
 
-	// For boats, check if we need to select a water body
-	if buildType == "boat" {
-		if terr, ok := s.territories[s.buildMenuTerritory].(map[string]interface{}); ok {
+	// Check if the territory belongs to us
+	if terr, ok := s.territories[territoryID].(map[string]interface{}); ok {
+		owner := terr["owner"].(string)
+		if owner != s.game.config.PlayerID {
+			log.Printf("Cannot build on enemy territory")
+			return
+		}
+
+		// For boats, check if we need to select a water body
+		if s.selectedBuildType == "boat" {
 			if waterBodies, ok := terr["waterBodies"].([]interface{}); ok && len(waterBodies) > 1 {
 				// Multiple water bodies - show selection UI
 				s.waterBodyOptions = make([]string, len(waterBodies))
@@ -300,20 +293,18 @@ func (s *GameplayScene) doBuild(buildType string) {
 					s.waterBodyOptions[i] = wb.(string)
 				}
 				s.showWaterBodySelect = true
-				s.showBuildMenu = false
+				s.buildMenuTerritory = territoryID
 				return
 			}
 		}
+
+		// Build immediately
+		log.Printf("Building %s at %s (useGold: %v)", s.selectedBuildType, territoryID, s.buildUseGold)
+		s.game.Build(s.selectedBuildType, territoryID, s.buildUseGold)
+		// Keep the build type selected so player can quickly build more
+	} else {
+		log.Printf("Territory not found: %s", territoryID)
 	}
-
-	// Use the gold toggle setting from the menu
-	useGold := s.buildUseGold
-
-	log.Printf("Building %s at %s (useGold: %v)", buildType, s.buildMenuTerritory, useGold)
-	s.game.Build(buildType, s.buildMenuTerritory, useGold)
-	s.showBuildMenu = false
-	s.buildMenuTerritory = ""
-	s.buildUseGold = false // Reset toggle for next time
 }
 
 // doBuildBoatInWater builds a boat in a specific water body
@@ -322,14 +313,14 @@ func (s *GameplayScene) doBuildBoatInWater(waterBodyID string) {
 		return
 	}
 
-	// Use the gold toggle setting from the menu
+	// Use the gold toggle setting
 	useGold := s.buildUseGold
 	log.Printf("Building boat at %s in water body %s (useGold: %v)", s.buildMenuTerritory, waterBodyID, useGold)
 	s.game.BuildBoatInWater(s.buildMenuTerritory, waterBodyID, useGold)
 	s.showWaterBodySelect = false
 	s.waterBodyOptions = nil
 	s.buildMenuTerritory = ""
-	s.buildUseGold = false // Reset toggle for next time
+	// Keep selectedBuildType and buildUseGold so player can build more boats quickly
 }
 
 // handleWaterBodyClick handles clicking on a water cell during water body selection

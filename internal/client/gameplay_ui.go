@@ -531,8 +531,9 @@ func (s *GameplayScene) drawBottomBar(screen *ebiten.Image) {
 
 	case "Development":
 		if isMyTurn {
-			instruction = "Build cities, weapons, or boats on your territories"
-			instruction2 = "Click 'End Turn' when done building"
+			s.drawDevelopmentControls(screen, rightX, barY)
+			// Don't show generic instructions - controls are drawn instead
+			return
 		} else {
 			instruction = "Waiting for other player to build..."
 		}
@@ -744,6 +745,83 @@ func (s *GameplayScene) drawTradeControls(screen *ebiten.Image, startX, barY, en
 
 	// End Turn button
 	s.endPhaseBtn.X = endX - 170
+	s.endPhaseBtn.Y = barY + 30
+	s.endPhaseBtn.Draw(screen)
+}
+
+// drawDevelopmentControls draws the development phase controls in the status bar.
+func (s *GameplayScene) drawDevelopmentControls(screen *ebiten.Image, startX, barY int) {
+	barW := ScreenWidth - 20
+	barX := 10
+
+	// Turn indicator with color block
+	indicatorX := startX
+	if myPlayer, ok := s.players[s.game.config.PlayerID]; ok {
+		player := myPlayer.(map[string]interface{})
+		if playerColor, ok := player["color"].(string); ok {
+			if pc, ok := PlayerColors[playerColor]; ok {
+				vector.DrawFilledRect(screen, float32(indicatorX), float32(barY+14), 14, 14, pc, false)
+				vector.StrokeRect(screen, float32(indicatorX), float32(barY+14), 14, 14, 1, ColorBorder, false)
+			}
+		}
+	}
+	DrawLargeText(screen, "YOUR TURN - BUILD", startX+20, barY+12, ColorSuccess)
+
+	// Show current selection status
+	statusText := "Select what to build, then click a territory"
+	if s.selectedBuildType != "" {
+		statusText = "Click one of your territories to build " + s.selectedBuildType
+	}
+	DrawText(screen, statusText, startX, barY+40, ColorTextMuted)
+
+	// Build option buttons
+	btnW := 80
+	btnH := 30
+	btnY := barY + 58
+	btnX := startX
+
+	// City button
+	s.devCityBtn.X = btnX
+	s.devCityBtn.Y = btnY
+	s.devCityBtn.W = btnW
+	s.devCityBtn.H = btnH
+	s.devCityBtn.Primary = s.selectedBuildType == "city"
+	s.devCityBtn.Draw(screen)
+	btnX += btnW + 10
+
+	// Weapon button
+	s.devWeaponBtn.X = btnX
+	s.devWeaponBtn.Y = btnY
+	s.devWeaponBtn.W = btnW
+	s.devWeaponBtn.H = btnH
+	s.devWeaponBtn.Primary = s.selectedBuildType == "weapon"
+	s.devWeaponBtn.Draw(screen)
+	btnX += btnW + 10
+
+	// Boat button
+	s.devBoatBtn.X = btnX
+	s.devBoatBtn.Y = btnY
+	s.devBoatBtn.W = btnW
+	s.devBoatBtn.H = btnH
+	s.devBoatBtn.Primary = s.selectedBuildType == "boat"
+	s.devBoatBtn.Draw(screen)
+	btnX += btnW + 20
+
+	// Use Gold toggle
+	if s.buildUseGold {
+		s.devUseGoldBtn.Text = "[X] Use Gold"
+	} else {
+		s.devUseGoldBtn.Text = "[ ] Use Gold"
+	}
+	s.devUseGoldBtn.X = btnX
+	s.devUseGoldBtn.Y = btnY
+	s.devUseGoldBtn.W = 100
+	s.devUseGoldBtn.H = btnH
+	s.devUseGoldBtn.Primary = s.buildUseGold
+	s.devUseGoldBtn.Draw(screen)
+
+	// End Turn button (right side)
+	s.endPhaseBtn.X = barX + barW - 170
 	s.endPhaseBtn.Y = barY + 30
 	s.endPhaseBtn.Draw(screen)
 }

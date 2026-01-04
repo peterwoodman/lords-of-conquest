@@ -50,15 +50,16 @@ type GameplayScene struct {
 	endPhaseBtn       *Button
 	selectedTerritory string // For multi-step actions like moving stockpile
 
-	// Build menu (Development phase)
-	showBuildMenu      bool
-	buildMenuTerritory string
-	buildUseGold       bool // Toggle for using gold instead of resources
-	buildCityBtn       *Button
-	buildWeaponBtn     *Button
-	buildBoatBtn       *Button
-	buildUseGoldBtn    *Button
-	cancelBuildBtn     *Button
+	// Development phase - select what to build first, then click territory
+	selectedBuildType  string // "city", "weapon", or "boat" (empty = none selected)
+	buildUseGold       bool   // Toggle for using gold instead of resources
+	devCityBtn         *Button
+	devWeaponBtn       *Button
+	devBoatBtn         *Button
+	devUseGoldBtn      *Button
+
+	// Water body selection for boats (when territory touches multiple water bodies)
+	buildMenuTerritory string // Territory where we're building (for water body selection)
 
 	// Water body selection for boats
 	showWaterBodySelect bool
@@ -341,31 +342,42 @@ func NewGameplayScene(game *Game) *GameplayScene {
 		OnClick: func() { s.game.EndPhase() },
 	}
 
-	// Build menu buttons
-	s.buildCityBtn = &Button{
-		X: 0, Y: 0, W: 200, H: 40,
-		Text:    "Build City",
-		OnClick: func() { s.doBuild("city") },
+	// Development phase build selection buttons (shown in status bar)
+	s.devCityBtn = &Button{
+		Text: "City",
+		OnClick: func() {
+			if s.selectedBuildType == "city" {
+				s.selectedBuildType = "" // Deselect
+			} else {
+				s.selectedBuildType = "city"
+			}
+		},
 	}
-	s.buildWeaponBtn = &Button{
-		X: 0, Y: 0, W: 200, H: 40,
-		Text:    "Build Weapon",
-		OnClick: func() { s.doBuild("weapon") },
+	s.devWeaponBtn = &Button{
+		Text: "Weapon",
+		OnClick: func() {
+			if s.selectedBuildType == "weapon" {
+				s.selectedBuildType = ""
+			} else {
+				s.selectedBuildType = "weapon"
+			}
+		},
 	}
-	s.buildBoatBtn = &Button{
-		X: 0, Y: 0, W: 200, H: 40,
-		Text:    "Build Boat",
-		OnClick: func() { s.doBuild("boat") },
+	s.devBoatBtn = &Button{
+		Text: "Boat",
+		OnClick: func() {
+			if s.selectedBuildType == "boat" {
+				s.selectedBuildType = ""
+			} else {
+				s.selectedBuildType = "boat"
+			}
+		},
 	}
-	s.buildUseGoldBtn = &Button{
-		X: 0, Y: 0, W: 200, H: 40,
-		Text:    "[ ] Use Gold Only",
-		OnClick: func() { s.buildUseGold = !s.buildUseGold },
-	}
-	s.cancelBuildBtn = &Button{
-		X: 0, Y: 0, W: 200, H: 40,
-		Text:    "Cancel",
-		OnClick: func() { s.showBuildMenu = false; s.buildUseGold = false },
+	s.devUseGoldBtn = &Button{
+		Text: "[ ] Use Gold",
+		OnClick: func() {
+			s.buildUseGold = !s.buildUseGold
+		},
 	}
 
 	// Combat result dismiss button
@@ -641,18 +653,16 @@ func (s *GameplayScene) Update() error {
 		return nil
 	}
 
-	// Handle build menu
-	if s.showBuildMenu {
-		s.buildCityBtn.Update()
-		s.buildWeaponBtn.Update()
-		s.buildBoatBtn.Update()
-		s.buildUseGoldBtn.Update()
-		s.cancelBuildBtn.Update()
+	// Handle development phase build buttons (in status bar)
+	if s.currentPhase == "Development" && s.currentTurn == s.game.config.PlayerID {
+		s.devCityBtn.Update()
+		s.devWeaponBtn.Update()
+		s.devBoatBtn.Update()
+		s.devUseGoldBtn.Update()
 		if inpututil.IsKeyJustPressed(ebiten.KeyEscape) {
-			s.showBuildMenu = false
+			s.selectedBuildType = ""
 			s.buildUseGold = false
 		}
-		return nil // Block other input while showing menu
 	}
 
 	// Handle water body selection for boats
@@ -822,12 +832,7 @@ func (s *GameplayScene) Draw(screen *ebiten.Image) {
 		s.drawHoverInfo(screen)
 	}
 
-	// Draw build menu overlay
-	if s.showBuildMenu {
-		s.drawBuildMenu(screen)
-	}
-
-	// Draw water body selection overlay
+	// Draw water body selection overlay (for building boats)
 	if s.showWaterBodySelect {
 		s.drawWaterBodySelect(screen)
 	}
