@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/sh
 set -e
 
 DB_PATH="${DB_PATH:-/data/lords.db}"
