@@ -24,33 +24,75 @@ func (s *GameplayScene) drawLeftSidebar(screen *ebiten.Image) {
 	sidebarY := 10
 	sidebarW := 250
 
-	// Player identity panel
+	// Player identity panel (with resources)
 	myPlayer, ok := s.players[s.game.config.PlayerID]
 	if ok {
 		player := myPlayer.(map[string]interface{})
 		playerName := player["name"].(string)
 		playerColor := player["color"].(string)
 
-		DrawFancyPanel(screen, sidebarX, sidebarY, sidebarW, 80, "You")
+		DrawFancyPanel(screen, sidebarX, sidebarY, sidebarW, 115, "You")
 
-		DrawLargeText(screen, playerName, sidebarX+15, sidebarY+30, ColorText)
+		DrawLargeText(screen, playerName, sidebarX+15, sidebarY+28, ColorText)
 
 		// Color indicator (clickable)
 		if pc, ok := PlayerColors[playerColor]; ok {
-			colorSize := float32(32)
-			colorX := float32(sidebarX + sidebarW - 48)
-			colorY := float32(sidebarY + 28)
+			colorSize := float32(24)
+			colorX := float32(sidebarX + sidebarW - 40)
+			colorY := float32(sidebarY + 24)
 			vector.DrawFilledRect(screen, colorX, colorY, colorSize, colorSize, pc, false)
 			vector.StrokeRect(screen, colorX, colorY, colorSize, colorSize, 2, ColorBorder, false)
 			// Store bounds for click detection
 			s.myColorBlockBounds = [4]int{int(colorX), int(colorY), int(colorSize), int(colorSize)}
 		}
 
-		DrawText(screen, playerColor, sidebarX+15, sidebarY+58, ColorTextMuted)
+		// Resources in 2 columns below name (with icons)
+		coal, gold, iron, timber := 0, 0, 0, 0
+		if stockpile, ok := player["stockpile"].(map[string]interface{}); ok {
+			if v, ok := stockpile["coal"].(float64); ok {
+				coal = int(v)
+			}
+			if v, ok := stockpile["gold"].(float64); ok {
+				gold = int(v)
+			}
+			if v, ok := stockpile["iron"].(float64); ok {
+				iron = int(v)
+			}
+			if v, ok := stockpile["timber"].(float64); ok {
+				timber = int(v)
+			}
+		}
+
+		resY := sidebarY + 62
+		col1X := sidebarX + 12
+		col2X := sidebarX + sidebarW/2 + 5
+		iconSize := 14
+
+		// Helper to draw resource with icon
+		drawResource := func(iconKey string, count int, x, y int) {
+			if icon := GetIcon(iconKey); icon != nil {
+				// Light background for visibility
+				vector.DrawFilledRect(screen, float32(x), float32(y), float32(iconSize), float32(iconSize),
+					color.RGBA{180, 180, 180, 255}, false)
+				op := &ebiten.DrawImageOptions{}
+				op.GeoM.Translate(float64(x), float64(y))
+				screen.DrawImage(icon, op)
+			}
+			DrawText(screen, fmt.Sprintf("%d", count), x+iconSize+4, y-1, ColorText)
+		}
+
+		// Row 1: Coal and Gold
+		drawResource("coal", coal, col1X, resY)
+		drawResource("gold", gold, col2X, resY)
+
+		// Row 2: Iron and Wood
+		resY += 22
+		drawResource("iron", iron, col1X, resY)
+		drawResource("timber", timber, col2X, resY)
 	}
 
 	// Players list - compact height based on player count
-	playersY := sidebarY + 95
+	playersY := sidebarY + 130 // Below the expanded "You" panel with resources
 	playerCount := len(s.playerOrder)
 	playersH := 40 + playerCount*26 + 40 // Header + per-player height + space for Set Ally button
 	if playersH > 240 {
@@ -114,12 +156,8 @@ func (s *GameplayScene) drawLeftSidebar(screen *ebiten.Image) {
 		}
 	}
 
-	// Resources panel - below Players
-	resourcesY := playersY + playersH + 15
-	s.drawResourcesPanel(screen, sidebarX, resourcesY, sidebarW)
-
-	// History panel - below Resources
-	historyY := resourcesY + 185 // Resources panel is 170 + 15 margin
+	// History panel - directly below Players (no separate Resources panel)
+	historyY := playersY + playersH + 15
 	s.drawHistoryPanel(screen, sidebarX, historyY, sidebarW)
 }
 
@@ -743,9 +781,9 @@ func (s *GameplayScene) drawTradeControls(screen *ebiten.Image, startX, barY, en
 	DrawLargeText(screen, "YOUR TURN - TRADE", startX+20, barY+12, ColorSuccess)
 	DrawText(screen, "Propose trades or End Turn to skip", startX, barY+45, ColorTextMuted)
 
-	// Propose Trade button - below the instruction text
-	s.proposeTradeBtn.X = startX
-	s.proposeTradeBtn.Y = barY + 65
+	// Propose Trade button - to the right of the text
+	s.proposeTradeBtn.X = startX + 280
+	s.proposeTradeBtn.Y = barY + 35
 	s.proposeTradeBtn.Draw(screen)
 
 	// End Turn button

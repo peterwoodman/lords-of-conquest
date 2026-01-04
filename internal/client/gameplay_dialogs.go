@@ -1013,12 +1013,6 @@ func (s *GameplayScene) drawPhaseSkip(screen *ebiten.Image) {
 		y += 20
 	}
 
-	// Countdown
-	y += 10
-	secondsLeft := s.phaseSkipCountdown / 60
-	DrawText(screen, fmt.Sprintf("(continuing in %d seconds...)", secondsLeft),
-		panelX+20, y, ColorTextMuted)
-
 	// OK button
 	s.dismissSkipBtn.X = panelX + panelW/2 - 50
 	s.dismissSkipBtn.Y = panelY + panelH - 55
@@ -1721,11 +1715,9 @@ func (s *GameplayScene) getFirstAvailableIconPosition(territoryID string) (int, 
 
 // drawProductionAnimIcon draws a resource/horse icon at the given position for animation.
 func (s *GameplayScene) drawProductionAnimIcon(screen *ebiten.Image, x, y float32, resourceType string) {
-	// Determine icon size based on cell size
-	iconSize := float32(s.cellSize) * 0.7
-	if iconSize < 20 {
-		iconSize = 20
-	}
+	// Determine icon size based on cell size (matches map icon sizing)
+	// cellSize already includes zoom, so this scales automatically
+	iconSize := float32(s.cellSize) * 0.65
 
 	// Get the appropriate icon
 	var iconImg *ebiten.Image

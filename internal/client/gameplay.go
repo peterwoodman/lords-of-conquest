@@ -786,9 +786,19 @@ func (s *GameplayScene) Update() error {
 		}
 	}
 
-	// ESC to cancel selection
+	// ESC to cancel selection or leave game
 	if inpututil.IsKeyJustPressed(ebiten.KeyEscape) {
-		s.selectedTerritory = ""
+		if s.selectedTerritory != "" || s.selectedBuildType != "" || s.shipmentMode != "" {
+			// Cancel current selection/mode
+			s.selectedTerritory = ""
+			s.selectedBuildType = ""
+			s.shipmentMode = ""
+			s.shipmentFromTerritory = ""
+		} else {
+			// No selection - leave game and return to lobby
+			s.game.LeaveGame()
+			s.game.SetScene(s.game.lobbyScene)
+		}
 	}
 
 	return nil
