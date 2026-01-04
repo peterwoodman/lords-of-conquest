@@ -17,9 +17,23 @@ func main() {
 	dbPath := flag.String("db", "data/lords.db", "Database path")
 	flag.Parse()
 
+	// Use PORT env var if set (required for Render.com and similar platforms)
+	actualPort := *port
+	if envPort := os.Getenv("PORT"); envPort != "" {
+		actualPort = envPort
+		log.Printf("Using PORT from environment: %s", actualPort)
+	}
+
+	// Use DB_PATH env var if set, for cloud deployments with persistent disks
+	actualDBPath := *dbPath
+	if envDBPath := os.Getenv("DB_PATH"); envDBPath != "" {
+		actualDBPath = envDBPath
+		log.Printf("Using DB_PATH from environment: %s", actualDBPath)
+	}
+
 	cfg := server.Config{
-		Addr:   ":" + *port,
-		DBPath: *dbPath,
+		Addr:   ":" + actualPort,
+		DBPath: actualDBPath,
 	}
 
 	srv, err := server.New(cfg)
