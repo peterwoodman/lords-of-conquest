@@ -522,14 +522,14 @@ type LobbyScene struct {
 	createPublic     bool
 
 	// Map generation options (numeric sliders)
-	mapWidthSlider      *Slider // 20-60
-	territoriesSlider   *Slider // 24-90
-	islandsSlider       *Slider // 1-5
-	resourcesSlider     *Slider // 10-80 (percentage)
-	waterBorderBtn      *Button
-	waterBorder         bool
-	generateBtn         *Button
-	regenerateBtn       *Button
+	mapWidthSlider    *Slider // 20-60
+	territoriesSlider *Slider // 24-90
+	islandsSlider     *Slider // 1-5
+	resourcesSlider   *Slider // 10-80 (percentage)
+	waterBorderBtn    *Button
+	waterBorder       bool
+	generateBtn       *Button
+	regenerateBtn     *Button
 
 	// Map preview
 	generatedMap   *maps.Map
@@ -636,26 +636,34 @@ func NewLobbyScene(game *Game) *LobbyScene {
 		Value: 30,
 		Label: "Map Width",
 	}
-	
+
 	s.territoriesSlider = &Slider{
 		Min:   24,
-		Max:   90,
+		Max:   120,
 		Value: 40,
 		Label: "Territories",
 	}
-	
+
 	s.islandsSlider = &Slider{
 		Min:   1,
 		Max:   5,
 		Value: 3,
 		Label: "Islands",
 	}
-	
+
 	s.resourcesSlider = &Slider{
 		Min:   10,
 		Max:   80,
 		Value: 45,
 		Label: "Resources %",
+	}
+
+	// Water border toggle
+	s.waterBorderBtn = &Button{
+		Text: "[ ] Water Border",
+		OnClick: func() {
+			s.waterBorder = !s.waterBorder
+		},
 	}
 
 	// Generate buttons
@@ -1261,7 +1269,7 @@ type WaitingScene struct {
 func NewWaitingScene(game *Game) *WaitingScene {
 	s := &WaitingScene{game: game}
 
-	s.playerList = NewList(50, 135, 400, 300)
+	s.playerList = NewList(50, 135, 400, 400)
 
 	s.addAIBtn = &Button{
 		X: 500, Y: 150, W: 180, H: 40,
@@ -1284,7 +1292,7 @@ func NewWaitingScene(game *Game) *WaitingScene {
 	}
 
 	s.leaveBtn = &Button{
-		X: 500, Y: 450, W: 180, H: 40,
+		X: 500, Y: 550, W: 180, H: 40,
 		Text: "Leave Game",
 		OnClick: func() {
 			s.game.LeaveGame()

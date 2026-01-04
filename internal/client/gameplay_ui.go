@@ -46,7 +46,7 @@ func (s *GameplayScene) drawLeftSidebar(screen *ebiten.Image) {
 			s.myColorBlockBounds = [4]int{int(colorX), int(colorY), int(colorSize), int(colorSize)}
 		}
 
-		DrawText(screen, playerColor+" (click to change)", sidebarX+15, sidebarY+58, ColorTextMuted)
+		DrawText(screen, playerColor, sidebarX+15, sidebarY+58, ColorTextMuted)
 	}
 
 	// Players list - compact height based on player count

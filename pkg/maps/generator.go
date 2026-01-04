@@ -10,7 +10,7 @@ import (
 // All values are now numeric for fine-grained control via sliders.
 type GeneratorOptions struct {
 	Width       int  // Map width: 20-60
-	Territories int  // Target territory count: 24-90
+	Territories int  // Target territory count: 24-120
 	WaterBorder bool // Whether to surround map with water
 	Islands     int  // Island spread: 1-5 (1=one landmass, 5=many islands)
 	Resources   int  // Resource coverage percentage: 10-80
@@ -338,30 +338,25 @@ func (g *Generator) mergeTinyTerritories(minSize int) {
 
 func (g *Generator) calculateTerritoryCount() int {
 	// Use the requested territory count directly
-	requested := clamp(g.options.Territories, 24, 90)
-	
-	// But cap it based on what can fit on the map
+	requested := clamp(g.options.Territories, 24, 120)
+
+	// Cap based on what can physically fit on the map
 	totalCells := g.width * g.height
-	
+
 	// Account for water border
 	if g.options.WaterBorder {
 		borderCells := 2*g.width + 2*(g.height-2)
 		totalCells -= borderCells
 	}
-	
-	// Calculate land ratio based on islands setting (1-5)
-	// 1 = mostly land (85%), 5 = lots of water (50%)
-	islandLevel := clamp(g.options.Islands, 1, 5)
-	landRatio := 0.85 - float64(islandLevel-1)*0.0875 // 0.85, 0.7625, 0.675, 0.5875, 0.50
-	
-	landCells := int(float64(totalCells) * landRatio)
-	
-	// Minimum 5 cells per territory for it to be playable
-	maxPossible := landCells / 5
+
+	// Territory count is limited only by map size, not islands setting
+	// Islands setting only affects how spread out the land is, not how much we try to place
+	// Minimum ~5 cells per territory for it to be playable
+	maxPossible := totalCells / 5
 	if maxPossible < 6 {
 		maxPossible = 6
 	}
-	
+
 	// Return the smaller of requested vs what can fit
 	if requested > maxPossible {
 		return maxPossible

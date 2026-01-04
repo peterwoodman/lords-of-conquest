@@ -220,16 +220,16 @@ func (h *Handlers) handleCreateGame(client *Client, msg *protocol.Message) error
 		MapID:         payload.Settings.MapID,
 	}
 	if settings.MaxPlayers == 0 {
-		settings.MaxPlayers = 4
+		settings.MaxPlayers = 8
 	}
 	if settings.VictoryCities == 0 {
-		settings.VictoryCities = 3
+		settings.VictoryCities = 6
 	}
 	if settings.GameLevel == "" {
 		settings.GameLevel = "expert"
 	}
 	if settings.ChanceLevel == "" {
-		settings.ChanceLevel = "medium"
+		settings.ChanceLevel = "high"
 	}
 
 	game, err := h.hub.server.db.CreateGame(payload.Name, client.PlayerID, settings, payload.IsPublic, mapJSON)
