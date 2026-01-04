@@ -3298,6 +3298,10 @@ func (h *Handlers) broadcastWithAck(gameID, eventID, eventType string, msgType p
 func (h *Handlers) triggerProductionAnimation(gameID string, state *game.GameState) {
 	log.Printf("Triggering production animation for game %s", gameID)
 
+	// First, broadcast the current game state so clients see "Production" phase
+	// in their status bar during the animation
+	h.broadcastGameStateImmediate(gameID)
+
 	pm := game.NewPhaseManager(state)
 	eventID := fmt.Sprintf("production-%s-%d", gameID, time.Now().UnixNano())
 	playersToWaitFor := make([]string, 0)

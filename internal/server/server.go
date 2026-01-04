@@ -547,8 +547,8 @@ type Client struct {
 const (
 	writeWait      = 10 * time.Second
 	pongWait       = 60 * time.Second
-	pingPeriod     = 25 * time.Second  // Ping every 25s (well under most cloud timeouts)
-	readTimeout    = 70 * time.Second  // Allow slightly longer than pong wait
+	pingPeriod     = 25 * time.Second // Ping every 25s (well under most cloud timeouts)
+	readTimeout    = 10 * time.Minute // Players may be idle for a while thinking about their turn
 	maxMessageSize = 65536
 )
 
