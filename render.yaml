@@ -1,0 +1,21 @@
+# Render.com deployment configuration
+# https://render.com/docs/blueprint-spec
+
+services:
+  - type: web
+    name: lords-of-conquest
+    runtime: go
+    buildCommand: go build -o bin/server ./cmd/server
+    startCommand: ./bin/server
+    envVars:
+      - key: GO_VERSION
+        value: "1.24"
+      - key: DB_PATH
+        value: "/data/lords.db"
+    # Health check endpoint
+    healthCheckPath: /health
+    # Disk for SQLite database persistence
+    disk:
+      name: data
+      mountPath: /data
+      sizeGB: 1

@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"log"
+	"strings"
 	"sync"
 	"time"
 
@@ -44,7 +45,24 @@ func (c *NetworkClient) Connect(serverAddr string) error {
 	defer c.mu.Unlock()
 
 	log.Printf("Attempting to connect to: %s", serverAddr)
-	url := "ws://" + serverAddr + "/ws"
+	
+	// Determine WebSocket URL scheme based on address
+	// Use wss:// for .onrender.com and other cloud hosts, ws:// for localhost
+	var url string
+	if strings.Contains(serverAddr, ".onrender.com") || 
+	   strings.Contains(serverAddr, ".herokuapp.com") ||
+	   strings.Contains(serverAddr, ".fly.dev") ||
+	   strings.HasPrefix(serverAddr, "wss://") {
+		// Cloud deployment - use secure WebSocket without port
+		host := strings.TrimPrefix(serverAddr, "wss://")
+		// Remove any port if specified (cloud providers use standard 443)
+		if colonIdx := strings.LastIndex(host, ":"); colonIdx != -1 {
+			host = host[:colonIdx]
+		}
+		url = "wss://" + host + "/ws"
+	} else {
+		url = "ws://" + serverAddr + "/ws"
+	}
 	log.Printf("Full WebSocket URL: %s", url)
 	
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
