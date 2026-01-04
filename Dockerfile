@@ -32,8 +32,8 @@ COPY --from=builder /build/server /app/server
 COPY litestream.yml /app/litestream.yml
 COPY scripts/start-server.sh /app/start-server.sh
 
-# Make scripts executable
-RUN chmod +x /app/start-server.sh /app/server
+# Fix Windows line endings and make executable
+RUN sed -i 's/\r$//' /app/start-server.sh && chmod +x /app/start-server.sh /app/server
 
 # Create data directory
 RUN mkdir -p /data
