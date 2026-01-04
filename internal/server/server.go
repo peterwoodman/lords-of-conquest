@@ -547,7 +547,8 @@ type Client struct {
 const (
 	writeWait      = 10 * time.Second
 	pongWait       = 60 * time.Second
-	pingPeriod     = (pongWait * 9) / 10
+	pingPeriod     = 25 * time.Second  // Ping every 25s (well under most cloud timeouts)
+	readTimeout    = 70 * time.Second  // Allow slightly longer than pong wait
 	maxMessageSize = 65536
 )
 
@@ -582,15 +583,24 @@ func (c *Client) ReadPump() {
 	c.conn.SetReadLimit(maxMessageSize)
 
 	for {
-		// Read with no timeout - rely on ping/pong from WritePump to detect dead connections
-		ctx := context.Background()
+		// Use a read timeout to detect dead connections
+		// This works alongside the ping/pong from WritePump
+		ctx, cancel := context.WithTimeout(context.Background(), readTimeout)
 
 		msgType, data, err := c.conn.Read(ctx)
+		cancel()
 
 		if err != nil {
 			status := websocket.CloseStatus(err)
+			// Only log unexpected errors (not normal closures)
 			if status != websocket.StatusNormalClosure && status != websocket.StatusGoingAway {
-				log.Printf("WebSocket error: %v", err)
+				// Check if it's a timeout or network issue
+				if ctx.Err() == context.DeadlineExceeded {
+					log.Printf("WebSocket read timeout for player %s", c.PlayerID)
+				} else {
+					// EOF and other network errors are common, log at lower verbosity
+					log.Printf("WebSocket closed for player %s: %v", c.PlayerID, err)
+				}
 			}
 			break
 		}
@@ -602,7 +612,7 @@ func (c *Client) ReadPump() {
 
 		var msg protocol.Message
 		if err := json.Unmarshal(data, &msg); err != nil {
-			log.Printf("Invalid message: %v", err)
+			log.Printf("Invalid message from player %s: %v", c.PlayerID, err)
 			continue
 		}
 
@@ -641,6 +651,7 @@ func (c *Client) WritePump() {
 			cancel()
 
 			if err != nil {
+				log.Printf("Write error for player %s: %v", c.PlayerID, err)
 				return
 			}
 
@@ -650,6 +661,7 @@ func (c *Client) WritePump() {
 			cancel()
 
 			if err != nil {
+				log.Printf("Ping failed for player %s: %v", c.PlayerID, err)
 				return
 			}
 		}
