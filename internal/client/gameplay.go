@@ -48,10 +48,10 @@ type GameplayScene struct {
 	zoom       float64 // 1.0 = 100%, 0.5 = 50%, 2.0 = 200%
 	panX       int     // Pan offset in pixels
 	panY       int
-	isPanning  bool    // True while right mouse button is held
-	panStartX  int     // Mouse position when pan started
+	isPanning  bool // True while right mouse button is held
+	panStartX  int  // Mouse position when pan started
 	panStartY  int
-	panOffsetX int     // Pan offset when pan started
+	panOffsetX int // Pan offset when pan started
 	panOffsetY int
 
 	// UI
@@ -61,12 +61,12 @@ type GameplayScene struct {
 	selectedTerritory string // For multi-step actions like moving stockpile
 
 	// Development phase - select what to build first, then click territory
-	selectedBuildType  string // "city", "weapon", or "boat" (empty = none selected)
-	buildUseGold       bool   // Toggle for using gold instead of resources
-	devCityBtn         *Button
-	devWeaponBtn       *Button
-	devBoatBtn         *Button
-	devUseGoldBtn      *Button
+	selectedBuildType string // "city", "weapon", or "boat" (empty = none selected)
+	buildUseGold      bool   // Toggle for using gold instead of resources
+	devCityBtn        *Button
+	devWeaponBtn      *Button
+	devBoatBtn        *Button
+	devUseGoldBtn     *Button
 
 	// Water body selection for boats (when territory touches multiple water bodies)
 	buildMenuTerritory string // Territory where we're building (for water body selection)
@@ -77,19 +77,19 @@ type GameplayScene struct {
 	waterBodySelectBtns []*Button
 
 	// Combat result display
-	showCombatResult   bool
-	combatResult       *CombatResultData
-	combatResultQueue  []*CombatResultData // Queue of combat results to show
-	dismissResultBtn   *Button
+	showCombatResult  bool
+	combatResult      *CombatResultData
+	combatResultQueue []*CombatResultData // Queue of combat results to show
+	dismissResultBtn  *Button
 
 	// Combat animation
-	showCombatAnimation     bool
-	combatAnimTerritory     string                 // Territory being attacked
-	combatAnimExplosions    []CombatExplosion      // Active explosions
-	combatAnimTimer         int                    // Frames remaining
-	combatAnimMaxDuration   int                    // Total animation duration
-	combatPendingResult     *CombatResultData      // Result to show after animation
-	combatPendingState      map[string]interface{} // Game state to apply after animation
+	showCombatAnimation   bool
+	combatAnimTerritory   string                 // Territory being attacked
+	combatAnimExplosions  []CombatExplosion      // Active explosions
+	combatAnimTimer       int                    // Frames remaining
+	combatAnimMaxDuration int                    // Total animation duration
+	combatPendingResult   *CombatResultData      // Result to show after animation
+	combatPendingState    map[string]interface{} // Game state to apply after animation
 
 	// Production animation
 	showProductionAnim     bool
@@ -99,11 +99,11 @@ type GameplayScene struct {
 	productionAnimProgress float64 // 0.0 to 1.0 for current item
 
 	// Stockpile capture animation
-	showStockpileCapture       bool
-	stockpileCaptureData       *StockpileCaptureData
-	stockpileCaptureTimer      int
-	stockpileCaptureIndex      int     // Which resource we're animating
-	stockpileCaptureProgress   float64 // 0.0 to 1.0 for current resource
+	showStockpileCapture     bool
+	stockpileCaptureData     *StockpileCaptureData
+	stockpileCaptureTimer    int
+	stockpileCaptureIndex    int     // Which resource we're animating
+	stockpileCaptureProgress float64 // 0.0 to 1.0 for current resource
 
 	// Attack planning (Conquest phase)
 	showAttackPlan        bool
@@ -117,40 +117,40 @@ type GameplayScene struct {
 	loadWeaponCheckbox    bool // For boats: load weapon?
 
 	// Alliance UI
-	showAllyMenu        bool
-	setAllyBtn          *Button
-	allyNeutralBtn      *Button
-	allyDefenderBtn     *Button
-	allyAskBtn          *Button
-	allyPlayerBtns      []*Button // Buttons for specific player allies
-	allyPlayerIDs       []string  // Player IDs corresponding to allyPlayerBtns
-	cancelAllyMenuBtn   *Button
-	myAllianceSetting   string // Current alliance setting
+	showAllyMenu      bool
+	setAllyBtn        *Button
+	allyNeutralBtn    *Button
+	allyDefenderBtn   *Button
+	allyAskBtn        *Button
+	allyPlayerBtns    []*Button // Buttons for specific player allies
+	allyPlayerIDs     []string  // Player IDs corresponding to allyPlayerBtns
+	cancelAllyMenuBtn *Button
+	myAllianceSetting string // Current alliance setting
 
 	// Alliance request popup (when asked to join a battle)
-	showAllyRequest       bool
-	allyRequest           *AllianceRequestData
-	allyRequestCountdown  int // Frames remaining
-	supportAttackerBtn    *Button
-	supportDefenderBtn    *Button
-	stayNeutralBtn        *Button
+	showAllyRequest      bool
+	allyRequest          *AllianceRequestData
+	allyRequestCountdown int // Frames remaining
+	supportAttackerBtn   *Button
+	supportDefenderBtn   *Button
+	stayNeutralBtn       *Button
 
 	// Phase skip popup (queue to handle multiple skips)
-	showPhaseSkip       bool
-	phaseSkipEventID    string // Current skip's event ID for acknowledgment
-	phaseSkipPhase      string
-	phaseSkipReason     string
-	phaseSkipCountdown  int             // Frames remaining (30 seconds at 60fps = 1800)
-	phaseSkipQueue      []PhaseSkipData // Queue for pending skip messages
-	dismissSkipBtn      *Button
+	showPhaseSkip      bool
+	phaseSkipEventID   string // Current skip's event ID for acknowledgment
+	phaseSkipPhase     string
+	phaseSkipReason    string
+	phaseSkipCountdown int             // Frames remaining (30 seconds at 60fps = 1800)
+	phaseSkipQueue     []PhaseSkipData // Queue for pending skip messages
+	dismissSkipBtn     *Button
 
 	// Victory screen
-	showVictory      bool
-	victoryWinnerID  string
+	showVictory       bool
+	victoryWinnerID   string
 	victoryWinnerName string
-	victoryReason    string
-	victoryTimer     int // Frames since victory started (for message transition)
-	returnToLobbyBtn *Button
+	victoryReason     string
+	victoryTimer      int // Frames since victory started (for message transition)
+	returnToLobbyBtn  *Button
 
 	// Shipment phase UI
 	shipmentMode          string // "", "stockpile", "horse", "boat"
@@ -165,38 +165,38 @@ type GameplayScene struct {
 	shipmentConfirmBtn    *Button
 
 	// Color picker UI
-	showColorPicker    bool
-	colorPickerBtns    []*Button
-	cancelColorBtn     *Button
-	usedColors         map[string]bool // Colors already used by other players
+	showColorPicker bool
+	colorPickerBtns []*Button
+	cancelColorBtn  *Button
+	usedColors      map[string]bool // Colors already used by other players
 
 	// Trade phase UI
-	proposeTradeBtn     *Button
-	showTradePropose    bool                         // Show propose trade popup
-	showTradeIncoming   bool                         // Show incoming trade popup
-	showTradeResult     bool                         // Show trade result popup
-	waitingForTrade     bool                         // Waiting for trade response
-	tradeProposal       *TradeProposalData           // Incoming proposal
-	tradeResultAccepted bool
-	tradeResultMessage  string
-	tradeTargetPlayer   string                       // Selected target player for trade
-	tradeOfferCoal      int
-	tradeOfferGold      int
-	tradeOfferIron      int
-	tradeOfferTimber    int
-	tradeOfferHorses    int
-	tradeOfferHorseTerrs []string                    // Territories for horses being offered
-	tradeRequestCoal    int
-	tradeRequestGold    int
-	tradeRequestIron    int
-	tradeRequestTimber  int
-	tradeRequestHorses  int
-	tradeHorseDestTerrs []string                     // Where to place received horses
-	tradeSendBtn        *Button
-	tradeCancelBtn      *Button
-	tradeAcceptBtn      *Button
-	tradeRejectBtn      *Button
-	tradeResultOkBtn    *Button
+	proposeTradeBtn      *Button
+	showTradePropose     bool               // Show propose trade popup
+	showTradeIncoming    bool               // Show incoming trade popup
+	showTradeResult      bool               // Show trade result popup
+	waitingForTrade      bool               // Waiting for trade response
+	tradeProposal        *TradeProposalData // Incoming proposal
+	tradeResultAccepted  bool
+	tradeResultMessage   string
+	tradeTargetPlayer    string // Selected target player for trade
+	tradeOfferCoal       int
+	tradeOfferGold       int
+	tradeOfferIron       int
+	tradeOfferTimber     int
+	tradeOfferHorses     int
+	tradeOfferHorseTerrs []string // Territories for horses being offered
+	tradeRequestCoal     int
+	tradeRequestGold     int
+	tradeRequestIron     int
+	tradeRequestTimber   int
+	tradeRequestHorses   int
+	tradeHorseDestTerrs  []string // Where to place received horses
+	tradeSendBtn         *Button
+	tradeCancelBtn       *Button
+	tradeAcceptBtn       *Button
+	tradeRejectBtn       *Button
+	tradeResultOkBtn     *Button
 }
 
 // TradeProposalData holds data for an incoming trade proposal.
@@ -570,6 +570,9 @@ func (s *GameplayScene) Update() error {
 		return nil
 	}
 
+	// Always handle pan/zoom - even during animations
+	s.updatePanZoom()
+
 	// Handle victory screen (takes priority over everything)
 	if s.showVictory {
 		s.victoryTimer++
@@ -760,67 +763,6 @@ func (s *GameplayScene) Update() error {
 	mx, my := ebiten.CursorPosition()
 	s.hoveredCell = s.screenToGrid(mx, my)
 
-	// Handle right mouse button for panning
-	if ebiten.IsMouseButtonPressed(ebiten.MouseButtonRight) {
-		if !s.isPanning {
-			// Start panning
-			s.isPanning = true
-			s.panStartX = mx
-			s.panStartY = my
-			s.panOffsetX = s.panX
-			s.panOffsetY = s.panY
-		} else {
-			// Continue panning
-			s.panX = s.panOffsetX + (mx - s.panStartX)
-			s.panY = s.panOffsetY + (my - s.panStartY)
-		}
-	} else {
-		s.isPanning = false
-	}
-
-	// Handle mouse wheel scrolling
-	_, dy := ebiten.Wheel()
-	if dy != 0 {
-		// Check if mouse is over history panel
-		bounds := s.historyPanelBounds
-		if mx >= bounds[0] && mx <= bounds[0]+bounds[2] &&
-			my >= bounds[1] && my <= bounds[1]+bounds[3] {
-			// Scroll the history panel
-			if dy > 0 {
-				s.historyScroll-- // Scroll up (show newer)
-			} else {
-				s.historyScroll++ // Scroll down (show older)
-			}
-			// Bounds clamping is done in drawHistoryPanel
-		} else {
-			// Zoom the map (scroll wheel outside history panel)
-			oldZoom := s.zoom
-			if dy > 0 {
-				s.zoom *= 1.1 // Zoom in
-			} else {
-				s.zoom /= 1.1 // Zoom out
-			}
-			// Clamp zoom to reasonable bounds
-			if s.zoom < 1.0 {
-				s.zoom = 1.0
-			}
-			if s.zoom > 3.0 {
-				s.zoom = 3.0
-			}
-			// Adjust pan to zoom toward mouse position
-			if s.zoom != oldZoom {
-				// Calculate the map area center for zoom adjustment
-				sidebarWidth := 270
-				mapCenterX := sidebarWidth + (ScreenWidth-sidebarWidth)/2
-				mapCenterY := (ScreenHeight - 120) / 2
-				// Adjust pan to keep the point under the mouse stationary
-				zoomRatio := s.zoom / oldZoom
-				s.panX = int(float64(s.panX-(mx-mapCenterX))*(zoomRatio)) + (mx - mapCenterX)
-				s.panY = int(float64(s.panY-(my-mapCenterY))*(zoomRatio)) + (my - mapCenterY)
-			}
-		}
-	}
-
 	// Update buttons
 	isMyTurn := s.currentTurn == s.game.config.PlayerID
 	showEndButton := isMyTurn && s.isActionPhase()
@@ -849,13 +791,6 @@ func (s *GameplayScene) Update() error {
 		s.selectedTerritory = ""
 	}
 
-	// Home key to reset zoom and pan
-	if inpututil.IsKeyJustPressed(ebiten.KeyHome) {
-		s.zoom = 1.0
-		s.panX = 0
-		s.panY = 0
-	}
-
 	return nil
 }
 
@@ -879,13 +814,24 @@ func (s *GameplayScene) Draw(screen *ebiten.Image) {
 		vector.DrawFilledCircle(screen, x, y, 1, starColor, false)
 	}
 
-	// Left sidebar (You, Players, Resources)
-	s.drawLeftSidebar(screen)
-
-	// Map area with frame (fills remaining space)
+	// Map area first (so it goes behind UI elements when panned/zoomed)
 	s.drawMapArea(screen)
 
-	// Bottom info bar
+	// Draw map-based animations (behind UI, on top of map)
+	if s.showCombatAnimation {
+		s.drawCombatAnimation(screen)
+	}
+	if s.showProductionAnim {
+		s.drawProductionAnimation(screen)
+	}
+	if s.showStockpileCapture {
+		s.drawStockpileCaptureAnimation(screen)
+	}
+
+	// Left sidebar on top of map and animations
+	s.drawLeftSidebar(screen)
+
+	// Bottom info bar on top of map and animations
 	s.drawBottomBar(screen)
 
 	// Draw hover info (includes attack preview during conquest)
@@ -894,30 +840,15 @@ func (s *GameplayScene) Draw(screen *ebiten.Image) {
 		s.drawHoverInfo(screen)
 	}
 
-	// Draw water body selection overlay (for building boats)
+	// Draw modal overlays (on top of everything)
 	if s.showWaterBodySelect {
 		s.drawWaterBodySelect(screen)
 	}
-
-	// Draw attack planning overlay
 	if s.showAttackPlan {
 		s.drawAttackPlan(screen)
 	}
-	// Draw combat animation
-	if s.showCombatAnimation {
-		s.drawCombatAnimation(screen)
-	}
-	// Draw combat result overlay
 	if s.showCombatResult {
 		s.drawCombatResult(screen)
-	}
-	// Draw production animation
-	if s.showProductionAnim {
-		s.drawProductionAnimation(screen)
-	}
-	// Draw stockpile capture animation
-	if s.showStockpileCapture {
-		s.drawStockpileCaptureAnimation(screen)
 	}
 	// Draw alliance menu overlay
 	if s.showAllyMenu {
@@ -951,5 +882,74 @@ func (s *GameplayScene) Draw(screen *ebiten.Image) {
 	// Draw victory screen overlay (last, on top of everything)
 	if s.showVictory {
 		s.drawVictoryScreen(screen)
+	}
+}
+
+// updatePanZoom handles map panning and zooming input
+func (s *GameplayScene) updatePanZoom() {
+	mx, my := ebiten.CursorPosition()
+
+	// Handle right mouse button for panning
+	if ebiten.IsMouseButtonPressed(ebiten.MouseButtonRight) {
+		if !s.isPanning {
+			// Start panning
+			s.isPanning = true
+			s.panStartX = mx
+			s.panStartY = my
+			s.panOffsetX = s.panX
+			s.panOffsetY = s.panY
+		} else {
+			// Continue panning
+			s.panX = s.panOffsetX + (mx - s.panStartX)
+			s.panY = s.panOffsetY + (my - s.panStartY)
+		}
+	} else {
+		s.isPanning = false
+	}
+
+	// Handle mouse wheel for zooming (only outside history panel)
+	_, dy := ebiten.Wheel()
+	if dy != 0 {
+		bounds := s.historyPanelBounds
+		if mx >= bounds[0] && mx <= bounds[0]+bounds[2] &&
+			my >= bounds[1] && my <= bounds[1]+bounds[3] {
+			// Scroll the history panel
+			if dy > 0 {
+				s.historyScroll--
+			} else {
+				s.historyScroll++
+			}
+		} else {
+			// Zoom the map
+			oldZoom := s.zoom
+			if dy > 0 {
+				s.zoom *= 1.1
+			} else {
+				s.zoom /= 1.1
+			}
+			// Clamp zoom
+			if s.zoom < 1.0 {
+				s.zoom = 1.0
+			}
+			if s.zoom > 3.0 {
+				s.zoom = 3.0
+			}
+			// Adjust pan to zoom toward mouse position
+			if s.zoom != oldZoom {
+				sidebarWidth := 270
+				mapCenterX := sidebarWidth + (ScreenWidth-sidebarWidth)/2
+				mapCenterY := (ScreenHeight - 120) / 2
+				zoomRatio := s.zoom / oldZoom
+				s.panX = int(float64(s.panX-(mx-mapCenterX))*(zoomRatio)) + (mx - mapCenterX)
+				s.panY = int(float64(s.panY-(my-mapCenterY))*(zoomRatio)) + (my - mapCenterY)
+			}
+		}
+	}
+
+	// Home key to reset zoom and pan
+	if inpututil.IsKeyJustPressed(ebiten.KeyHome) {
+		s.zoom = 1.0
+		s.panX = 0
+		s.panY = 0
 	}
 }
