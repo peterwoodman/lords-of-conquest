@@ -1,44 +1,41 @@
-# Binaries
+# Build outputs
+build/
 bin/
 *.exe
-*.exe~
-*.dll
-*.so
-*.dylib
+*.app
 
-# Test binary, built with `go test -c`
-*.test
+# Database files
+*.db
+*.sqlite
+*.sqlite3
 
-# Output of the go coverage tool
-*.out
-coverage.html
+# Config files with sensitive data
+config.json
 
-# Go workspace file
-go.work
-
-# Dependency directories
-vendor/
-
-# IDE
+# IDE and editor files
 .idea/
 .vscode/
 *.swp
 *.swo
 *~
 
-# OS
+# OS generated files
 .DS_Store
+.DS_Store?
 Thumbs.db
+ehthumbs.db
+Desktop.ini
 
-# Build
-dist/
+# Go specific
+vendor/
 
 # Logs
 *.log
 
-# Environment
-.env
-.env.local
+# Test coverage
+coverage.out
+coverage.html
 
-# Runtime data
-data/
+# Temporary files
+*.tmp
+*.temp
