@@ -8,6 +8,8 @@ import (
 	"lords-of-conquest/internal/protocol"
 
 	"github.com/hajimehoshi/ebiten/v2"
+	"github.com/hajimehoshi/ebiten/v2/inpututil"
+	"github.com/hajimehoshi/ebiten/v2/vector"
 )
 
 const (
@@ -33,10 +35,10 @@ type Game struct {
 	nextScene    Scene
 
 	// Scenes
-	titleScene   *TitleScene
-	connectScene *ConnectScene
-	lobbyScene   *LobbyScene
-	waitingScene *WaitingScene
+	titleScene    *TitleScene
+	connectScene  *ConnectScene
+	lobbyScene    *LobbyScene
+	waitingScene  *WaitingScene
 	gameplayScene *GameplayScene
 
 	// State
@@ -44,6 +46,12 @@ type Game struct {
 	inGame        bool
 	currentGameID string
 	lobbyState    *protocol.LobbyStatePayload
+
+	// Music control UI
+	showMusicControl  bool
+	musicVolumeSlider *Slider
+	musicMuteBtn      *Button
+	musicCloseBtn     *Button
 }
 
 // NewGame creates a new game instance.
@@ -75,6 +83,37 @@ func NewGame() (*Game, error) {
 		network: NewNetworkClient(),
 	}
 
+	// Initialize music volume from config
+	SetMusicVolume(config.MusicVolume)
+	SetMusicMuted(!config.SoundEnabled)
+
+	// Create music control UI
+	g.musicVolumeSlider = &Slider{
+		Min:   0,
+		Max:   100,
+		Value: int(config.MusicVolume * 100),
+		Label: "Volume",
+		OnChange: func(val int) {
+			SetMusicVolume(float64(val) / 100.0)
+			g.config.MusicVolume = float64(val) / 100.0
+		},
+	}
+	g.musicMuteBtn = &Button{
+		Text: "Mute",
+		OnClick: func() {
+			ToggleMusicMute()
+			g.config.SoundEnabled = !IsMusicMuted()
+		},
+	}
+	g.musicCloseBtn = &Button{
+		Text:    "Close",
+		Primary: true,
+		OnClick: func() {
+			g.showMusicControl = false
+			g.config.Save() // Save volume preference
+		},
+	}
+
 	// Create scenes
 	g.titleScene = NewTitleScene(g)
 	g.connectScene = NewConnectScene(g)
@@ -95,6 +134,28 @@ func NewGame() (*Game, error) {
 
 // Update handles game logic.
 func (g *Game) Update() error {
+	// Handle music control dialog (takes priority)
+	if g.showMusicControl {
+		g.musicVolumeSlider.Update()
+		g.musicMuteBtn.Update()
+		g.musicCloseBtn.Update()
+		if inpututil.IsKeyJustPressed(ebiten.KeyEscape) {
+			g.showMusicControl = false
+			g.config.Save()
+		}
+		return nil // Block scene input while dialog is open
+	}
+
+	// Check for click on music icon (bottom right)
+	if IsMusicPlaying() && inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) {
+		mx, my := ebiten.CursorPosition()
+		iconX, iconY := ScreenWidth-50, ScreenHeight-50
+		if mx >= iconX && mx <= iconX+40 && my >= iconY && my <= iconY+40 {
+			g.showMusicControl = true
+			return nil
+		}
+	}
+
 	// Process scene transition
 	if g.nextScene != nil {
 		if g.currentScene != nil {
@@ -120,6 +181,96 @@ func (g *Game) Draw(screen *ebiten.Image) {
 	if g.currentScene != nil {
 		g.currentScene.Draw(screen)
 	}
+
+	// Draw music icon when music is playing (bottom right)
+	if IsMusicPlaying() {
+		g.drawMusicIcon(screen)
+	}
+
+	// Draw music control dialog
+	if g.showMusicControl {
+		g.drawMusicControlDialog(screen)
+	}
+}
+
+// drawMusicIcon draws a speaker icon in the bottom right corner
+func (g *Game) drawMusicIcon(screen *ebiten.Image) {
+	iconX := ScreenWidth - 50
+	iconY := ScreenHeight - 50
+	iconSize := 40
+
+	// Background
+	vector.DrawFilledRect(screen, float32(iconX), float32(iconY), float32(iconSize), float32(iconSize), color.RGBA{40, 40, 50, 200}, false)
+	vector.StrokeRect(screen, float32(iconX), float32(iconY), float32(iconSize), float32(iconSize), 1, ColorBorder, false)
+
+	// Try to use speaker PNG icon
+	if speakerIcon, ok := Icons["speaker"]; ok {
+		// Draw the speaker icon centered in the button
+		imgW := speakerIcon.Bounds().Dx()
+		imgH := speakerIcon.Bounds().Dy()
+		scale := float64(iconSize-8) / float64(max(imgW, imgH))
+
+		op := &ebiten.DrawImageOptions{}
+		op.GeoM.Scale(scale, scale)
+		op.GeoM.Translate(float64(iconX)+4+(float64(iconSize-8)-float64(imgW)*scale)/2,
+			float64(iconY)+4+(float64(iconSize-8)-float64(imgH)*scale)/2)
+
+		// Dim if muted
+		if IsMusicMuted() {
+			op.ColorScale.Scale(0.4, 0.4, 0.4, 1)
+		}
+		screen.DrawImage(speakerIcon, op)
+
+		// Draw X over icon if muted
+		if IsMusicMuted() {
+			cx := float32(iconX + iconSize/2)
+			cy := float32(iconY + iconSize/2)
+			vector.StrokeLine(screen, cx-10, cy-10, cx+10, cy+10, 3, ColorDanger, false)
+			vector.StrokeLine(screen, cx+10, cy-10, cx-10, cy+10, 3, ColorDanger, false)
+		}
+	}
+}
+
+// drawMusicControlDialog draws the music volume control dialog
+func (g *Game) drawMusicControlDialog(screen *ebiten.Image) {
+	// Semi-transparent overlay
+	vector.DrawFilledRect(screen, 0, 0, float32(ScreenWidth), float32(ScreenHeight),
+		color.RGBA{0, 0, 0, 180}, false)
+
+	// Dialog panel
+	dialogW := 300
+	dialogH := 180
+	dialogX := (ScreenWidth - dialogW) / 2
+	dialogY := (ScreenHeight - dialogH) / 2
+
+	DrawFancyPanel(screen, dialogX, dialogY, dialogW, dialogH, "Music Volume")
+
+	// Volume slider
+	g.musicVolumeSlider.X = dialogX + 20
+	g.musicVolumeSlider.Y = dialogY + 55
+	g.musicVolumeSlider.W = dialogW - 40
+	g.musicVolumeSlider.H = 35
+	g.musicVolumeSlider.Value = int(GetMusicVolume() * 100)
+	g.musicVolumeSlider.Draw(screen)
+
+	// Mute button
+	if IsMusicMuted() {
+		g.musicMuteBtn.Text = "Unmute"
+	} else {
+		g.musicMuteBtn.Text = "Mute"
+	}
+	g.musicMuteBtn.X = dialogX + 20
+	g.musicMuteBtn.Y = dialogY + 110
+	g.musicMuteBtn.W = 100
+	g.musicMuteBtn.H = 35
+	g.musicMuteBtn.Draw(screen)
+
+	// Close button
+	g.musicCloseBtn.X = dialogX + dialogW - 120
+	g.musicCloseBtn.Y = dialogY + 110
+	g.musicCloseBtn.W = 100
+	g.musicCloseBtn.H = 35
+	g.musicCloseBtn.Draw(screen)
 }
 
 // Layout returns the game's screen dimensions.
@@ -429,7 +580,7 @@ func (g *Game) handleMessage(msg *protocol.Message) {
 
 			// Move to lobby scene
 			g.SetScene(g.lobbyScene)
-			
+
 			// Request game lists
 			log.Printf("Requesting game lists...")
 			g.ListGames()
@@ -533,7 +684,7 @@ func (g *Game) handleMessage(msg *protocol.Message) {
 			log.Printf("Failed to parse action result: %v", err)
 			return
 		}
-		
+
 		// Show combat result in gameplay scene
 		if payload.TargetTerritory != "" {
 			// Get territory name
@@ -545,7 +696,7 @@ func (g *Game) handleMessage(msg *protocol.Message) {
 					}
 				}
 			}
-			
+
 			result := &CombatResultData{
 				EventID:               payload.EventID,
 				AttackerID:            payload.AttackerID,
@@ -562,14 +713,14 @@ func (g *Game) handleMessage(msg *protocol.Message) {
 				CapturedFromTerritory: payload.CapturedFromTerritory,
 			}
 			g.gameplayScene.ShowCombatResult(result)
-			
+
 			if payload.AttackerWins {
 				log.Printf("Combat victory! Captured %s", targetName)
 			} else {
 				log.Printf("Combat defeat at %s", targetName)
 			}
 		}
-		
+
 	case protocol.TypeGameHistory:
 		var payload protocol.GameHistoryPayload
 		if err := msg.ParsePayload(&payload); err != nil {

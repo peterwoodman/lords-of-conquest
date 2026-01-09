@@ -381,35 +381,50 @@ func (g *Generator) placeSeeds(count int) [][2]int {
 		minY, maxY = 1, g.height-2
 	}
 
-	// Minimum spacing between seeds - more spacing for more islands (more water between)
-	// Islands setting: 1=close (2), 2=slight (3), 3=moderate (4), 4=spread (5), 5=far (6)
+	// Base spacing ensures territories have room to grow (minimum ~3 cells radius)
+	// Islands setting adds extra spacing for water between landmasses
+	// Islands 1 = connected landmass (base spacing only)
+	// Islands 5 = many islands with water between (base + 4 extra spacing)
 	islandLevel := clamp(g.options.Islands, 1, 5)
-	minSpacing := islandLevel + 1
+	baseSpacing := 3                        // Minimum spacing so territories can grow
+	extraSpacing := islandLevel - 1         // 0-4 extra based on islands setting
+	startSpacing := baseSpacing + extraSpacing
 
-	// Try to place all seeds
-	attempts := 0
-	maxAttempts := count * 100
+	// Try to place all seeds, reducing spacing if needed to hit territory count
+	// Territory count takes priority over island spacing
+	minAllowedSpacing := 2 // Never go below 2, or territories will be too cramped
+	
+	for spacing := startSpacing; spacing >= minAllowedSpacing; spacing-- {
+		seeds = seeds[:0] // Reset seeds for each spacing attempt
+		attempts := 0
+		maxAttempts := count * 150
 
-	for len(seeds) < count && attempts < maxAttempts {
-		attempts++
+		for len(seeds) < count && attempts < maxAttempts {
+			attempts++
 
-		x := minX + g.rng.Intn(maxX-minX+1)
-		y := minY + g.rng.Intn(maxY-minY+1)
+			x := minX + g.rng.Intn(maxX-minX+1)
+			y := minY + g.rng.Intn(maxY-minY+1)
 
-		// Check spacing from existing seeds
-		tooClose := false
-		for _, s := range seeds {
-			dx := x - s[0]
-			dy := y - s[1]
-			dist := dx*dx + dy*dy
-			if dist < minSpacing*minSpacing {
-				tooClose = true
-				break
+			// Check spacing from existing seeds
+			tooClose := false
+			for _, s := range seeds {
+				dx := x - s[0]
+				dy := y - s[1]
+				dist := dx*dx + dy*dy
+				if dist < spacing*spacing {
+					tooClose = true
+					break
+				}
+			}
+
+			if !tooClose {
+				seeds = append(seeds, [2]int{x, y})
 			}
 		}
 
-		if !tooClose {
-			seeds = append(seeds, [2]int{x, y})
+		// If we placed enough seeds, we're done
+		if len(seeds) >= count {
+			break
 		}
 	}
 

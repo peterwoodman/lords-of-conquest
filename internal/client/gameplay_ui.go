@@ -26,20 +26,22 @@ func (s *GameplayScene) drawLeftSidebar(screen *ebiten.Image) {
 
 	// Player identity panel (with resources)
 	myPlayer, ok := s.players[s.game.config.PlayerID]
+	youPanelH := 130 // Taller panel to fit everything
 	if ok {
 		player := myPlayer.(map[string]interface{})
 		playerName := player["name"].(string)
 		playerColor := player["color"].(string)
 
-		DrawFancyPanel(screen, sidebarX, sidebarY, sidebarW, 115, "You")
+		DrawFancyPanel(screen, sidebarX, sidebarY, sidebarW, youPanelH, "You")
 
-		DrawLargeText(screen, playerName, sidebarX+15, sidebarY+28, ColorText)
+		// Player name - below title bar (title bar is ~30px)
+		DrawLargeText(screen, playerName, sidebarX+15, sidebarY+40, ColorText)
 
 		// Color indicator (clickable)
 		if pc, ok := PlayerColors[playerColor]; ok {
 			colorSize := float32(24)
 			colorX := float32(sidebarX + sidebarW - 40)
-			colorY := float32(sidebarY + 24)
+			colorY := float32(sidebarY + 38)
 			vector.DrawFilledRect(screen, colorX, colorY, colorSize, colorSize, pc, false)
 			vector.StrokeRect(screen, colorX, colorY, colorSize, colorSize, 2, ColorBorder, false)
 			// Store bounds for click detection
@@ -63,22 +65,17 @@ func (s *GameplayScene) drawLeftSidebar(screen *ebiten.Image) {
 			}
 		}
 
-		resY := sidebarY + 62
+		resY := sidebarY + 75
 		col1X := sidebarX + 12
 		col2X := sidebarX + sidebarW/2 + 5
-		iconSize := 14
+		iconSize := 16
 
-		// Helper to draw resource with icon
+		// Helper to draw resource with inverted (white) icon
 		drawResource := func(iconKey string, count int, x, y int) {
 			if icon := GetIcon(iconKey); icon != nil {
-				// Light background for visibility
-				vector.DrawFilledRect(screen, float32(x), float32(y), float32(iconSize), float32(iconSize),
-					color.RGBA{180, 180, 180, 255}, false)
-				op := &ebiten.DrawImageOptions{}
-				op.GeoM.Translate(float64(x), float64(y))
-				screen.DrawImage(icon, op)
+				DrawIconInverted(screen, icon, x, y, iconSize)
 			}
-			DrawText(screen, fmt.Sprintf("%d", count), x+iconSize+4, y-1, ColorText)
+			DrawText(screen, fmt.Sprintf("%d", count), x+iconSize+6, y, ColorText)
 		}
 
 		// Row 1: Coal and Gold
@@ -86,13 +83,13 @@ func (s *GameplayScene) drawLeftSidebar(screen *ebiten.Image) {
 		drawResource("gold", gold, col2X, resY)
 
 		// Row 2: Iron and Wood
-		resY += 22
+		resY += 24
 		drawResource("iron", iron, col1X, resY)
 		drawResource("timber", timber, col2X, resY)
 	}
 
 	// Players list - compact height based on player count
-	playersY := sidebarY + 130 // Below the expanded "You" panel with resources
+	playersY := sidebarY + youPanelH + 5 // Below the "You" panel with some spacing
 	playerCount := len(s.playerOrder)
 	playersH := 40 + playerCount*26 + 40 // Header + per-player height + space for Set Ally button
 	if playersH > 240 {

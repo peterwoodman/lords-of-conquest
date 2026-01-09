@@ -522,6 +522,70 @@ func DrawHugeTitleCentered(screen *ebiten.Image, text string, x, y int) {
 	DrawHugeTitle(screen, text, x-w/2, y)
 }
 
+// Cache for inverted icons (keyed by original icon pointer and size)
+var invertedIconCache = make(map[*ebiten.Image]map[int]*ebiten.Image)
+
+// DrawIconInverted draws an icon with inverted colors (black becomes white).
+// This is useful for displaying black icons on dark backgrounds.
+// For black silhouette icons on transparent backgrounds, this creates a white version.
+func DrawIconInverted(screen *ebiten.Image, icon *ebiten.Image, x, y, size int) {
+	if icon == nil {
+		return
+	}
+
+	// Check cache first
+	if invertedIconCache[icon] == nil {
+		invertedIconCache[icon] = make(map[int]*ebiten.Image)
+	}
+
+	cachedIcon, exists := invertedIconCache[icon][size]
+	if !exists {
+		// Create the inverted icon and cache it
+		imgW := icon.Bounds().Dx()
+		imgH := icon.Bounds().Dy()
+
+		// Scale to fit desired size
+		scaleX := float64(size) / float64(imgW)
+		scaleY := float64(size) / float64(imgH)
+		scale := scaleX
+		if scaleY < scaleX {
+			scale = scaleY
+		}
+
+		scaledW := int(float64(imgW) * scale)
+		scaledH := int(float64(imgH) * scale)
+		if scaledW < 1 {
+			scaledW = 1
+		}
+		if scaledH < 1 {
+			scaledH = 1
+		}
+
+		// Create temp image with scaled icon
+		tmp := ebiten.NewImage(scaledW, scaledH)
+		opScale := &ebiten.DrawImageOptions{}
+		opScale.GeoM.Scale(scale, scale)
+		tmp.DrawImage(icon, opScale)
+
+		// Now create a white image the same size
+		white := ebiten.NewImage(scaledW, scaledH)
+		white.Fill(color.RGBA{230, 230, 230, 255})
+
+		// Use the icon as a mask - draw white only where icon has alpha
+		opMask := &ebiten.DrawImageOptions{}
+		opMask.Blend = ebiten.BlendDestinationIn
+		white.DrawImage(tmp, opMask)
+
+		cachedIcon = white
+		invertedIconCache[icon][size] = cachedIcon
+	}
+
+	// Draw the cached inverted icon to screen
+	opFinal := &ebiten.DrawImageOptions{}
+	opFinal.GeoM.Translate(float64(x), float64(y))
+	screen.DrawImage(cachedIcon, opFinal)
+}
+
 // DrawTitle draws a title (alias for DrawLargeText).
 func DrawTitle(screen *ebiten.Image, text string, x, y int) {
 	DrawLargeText(screen, text, x, y, ColorText)

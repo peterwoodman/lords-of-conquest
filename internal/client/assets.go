@@ -33,13 +33,19 @@ var winnerMusic *audio.Player
 var winnerMusicBytes []byte
 var introMusic *audio.Player
 var introMusicBytes []byte
-var bridgeSounds [][]byte // bridge1.ogg to bridge5.ogg
+var bridgeSounds [][]byte  // bridge1.ogg to bridge5.ogg
+var bridgeMusic *audio.Player // Currently playing bridge sound
+
+// Music volume control
+var musicVolume float64 = 0.7
+var musicMuted bool = false
 
 // LoadIcons loads all icon images from the assets/icons directory
 func LoadIcons() {
 	iconNames := []string{
 		"stockpile", "horse", "weapon", "city", "boat",
 		"coal", "gold", "iron", "timber", "grassland",
+		"speaker",
 	}
 
 	// Try to find icons directory - check common locations
@@ -272,8 +278,14 @@ func PlayWinnerMusic() {
 	}
 
 	winnerMusic = player
+	// Apply current volume settings
+	effectiveVolume := musicVolume
+	if musicMuted {
+		effectiveVolume = 0
+	}
+	winnerMusic.SetVolume(effectiveVolume)
 	winnerMusic.Play()
-	log.Printf("Playing winner music")
+	log.Printf("Playing winner music at volume %.0f%%", effectiveVolume*100)
 }
 
 // StopWinnerMusic stops the victory music
@@ -316,8 +328,14 @@ func PlayIntroMusic() {
 	}
 
 	introMusic = player
+	// Apply current volume settings
+	effectiveVolume := musicVolume
+	if musicMuted {
+		effectiveVolume = 0
+	}
+	introMusic.SetVolume(effectiveVolume)
 	introMusic.Play()
-	log.Printf("Playing intro music")
+	log.Printf("Playing intro music at volume %.0f%%", effectiveVolume*100)
 }
 
 // StopIntroMusic stops the intro music immediately
@@ -335,7 +353,13 @@ func FadeOutIntroMusic(durationMs int) {
 		return
 	}
 
-	log.Printf("Fading out intro music over %dms", durationMs)
+	// Get current effective volume
+	startVolume := musicVolume
+	if musicMuted {
+		startVolume = 0
+	}
+
+	log.Printf("Fading out intro music over %dms from volume %.0f%%", durationMs, startVolume*100)
 
 	// Fade out in a goroutine
 	go func() {
@@ -346,14 +370,14 @@ func FadeOutIntroMusic(durationMs int) {
 
 		steps := 30 // Number of volume steps
 		stepDuration := time.Duration(durationMs/steps) * time.Millisecond
-		volumeStep := 1.0 / float64(steps)
+		volumeStep := startVolume / float64(steps)
 
 		for i := 0; i < steps; i++ {
 			if player != introMusic {
 				// Player changed (e.g., music restarted), abort fade
 				return
 			}
-			volume := 1.0 - (float64(i+1) * volumeStep)
+			volume := startVolume - (float64(i+1) * volumeStep)
 			if volume < 0 {
 				volume = 0
 			}
@@ -373,6 +397,59 @@ func IsIntroMusicPlaying() bool {
 	return introMusic != nil && introMusic.IsPlaying()
 }
 
+// IsMusicPlaying returns true if any music is currently playing
+func IsMusicPlaying() bool {
+	return IsIntroMusicPlaying() || IsWinnerMusicPlaying() || IsBridgeMusicPlaying()
+}
+
+// GetMusicVolume returns the current music volume (0.0 to 1.0)
+func GetMusicVolume() float64 {
+	return musicVolume
+}
+
+// SetMusicVolume sets the music volume (0.0 to 1.0)
+func SetMusicVolume(volume float64) {
+	if volume < 0 {
+		volume = 0
+	}
+	if volume > 1 {
+		volume = 1
+	}
+	musicVolume = volume
+
+	// Apply to any currently playing music
+	effectiveVolume := volume
+	if musicMuted {
+		effectiveVolume = 0
+	}
+	if introMusic != nil {
+		introMusic.SetVolume(effectiveVolume)
+	}
+	if winnerMusic != nil {
+		winnerMusic.SetVolume(effectiveVolume)
+	}
+	if bridgeMusic != nil {
+		bridgeMusic.SetVolume(effectiveVolume)
+	}
+}
+
+// IsMusicMuted returns true if music is muted
+func IsMusicMuted() bool {
+	return musicMuted
+}
+
+// SetMusicMuted sets the mute state
+func SetMusicMuted(muted bool) {
+	musicMuted = muted
+	// Apply volume change
+	SetMusicVolume(musicVolume)
+}
+
+// ToggleMusicMute toggles the mute state
+func ToggleMusicMute() {
+	SetMusicMuted(!musicMuted)
+}
+
 // PlayBridgeSound plays a random bridge sound
 func PlayBridgeSound() {
 	if audioContext == nil || len(bridgeSounds) == 0 {
@@ -384,23 +461,33 @@ func PlayBridgeSound() {
 	idx := rand.Intn(len(bridgeSounds))
 	soundData := bridgeSounds[idx]
 
-	// Decode and play in a goroutine to not block
-	go func() {
-		decoded, err := vorbis.DecodeWithSampleRate(44100, bytes.NewReader(soundData))
-		if err != nil {
-			log.Printf("Failed to decode bridge sound: %v", err)
-			return
-		}
+	decoded, err := vorbis.DecodeWithSampleRate(44100, bytes.NewReader(soundData))
+	if err != nil {
+		log.Printf("Failed to decode bridge sound: %v", err)
+		return
+	}
 
-		player, err := audioContext.NewPlayer(decoded)
-		if err != nil {
-			log.Printf("Failed to create bridge sound player: %v", err)
-			return
-		}
+	player, err := audioContext.NewPlayer(decoded)
+	if err != nil {
+		log.Printf("Failed to create bridge sound player: %v", err)
+		return
+	}
 
-		player.Play()
-		log.Printf("Playing bridge sound %d", idx+1)
-	}()
+	// Apply current volume settings
+	effectiveVolume := musicVolume
+	if musicMuted {
+		effectiveVolume = 0
+	}
+	player.SetVolume(effectiveVolume)
+
+	bridgeMusic = player
+	bridgeMusic.Play()
+	log.Printf("Playing bridge sound %d at volume %.0f%%", idx+1, effectiveVolume*100)
+}
+
+// IsBridgeMusicPlaying returns true if bridge music is playing
+func IsBridgeMusicPlaying() bool {
+	return bridgeMusic != nil && bridgeMusic.IsPlaying()
 }
 
 // audioLoopReader wraps a reader to loop infinitely

@@ -16,7 +16,7 @@ This project is a faithful recreation of the original C64/Apple II game with:
 
 ## Screenshots
 
-*Coming soon*
+![Lords of Conquest Screenshot](docs/screenshot.png)
 
 ## Quick Start
 

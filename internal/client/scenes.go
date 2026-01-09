@@ -295,9 +295,17 @@ func (s *TitleScene) drawImageZoomed(screen *ebiten.Image, img *ebiten.Image, zo
 
 // ==================== Connect Scene ====================
 
+// Central server address
+const CentralServerAddress = "lords-of-conquest.onrender.com"
+
 // ConnectScene handles server connection and player name entry.
 type ConnectScene struct {
 	game *Game
+
+	// Server selection
+	useCentralServer bool
+	centralBtn       *Button
+	selfHostedBtn    *Button
 
 	serverInput *TextInput
 	nameInput   *TextInput
@@ -311,12 +319,26 @@ type ConnectScene struct {
 
 // NewConnectScene creates a new connect scene.
 func NewConnectScene(game *Game) *ConnectScene {
-	s := &ConnectScene{game: game}
+	s := &ConnectScene{game: game, useCentralServer: true}
+
+	s.centralBtn = &Button{
+		Text: "Central Server",
+		OnClick: func() {
+			s.useCentralServer = true
+		},
+	}
+
+	s.selfHostedBtn = &Button{
+		Text: "Self-Hosted",
+		OnClick: func() {
+			s.useCentralServer = false
+		},
+	}
 
 	s.serverInput = &TextInput{
 		X: ScreenWidth/2 - 150, Y: 280,
 		W: 300, H: 40,
-		Placeholder: "Server address",
+		Placeholder: "localhost:30000",
 		MaxLength:   100,
 	}
 
@@ -342,7 +364,13 @@ func NewConnectScene(game *Game) *ConnectScene {
 func (s *ConnectScene) OnEnter() {
 	// Load saved values
 	if s.game.config.LastServer != "" {
-		s.serverInput.Text = s.game.config.LastServer
+		// Determine if last server was central or custom
+		if s.game.config.LastServer == CentralServerAddress {
+			s.useCentralServer = true
+		} else {
+			s.useCentralServer = false
+			s.serverInput.Text = s.game.config.LastServer
+		}
 	}
 	if s.game.config.PlayerName != "" {
 		s.nameInput.Text = s.game.config.PlayerName
@@ -359,12 +387,16 @@ func (s *ConnectScene) Update() error {
 		return nil
 	}
 
-	s.serverInput.Update()
+	s.centralBtn.Update()
+	s.selfHostedBtn.Update()
+	if !s.useCentralServer {
+		s.serverInput.Update()
+	}
 	s.nameInput.Update()
 	s.connectBtn.Update()
 
 	// Enter key to connect
-	if inpututil.IsKeyJustPressed(ebiten.KeyEnter) && !s.nameInput.IsFocused() {
+	if inpututil.IsKeyJustPressed(ebiten.KeyEnter) && !s.nameInput.IsFocused() && !s.serverInput.IsFocused() {
 		s.onConnect()
 	}
 
@@ -404,18 +436,44 @@ func (s *ConnectScene) Draw(screen *ebiten.Image) {
 	// Subtitle
 	DrawTextCentered(screen, "Again", ScreenWidth/2, titleY+55, ColorTextMuted)
 
-	// Server input
-	inputY := panelY + 170
-	DrawText(screen, "Server:", panelX+30, inputY-20, ColorTextMuted)
-	s.serverInput.Y = inputY
-	s.serverInput.H = 45
-	s.serverInput.Draw(screen)
+	// Server selection buttons
+	inputY := panelY + 140
+	DrawText(screen, "Server:", panelX+30, inputY, ColorTextMuted)
+
+	// Central Server button
+	s.centralBtn.X = panelX + 120
+	s.centralBtn.Y = inputY - 5
+	s.centralBtn.W = 150
+	s.centralBtn.H = 35
+	s.centralBtn.Primary = s.useCentralServer
+	s.centralBtn.Draw(screen)
+
+	// Self-Hosted button
+	s.selfHostedBtn.X = panelX + 280
+	s.selfHostedBtn.Y = inputY - 5
+	s.selfHostedBtn.W = 150
+	s.selfHostedBtn.H = 35
+	s.selfHostedBtn.Primary = !s.useCentralServer
+	s.selfHostedBtn.Draw(screen)
+
+	// Server address input (only for self-hosted)
+	inputY += 50
+	if !s.useCentralServer {
+		DrawText(screen, "Address:", panelX+30, inputY, ColorTextMuted)
+		s.serverInput.X = panelX + 120
+		s.serverInput.Y = inputY - 5
+		s.serverInput.W = 310
+		s.serverInput.H = 40
+		s.serverInput.Draw(screen)
+		inputY += 55
+	}
 
 	// Name input
-	inputY += 80
-	DrawText(screen, "Your Name:", panelX+30, inputY-20, ColorTextMuted)
-	s.nameInput.Y = inputY
-	s.nameInput.H = 45
+	DrawText(screen, "Your Name:", panelX+30, inputY, ColorTextMuted)
+	s.nameInput.X = panelX + 120
+	s.nameInput.Y = inputY - 5
+	s.nameInput.W = 310
+	s.nameInput.H = 40
 	s.nameInput.Draw(screen)
 
 	// Connect button - bigger
@@ -465,13 +523,18 @@ func (s *ConnectScene) drawTitleBackground(screen *ebiten.Image, img *ebiten.Ima
 }
 
 func (s *ConnectScene) onConnect() {
-	server := s.serverInput.Text
+	var server string
+	if s.useCentralServer {
+		server = CentralServerAddress
+	} else {
+		server = s.serverInput.Text
+		if server == "" {
+			s.statusText = "Please enter a server address"
+			return
+		}
+	}
 	name := s.nameInput.Text
 
-	if server == "" {
-		s.statusText = "Please enter a server address"
-		return
-	}
 	if name == "" {
 		s.statusText = "Please enter your name"
 		return
@@ -1210,10 +1273,10 @@ func (s *LobbyScene) onCreateConfirm() {
 	}
 
 	settings := protocol.GameSettings{
-		MaxPlayers:    4,
+		MaxPlayers:    8,
 		GameLevel:     "expert",
 		ChanceLevel:   "high",
-		VictoryCities: 3,
+		VictoryCities: 6,
 		MapID:         s.generatedMap.ID,
 	}
 
@@ -1258,41 +1321,59 @@ type WaitingScene struct {
 	settingsBtn *Button
 
 	// Settings dialog
-	showSettings      bool
-	chanceLevelBtns   [3]*Button // Low, Medium, High
-	victoryCitiesBtns [4]*Button // 3, 4, 5, 6
-	maxPlayersBtns    [7]*Button // 2, 3, 4, 5, 6, 7, 8
-	settingsCloseBtn  *Button
+	showSettings        bool
+	chanceLevelBtns     [3]*Button // Low, Medium, High
+	victoryCitiesSlider *Slider
+	maxPlayersSlider    *Slider
+	settingsCloseBtn    *Button
 }
 
 // NewWaitingScene creates a new waiting scene.
 func NewWaitingScene(game *Game) *WaitingScene {
 	s := &WaitingScene{game: game}
 
-	s.playerList = NewList(50, 135, 400, 400)
+	// Layout constants
+	leftMargin := 80
+	rightPanelX := 700
+	btnW := 200
+	btnH := 45
+
+	s.playerList = NewList(leftMargin, 210, 500, 410)
 
 	s.addAIBtn = &Button{
-		X: 500, Y: 150, W: 180, H: 40,
+		X: rightPanelX, Y: 210, W: btnW, H: btnH,
 		Text:    "Add CPU",
 		OnClick: func() { s.game.AddAI("aggressive") },
 	}
 
 	s.readyBtn = &Button{
-		X: 500, Y: 200, W: 180, H: 40,
+		X: rightPanelX, Y: 270, W: btnW, H: btnH,
 		Text:    "Ready",
 		Primary: true,
 		OnClick: s.onToggleReady,
 	}
 
 	s.startBtn = &Button{
-		X: 500, Y: 250, W: 180, H: 40,
+		X: rightPanelX, Y: 330, W: btnW, H: btnH,
 		Text:    "Start Game",
 		Primary: true,
 		OnClick: func() { s.game.StartGame() },
 	}
 
+	s.mapBtn = &Button{
+		X: rightPanelX, Y: 390, W: btnW, H: btnH,
+		Text:    "Change Map",
+		OnClick: func() { s.onChangeMap() },
+	}
+
+	s.settingsBtn = &Button{
+		X: rightPanelX, Y: 450, W: btnW, H: btnH,
+		Text:    "Settings",
+		OnClick: func() { s.showSettings = true },
+	}
+
 	s.leaveBtn = &Button{
-		X: 500, Y: 550, W: 180, H: 40,
+		X: rightPanelX, Y: 560, W: btnW, H: btnH,
 		Text: "Leave Game",
 		OnClick: func() {
 			s.game.LeaveGame()
@@ -1301,26 +1382,14 @@ func NewWaitingScene(game *Game) *WaitingScene {
 	}
 
 	s.copyCodeBtn = &Button{
-		X: 280, Y: 68, W: 150, H: 30,
+		X: leftMargin + 320, Y: 95, W: 120, H: 35,
 		Text: "Copy Code",
 	}
 
-	// Host-only buttons for map and settings
-	s.mapBtn = &Button{
-		X: 500, Y: 300, W: 180, H: 40,
-		Text:    "Change Map",
-		OnClick: func() { s.onChangeMap() },
-	}
-
-	s.settingsBtn = &Button{
-		X: 500, Y: 350, W: 180, H: 40,
-		Text:    "Settings",
-		OnClick: func() { s.showSettings = true },
-	}
-
 	// Settings dialog buttons
-	chanceLevels := []string{"Low", "Medium", "High"}
-	for i, label := range chanceLevels {
+	chanceLevels := []string{"low", "medium", "high"}
+	chanceLevelLabels := []string{"Low", "Medium", "High"}
+	for i, label := range chanceLevelLabels {
 		idx := i
 		s.chanceLevelBtns[i] = &Button{
 			Text: label,
@@ -1330,26 +1399,24 @@ func NewWaitingScene(game *Game) *WaitingScene {
 		}
 	}
 
-	victoryCities := []string{"3", "4", "5", "6"}
-	for i, label := range victoryCities {
-		idx := i
-		s.victoryCitiesBtns[i] = &Button{
-			Text: label,
-			OnClick: func() {
-				s.game.UpdateGameSettings("victoryCities", victoryCities[idx])
-			},
-		}
+	s.victoryCitiesSlider = &Slider{
+		Min:   3,
+		Max:   10,
+		Value: 6,
+		Label: "Cities to Win",
+		OnChange: func(val int) {
+			s.game.UpdateGameSettings("victoryCities", fmt.Sprintf("%d", val))
+		},
 	}
 
-	maxPlayers := []string{"2", "3", "4", "5", "6", "7", "8"}
-	for i, label := range maxPlayers {
-		idx := i
-		s.maxPlayersBtns[i] = &Button{
-			Text: label,
-			OnClick: func() {
-				s.game.UpdateGameSettings("maxPlayers", maxPlayers[idx])
-			},
-		}
+	s.maxPlayersSlider = &Slider{
+		Min:   2,
+		Max:   8,
+		Value: 8,
+		Label: "Max Players",
+		OnChange: func(val int) {
+			s.game.UpdateGameSettings("maxPlayers", fmt.Sprintf("%d", val))
+		},
 	}
 
 	s.settingsCloseBtn = &Button{
@@ -1369,12 +1436,8 @@ func (s *WaitingScene) Update() error {
 		for _, btn := range s.chanceLevelBtns {
 			btn.Update()
 		}
-		for _, btn := range s.victoryCitiesBtns {
-			btn.Update()
-		}
-		for _, btn := range s.maxPlayersBtns {
-			btn.Update()
-		}
+		s.victoryCitiesSlider.Update()
+		s.maxPlayersSlider.Update()
 		s.settingsCloseBtn.Update()
 		if inpututil.IsKeyJustPressed(ebiten.KeyEscape) {
 			s.showSettings = false
@@ -1445,38 +1508,45 @@ func (s *WaitingScene) Draw(screen *ebiten.Image) {
 		return
 	}
 
-	// Title
-	DrawText(screen, lobby.GameName, 50, 50, ColorText)
+	leftMargin := 80
+	rightPanelX := 700
 
-	// Join code - large and prominent, next to copy button
-	DrawLargeText(screen, fmt.Sprintf("Join Code: %s", lobby.JoinCode), 50, 72, ColorPrimary)
+	// Game name as title
+	DrawLargeText(screen, lobby.GameName, leftMargin, 50, ColorText)
 
-	// Settings summary (no level display)
-	DrawText(screen, fmt.Sprintf("Players: %d/%d | Cities to win: %d | Chance: %s",
+	// Join code - prominent display
+	DrawLargeText(screen, fmt.Sprintf("Join Code: %s", lobby.JoinCode), leftMargin, 95, ColorPrimary)
+	s.copyCodeBtn.Draw(screen)
+
+	// Settings summary
+	DrawText(screen, fmt.Sprintf("Players: %d/%d  |  Cities to win: %d  |  Chance: %s",
 		len(lobby.Players), lobby.Settings.MaxPlayers, lobby.Settings.VictoryCities,
 		lobby.Settings.ChanceLevel),
-		50, 100, ColorTextMuted)
+		leftMargin, 140, ColorTextMuted)
 
-	// Player list
-	DrawText(screen, "Players:", 50, 120, ColorTextMuted)
+	// Player list panel
+	DrawFancyPanel(screen, leftMargin-10, 170, 520, 470, "Players")
 	s.playerList.Draw(screen)
 
-	// Buttons
+	// Right side - Actions panel
 	isHost := lobby.HostID == s.game.config.PlayerID
+
+	actionsPanelTitle := "Actions"
+	if isHost {
+		actionsPanelTitle = "Host Actions"
+	}
+	DrawFancyPanel(screen, rightPanelX-20, 170, 240, 360, actionsPanelTitle)
+
 	if isHost {
 		s.addAIBtn.Draw(screen)
 		s.startBtn.Draw(screen)
 		s.mapBtn.Draw(screen)
 		s.settingsBtn.Draw(screen)
+	} else {
+		DrawText(screen, "Waiting for host to start...", rightPanelX-10, 220, ColorTextMuted)
 	}
 	s.readyBtn.Draw(screen)
 	s.leaveBtn.Draw(screen)
-	s.copyCodeBtn.Draw(screen)
-
-	// Host indicator
-	if isHost {
-		DrawText(screen, "(You are the host)", 500, 120, ColorTextMuted)
-	}
 
 	// Settings dialog overlay
 	if s.showSettings {
@@ -1491,7 +1561,7 @@ func (s *WaitingScene) drawSettingsDialog(screen *ebiten.Image, lobby *protocol.
 
 	// Dialog panel
 	dialogW := 400
-	dialogH := 350
+	dialogH := 300
 	dialogX := (ScreenWidth - dialogW) / 2
 	dialogY := (ScreenHeight - dialogH) / 2
 
@@ -1509,38 +1579,27 @@ func (s *WaitingScene) drawSettingsDialog(screen *ebiten.Image, lobby *protocol.
 		btn.Y = y
 		btn.W = btnW
 		btn.H = btnH
-		btn.Primary = lobby.Settings.ChanceLevel == btn.Text
+		btn.Primary = strings.EqualFold(lobby.Settings.ChanceLevel, btn.Text)
 		btn.Draw(screen)
 	}
 
 	y += 55
-	// Victory Cities
-	DrawText(screen, "Cities to Win:", dialogX+20, y, ColorText)
-	y += 25
-	for i, btn := range s.victoryCitiesBtns {
-		btn.X = dialogX + 20 + i*(60+10)
-		btn.Y = y
-		btn.W = 60
-		btn.H = btnH
-		btn.Primary = fmt.Sprintf("%d", lobby.Settings.VictoryCities) == btn.Text
-		btn.Draw(screen)
-	}
+	// Victory Cities slider
+	s.victoryCitiesSlider.X = dialogX + 20
+	s.victoryCitiesSlider.Y = y
+	s.victoryCitiesSlider.W = dialogW - 40
+	s.victoryCitiesSlider.H = 40
+	s.victoryCitiesSlider.Value = lobby.Settings.VictoryCities
+	s.victoryCitiesSlider.Draw(screen)
 
-	y += 55
-	// Max Players (7 buttons: 2-8)
-	DrawText(screen, "Max Players:", dialogX+20, y, ColorText)
-	y += 25
-	// Use smaller buttons to fit 7 in the dialog
-	playerBtnW := 45
-	playerBtnGap := 5
-	for i, btn := range s.maxPlayersBtns {
-		btn.X = dialogX + 20 + i*(playerBtnW+playerBtnGap)
-		btn.Y = y
-		btn.W = playerBtnW
-		btn.H = btnH
-		btn.Primary = fmt.Sprintf("%d", lobby.Settings.MaxPlayers) == btn.Text
-		btn.Draw(screen)
-	}
+	y += 60
+	// Max Players slider
+	s.maxPlayersSlider.X = dialogX + 20
+	s.maxPlayersSlider.Y = y
+	s.maxPlayersSlider.W = dialogW - 40
+	s.maxPlayersSlider.H = 40
+	s.maxPlayersSlider.Value = lobby.Settings.MaxPlayers
+	s.maxPlayersSlider.Draw(screen)
 
 	// Close button
 	s.settingsCloseBtn.X = dialogX + dialogW/2 - 60
