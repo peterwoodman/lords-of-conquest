@@ -3,7 +3,7 @@ set -e
 
 APP_NAME="Lords of Conquest"
 BUNDLE_ID="com.lordsofconquest.game"
-VERSION="1.0.0"
+VERSION=$(cat version.txt | tr -d '[:space:]')
 BINARY_NAME="lords-of-conquest"
 
 echo "========================================="

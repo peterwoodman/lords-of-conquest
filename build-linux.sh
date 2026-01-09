@@ -2,7 +2,7 @@
 set -e
 
 APP_NAME="lords-of-conquest"
-VERSION="1.0.0"
+VERSION=$(cat version.txt | tr -d '[:space:]')
 
 echo "========================================="
 echo "Lords of Conquest - Linux Build"

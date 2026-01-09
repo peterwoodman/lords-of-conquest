@@ -3,7 +3,7 @@
 
 $ErrorActionPreference = "Stop"
 
-$VERSION = "1.0.0"
+$VERSION = (Get-Content "version.txt" -First 1).Trim()
 $APP_NAME = "lords-of-conquest"
 
 Write-Host "=========================================" -ForegroundColor Cyan
