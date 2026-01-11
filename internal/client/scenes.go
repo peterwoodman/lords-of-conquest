@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"image/color"
 	"math"
+	"sort"
 	"strings"
 
 	"lords-of-conquest/internal/protocol"
@@ -963,10 +964,13 @@ func (s *LobbyScene) SetYourGames(games []protocol.GameListItem) {
 			}
 		}
 
-		// Build player names string
+		// Build player names string (sorted alphabetically for consistent display)
 		playerStr := ""
 		if len(g.PlayerNames) > 0 {
-			playerStr = strings.Join(g.PlayerNames, ", ")
+			sortedNames := make([]string, len(g.PlayerNames))
+			copy(sortedNames, g.PlayerNames)
+			sort.Strings(sortedNames)
+			playerStr = strings.Join(sortedNames, ", ")
 		}
 
 		items[i] = ListItem{
