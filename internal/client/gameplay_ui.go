@@ -281,8 +281,13 @@ func (s *GameplayScene) drawHistoryPanel(screen *ebiten.Image, x, y, w int) {
 			currentRound = event.Round
 			currentPhase = event.Phase
 
-			// Draw phase header
-			phaseText := fmt.Sprintf("Year %d %s", event.Round, event.Phase)
+			// Draw phase header - Year 0 is Territory Selection (setup), Year 1+ are normal years
+			var phaseText string
+			if event.Round == 0 {
+				phaseText = event.Phase // Just show "Territory Selection" without year
+			} else {
+				phaseText = fmt.Sprintf("Year %d %s", event.Round, event.Phase)
+			}
 			DrawText(screen, phaseText, x+10, eventY, ColorPrimary)
 			eventY += lineHeight
 			eventsDrawn++

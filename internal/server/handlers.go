@@ -665,8 +665,8 @@ func (h *Handlers) handleStartGame(client *Client, msg *protocol.Message) error 
 		return err
 	}
 
-	// Log game start in history
-	h.logHistory(client.GameID, 1, "Selection", "", "", database.EventRoundStart, "Game started - Round 1")
+	// Log game start in history (Round 0 = Territory Selection phase)
+	h.logHistory(client.GameID, 0, "Territory Selection", "", "", database.EventRoundStart, "Game started")
 
 	// Notify all players
 	h.hub.notifyGamePlayers(client.GameID, protocol.TypeGameStarted, protocol.GameStartedPayload{
