@@ -7,6 +7,8 @@ import (
 	"runtime"
 	"strings"
 
+	"lords-of-conquest/pkg/maps"
+
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
 	"github.com/hajimehoshi/ebiten/v2/inpututil"
@@ -22,6 +24,14 @@ func InitClipboard() {
 	if err := clipboard.Init(); err == nil {
 		clipboardInitialized = true
 	}
+}
+
+// CopyToClipboard copies the given text to the system clipboard.
+func CopyToClipboard(text string) {
+	if !clipboardInitialized {
+		return
+	}
+	clipboard.Write(clipboard.FmtText, []byte(text))
 }
 
 // Colors used in the UI - Retro 8-bit inspired palette
@@ -783,4 +793,354 @@ func (l *List) ClearSelection() {
 // Contains checks if a string contains a substring (case insensitive).
 func Contains(s, substr string) bool {
 	return strings.Contains(strings.ToLower(s), strings.ToLower(substr))
+}
+
+// MapGenDialog is a reusable map generation dialog component.
+type MapGenDialog struct {
+	Visible bool
+
+	// Sliders
+	WidthSlider       *Slider
+	TerritoriesSlider *Slider
+	IslandsSlider     *Slider
+	ResourcesSlider   *Slider
+
+	// Buttons
+	WaterBorderBtn *Button
+	WaterBorder    bool
+	GenerateBtn    *Button
+	ConfirmBtn     *Button
+	CancelBtn      *Button
+
+	// Map data
+	GeneratedMap *maps.Map
+	PreviewGrid  [][]int
+
+	// Animation state
+	GeneratedSteps []maps.GeneratorStep
+	AnimStep       int
+	AnimTicker     int
+	Animating      bool
+
+	// Callbacks
+	OnConfirm func(m *maps.Map)
+	OnCancel  func()
+}
+
+// NewMapGenDialog creates a new map generation dialog.
+func NewMapGenDialog() *MapGenDialog {
+	d := &MapGenDialog{}
+
+	d.WidthSlider = &Slider{
+		Min: 20, Max: 60, Value: 40,
+		Label: "Map Width",
+	}
+	d.TerritoriesSlider = &Slider{
+		Min: 24, Max: 120, Value: 48,
+		Label: "Territories",
+	}
+	d.IslandsSlider = &Slider{
+		Min: 1, Max: 5, Value: 2,
+		Label:  "Islands",
+		Labels: []string{"Few", "Some", "Medium", "Many", "Lots"},
+	}
+	d.ResourcesSlider = &Slider{
+		Min: 10, Max: 80, Value: 40,
+		Label: "Resources %",
+	}
+	d.WaterBorderBtn = &Button{
+		Text: "[ ] Water Border",
+		OnClick: func() {
+			d.WaterBorder = !d.WaterBorder
+		},
+	}
+	d.GenerateBtn = &Button{
+		Text: "Generate",
+		OnClick: func() {
+			d.Generate()
+		},
+	}
+	d.ConfirmBtn = &Button{
+		Text:    "Use This Map",
+		Primary: true,
+		OnClick: func() {
+			if d.GeneratedMap != nil && d.OnConfirm != nil {
+				d.OnConfirm(d.GeneratedMap)
+			}
+		},
+	}
+	d.CancelBtn = &Button{
+		Text: "Cancel",
+		OnClick: func() {
+			d.Visible = false
+			if d.OnCancel != nil {
+				d.OnCancel()
+			}
+		},
+	}
+
+	return d
+}
+
+// Show opens the dialog and resets state.
+func (d *MapGenDialog) Show() {
+	d.Visible = true
+	d.GeneratedMap = nil
+	d.GeneratedSteps = nil
+	d.PreviewGrid = nil
+	d.Animating = false
+	d.AnimStep = 0
+}
+
+// Hide closes the dialog.
+func (d *MapGenDialog) Hide() {
+	d.Visible = false
+}
+
+// Generate creates a new map with current settings.
+func (d *MapGenDialog) Generate() {
+	opts := maps.GeneratorOptions{
+		Width:       d.WidthSlider.Value,
+		Territories: d.TerritoriesSlider.Value,
+		Islands:     d.IslandsSlider.Value,
+		Resources:   d.ResourcesSlider.Value,
+		WaterBorder: d.WaterBorder,
+	}
+
+	gen := maps.NewGenerator(opts)
+	d.GeneratedMap, d.GeneratedSteps = gen.Generate()
+
+	// Initialize preview grid for animation
+	d.PreviewGrid = make([][]int, d.GeneratedMap.Height)
+	for y := range d.PreviewGrid {
+		d.PreviewGrid[y] = make([]int, d.GeneratedMap.Width)
+	}
+
+	// Start animation
+	d.AnimStep = 0
+	d.AnimTicker = 0
+	d.Animating = true
+}
+
+// Update handles dialog input and animation.
+func (d *MapGenDialog) Update() {
+	if !d.Visible {
+		return
+	}
+
+	d.WidthSlider.Update()
+	d.TerritoriesSlider.Update()
+	d.IslandsSlider.Update()
+	d.ResourcesSlider.Update()
+	d.WaterBorderBtn.Update()
+	d.GenerateBtn.Update()
+	d.ConfirmBtn.Update()
+	d.CancelBtn.Update()
+
+	// Update water border button text
+	if d.WaterBorder {
+		d.WaterBorderBtn.Text = "[X] Water Border"
+	} else {
+		d.WaterBorderBtn.Text = "[ ] Water Border"
+	}
+
+	// Disable confirm if no map
+	d.ConfirmBtn.Disabled = d.GeneratedMap == nil
+
+	// Animation logic
+	if d.Animating && d.GeneratedSteps != nil {
+		d.AnimTicker++
+		if d.AnimTicker >= 2 { // Speed: every 2 frames
+			d.AnimTicker = 0
+			if d.AnimStep < len(d.GeneratedSteps) {
+				step := d.GeneratedSteps[d.AnimStep]
+				if step.IsComplete {
+					// Copy final grid
+					for y := 0; y < len(d.PreviewGrid) && y < len(d.GeneratedMap.Grid); y++ {
+						for x := 0; x < len(d.PreviewGrid[y]) && x < len(d.GeneratedMap.Grid[y]); x++ {
+							d.PreviewGrid[y][x] = d.GeneratedMap.Grid[y][x]
+						}
+					}
+					d.Animating = false
+				} else {
+					// Apply step
+					for _, cell := range step.Cells {
+						if cell[1] >= 0 && cell[1] < len(d.PreviewGrid) &&
+							cell[0] >= 0 && cell[0] < len(d.PreviewGrid[cell[1]]) {
+							d.PreviewGrid[cell[1]][cell[0]] = step.TerritoryID
+						}
+					}
+				}
+				d.AnimStep++
+			}
+		}
+	}
+
+	// ESC to close
+	if inpututil.IsKeyJustPressed(ebiten.KeyEscape) {
+		d.Visible = false
+		if d.OnCancel != nil {
+			d.OnCancel()
+		}
+	}
+}
+
+// territoryColor returns a color for a territory based on its ID.
+func territoryColor(id int) color.RGBA {
+	colors := []color.RGBA{
+		{180, 100, 100, 255}, // Red
+		{100, 180, 100, 255}, // Green
+		{100, 100, 180, 255}, // Blue
+		{180, 180, 100, 255}, // Yellow
+		{180, 100, 180, 255}, // Purple
+		{100, 180, 180, 255}, // Cyan
+		{200, 140, 100, 255}, // Orange
+		{140, 100, 200, 255}, // Violet
+		{100, 200, 140, 255}, // Teal
+		{200, 100, 140, 255}, // Pink
+		{140, 200, 100, 255}, // Lime
+		{100, 140, 200, 255}, // Sky
+		{170, 130, 90, 255},  // Tan
+		{130, 170, 90, 255},  // Olive
+		{90, 130, 170, 255},  // Steel
+		{170, 90, 130, 255},  // Rose
+	}
+	return colors[id%len(colors)]
+}
+
+// Draw renders the dialog.
+func (d *MapGenDialog) Draw(screen *ebiten.Image, title string) {
+	if !d.Visible {
+		return
+	}
+
+	// Semi-transparent overlay
+	vector.DrawFilledRect(screen, 0, 0, float32(ScreenWidth), float32(ScreenHeight),
+		color.RGBA{0, 0, 0, 200}, false)
+
+	// Dialog dimensions - larger to show map better
+	dialogW := 900
+	dialogH := 600
+	dialogX := (ScreenWidth - dialogW) / 2
+	dialogY := (ScreenHeight - dialogH) / 2
+
+	DrawFancyPanel(screen, dialogX, dialogY, dialogW, dialogH, title)
+
+	// Left side: sliders
+	sliderX := dialogX + 30
+	sliderW := 280
+	sliderH := 35
+	y := dialogY + 55
+
+	d.WidthSlider.X = sliderX
+	d.WidthSlider.Y = y
+	d.WidthSlider.W = sliderW
+	d.WidthSlider.H = sliderH
+	d.WidthSlider.Draw(screen)
+	y += 50
+
+	d.TerritoriesSlider.X = sliderX
+	d.TerritoriesSlider.Y = y
+	d.TerritoriesSlider.W = sliderW
+	d.TerritoriesSlider.H = sliderH
+	d.TerritoriesSlider.Draw(screen)
+	y += 50
+
+	d.IslandsSlider.X = sliderX
+	d.IslandsSlider.Y = y
+	d.IslandsSlider.W = sliderW
+	d.IslandsSlider.H = sliderH
+	d.IslandsSlider.Draw(screen)
+	y += 50
+
+	d.ResourcesSlider.X = sliderX
+	d.ResourcesSlider.Y = y
+	d.ResourcesSlider.W = sliderW
+	d.ResourcesSlider.H = sliderH
+	d.ResourcesSlider.Draw(screen)
+	y += 50
+
+	d.WaterBorderBtn.X = sliderX
+	d.WaterBorderBtn.Y = y
+	d.WaterBorderBtn.W = sliderW
+	d.WaterBorderBtn.H = 35
+	d.WaterBorderBtn.Draw(screen)
+
+	y += 50
+	d.GenerateBtn.X = sliderX
+	d.GenerateBtn.Y = y
+	d.GenerateBtn.W = sliderW
+	d.GenerateBtn.H = 40
+	d.GenerateBtn.Draw(screen)
+
+	// Right side: map preview - larger area
+	previewX := dialogX + 340
+	previewY := dialogY + 55
+	previewW := dialogW - 370
+	previewH := dialogH - 150
+
+	// Draw preview background
+	vector.DrawFilledRect(screen, float32(previewX), float32(previewY),
+		float32(previewW), float32(previewH), color.RGBA{20, 40, 60, 255}, false)
+
+	// Draw the preview grid
+	if d.PreviewGrid != nil && len(d.PreviewGrid) > 0 {
+		gridH := len(d.PreviewGrid)
+		gridW := len(d.PreviewGrid[0])
+		cellSize := previewW / gridW
+		if previewH/gridH < cellSize {
+			cellSize = previewH / gridH
+		}
+		if cellSize < 2 {
+			cellSize = 2
+		}
+		if cellSize > 15 {
+			cellSize = 15
+		}
+
+		actualW := cellSize * gridW
+		actualH := cellSize * gridH
+		offsetX := previewX + (previewW-actualW)/2
+		offsetY := previewY + (previewH-actualH)/2
+
+		for py := 0; py < gridH; py++ {
+			for px := 0; px < gridW; px++ {
+				cell := d.PreviewGrid[py][px]
+				var c color.RGBA
+				if cell == 0 {
+					c = color.RGBA{30, 70, 140, 255} // Water - blue
+				} else {
+					c = territoryColor(cell)
+				}
+				vector.DrawFilledRect(screen,
+					float32(offsetX+px*cellSize),
+					float32(offsetY+py*cellSize),
+					float32(cellSize),
+					float32(cellSize),
+					c, false)
+			}
+		}
+	} else {
+		DrawTextCentered(screen, "Click 'Generate Map' to preview", previewX+previewW/2, previewY+previewH/2, ColorTextMuted)
+	}
+
+	// Info text
+	if d.GeneratedMap != nil {
+		DrawText(screen, fmt.Sprintf("%d territories", len(d.GeneratedMap.Territories)),
+			previewX+10, previewY+previewH-25, ColorTextMuted)
+	}
+
+	// Bottom buttons
+	btnY := dialogY + dialogH - 60
+	d.ConfirmBtn.X = dialogX + dialogW - 310
+	d.ConfirmBtn.Y = btnY
+	d.ConfirmBtn.W = 140
+	d.ConfirmBtn.H = 45
+	d.ConfirmBtn.Draw(screen)
+
+	d.CancelBtn.X = dialogX + dialogW - 160
+	d.CancelBtn.Y = btnY
+	d.CancelBtn.W = 140
+	d.CancelBtn.H = 45
+	d.CancelBtn.Draw(screen)
 }

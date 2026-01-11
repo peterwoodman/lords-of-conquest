@@ -6,6 +6,7 @@ import (
 	"log"
 
 	"lords-of-conquest/internal/protocol"
+	"lords-of-conquest/pkg/maps"
 
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/inpututil"
@@ -378,6 +379,30 @@ func (g *Game) UpdateGameSettings(key, value string) error {
 		Value: value,
 	}
 	return g.network.SendPayload(protocol.TypeUpdateSettings, payload)
+}
+
+// UpdateMap sends a new map to the server (host only).
+func (g *Game) UpdateMap(m *maps.Map) error {
+	// Convert to protocol MapData
+	mapData := &protocol.MapData{
+		ID:          m.ID,
+		Name:        m.Name,
+		Width:       m.Width,
+		Height:      m.Height,
+		Grid:        m.Grid,
+		Territories: make(map[string]protocol.TerritoryInfo),
+	}
+	for id, t := range m.Territories {
+		mapData.Territories[fmt.Sprintf("%d", id)] = protocol.TerritoryInfo{
+			Name:     t.Name,
+			Resource: t.Resource.String(),
+		}
+	}
+
+	payload := protocol.UpdateMapPayload{
+		MapData: mapData,
+	}
+	return g.network.SendPayload(protocol.TypeUpdateMap, payload)
 }
 
 // LeaveGame leaves the current game.

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"lords-of-conquest/internal/protocol"
 )
 
 // GameStatus represents the current status of a game.
@@ -45,7 +46,6 @@ type Game struct {
 // GameSettings contains configurable game parameters.
 type GameSettings struct {
 	MaxPlayers    int    `json:"max_players"`
-	GameLevel     string `json:"game_level"`
 	ChanceLevel   string `json:"chance_level"`
 	VictoryCities int    `json:"victory_cities"`
 	MapID         string `json:"map_id"`
@@ -182,13 +182,13 @@ func (db *DB) UpdateGameSetting(gameID, key, value string) error {
 	case "victory_cities":
 		var cities int
 		fmt.Sscanf(value, "%d", &cities)
-		if cities >= 3 && cities <= 6 {
+		if cities >= protocol.MinVictoryCities && cities <= protocol.MaxVictoryCities {
 			game.Settings.VictoryCities = cities
 		}
 	case "max_players":
 		var maxPlayers int
 		fmt.Sscanf(value, "%d", &maxPlayers)
-		if maxPlayers >= 2 && maxPlayers <= 8 {
+		if maxPlayers >= protocol.MinPlayers && maxPlayers <= protocol.MaxPlayers {
 			game.Settings.MaxPlayers = maxPlayers
 		}
 	default:
@@ -486,6 +486,14 @@ func (db *DB) GetGameMapJSON(gameID string) (string, error) {
 		return mapJSON.String, nil
 	}
 	return "", nil
+}
+
+// UpdateGameMap updates the map for a game.
+func (db *DB) UpdateGameMap(gameID, mapJSON string) error {
+	_, err := db.conn.Exec(`
+		UPDATE games SET map_json = ? WHERE id = ?
+	`, mapJSON, gameID)
+	return err
 }
 
 // LogAction logs a game action.

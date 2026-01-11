@@ -20,22 +20,11 @@ type GameState struct {
 
 // Settings contains the configurable game parameters.
 type Settings struct {
-	GameLevel      GameLevel   `json:"gameLevel"`
-	ChanceLevel    ChanceLevel `json:"chanceLevel"`
-	VictoryCities  int         `json:"victoryCities"`
-	MapID          string      `json:"mapId"`
-	MaxPlayers     int         `json:"maxPlayers"`
+	ChanceLevel   ChanceLevel `json:"chanceLevel"`
+	VictoryCities int         `json:"victoryCities"`
+	MapID         string      `json:"mapId"`
+	MaxPlayers    int         `json:"maxPlayers"`
 }
-
-// GameLevel determines which features are available.
-type GameLevel int
-
-const (
-	LevelBeginner GameLevel = iota
-	LevelIntermediate
-	LevelAdvanced
-	LevelExpert
-)
 
 // ChanceLevel determines randomness in combat.
 type ChanceLevel int

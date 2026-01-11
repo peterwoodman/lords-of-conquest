@@ -776,6 +776,11 @@ func (s *GameplayScene) Update() error {
 		s.proposeTradeBtn.Update()
 	}
 
+	// Update Set Ally button (available anytime with 3+ players)
+	if len(s.playerOrder) >= 3 {
+		s.setAllyBtn.Update()
+	}
+
 	// Handle click
 	if inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) {
 		// Check if clicked on color block

@@ -52,10 +52,14 @@ type GameCreatedPayload struct {
 // GameSettings are the configurable game parameters.
 type GameSettings struct {
 	MaxPlayers    int    `json:"max_players"`
-	GameLevel     string `json:"game_level"`     // beginner, intermediate, advanced, expert
 	ChanceLevel   string `json:"chance_level"`   // low, medium, high
-	VictoryCities int    `json:"victory_cities"` // 3-8
+	VictoryCities int    `json:"victory_cities"` // 3-10
 	MapID         string `json:"map_id"`
+}
+
+// UpdateMapPayload is sent by the host to change the game's map.
+type UpdateMapPayload struct {
+	MapData *MapData `json:"map_data"`
 }
 
 // JoinGamePayload is sent to join a game by ID.
@@ -157,6 +161,7 @@ type LobbyStatePayload struct {
 	IsPublic bool          `json:"is_public"`
 	Settings GameSettings  `json:"settings"`
 	Players  []LobbyPlayer `json:"players"`
+	MapData  *MapData      `json:"map_data,omitempty"`
 }
 
 // LobbyPlayer is a player in the lobby.

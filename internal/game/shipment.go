@@ -53,7 +53,7 @@ func (g *GameState) MoveStockpile(playerID, destinationID string) error {
 	return nil
 }
 
-// MoveUnit moves a unit from one territory to another (Expert level only).
+// MoveUnit moves a unit from one territory to another.
 func (g *GameState) MoveUnit(playerID, unitType, fromID, toID, waterBodyID string, carryHorse, carryWeapon bool) error {
 	// Validate phase
 	if g.Phase != PhaseShipment {
@@ -63,11 +63,6 @@ func (g *GameState) MoveUnit(playerID, unitType, fromID, toID, waterBodyID strin
 	// Validate player turn
 	if g.CurrentPlayerID != playerID {
 		return ErrNotYourTurn
-	}
-
-	// Expert level only for unit movement
-	if g.Settings.GameLevel != LevelExpert {
-		return ErrInvalidAction
 	}
 
 	player := g.Players[playerID]
@@ -416,12 +411,8 @@ func (g *GameState) GetValidStockpileDestinations(playerID string) []string {
 	return destinations
 }
 
-// GetMovableUnits returns units that can be moved by a player (Expert level only).
+// GetMovableUnits returns units that can be moved by a player.
 func (g *GameState) GetMovableUnits(playerID string) []map[string]interface{} {
-	if g.Settings.GameLevel != LevelExpert {
-		return nil
-	}
-
 	units := make([]map[string]interface{}, 0)
 
 	for id, t := range g.Territories {

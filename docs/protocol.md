@@ -46,7 +46,6 @@ Create a new game lobby.
     "name": "My Game",
     "settings": {
       "max_players": 4,
-      "game_level": "expert",
       "chance_level": "medium",
       "victory_cities": 3,
       "map_id": "north_america"
@@ -479,7 +478,6 @@ Build a unit or city.
 {
   "game_id": "game-uuid",
   "settings": {
-    "game_level": "expert",
     "chance_level": "medium",
     "victory_cities": 3
   },

@@ -8,6 +8,19 @@ import (
 	"github.com/google/uuid"
 )
 
+// Game settings constraints - shared between client and server
+const (
+	MinPlayers        = 2
+	MaxPlayers        = 8
+	DefaultMaxPlayers = 8
+
+	MinVictoryCities     = 3
+	MaxVictoryCities     = 10
+	DefaultVictoryCities = 6
+
+	DefaultChanceLevel = "high"
+)
+
 // MessageType identifies the type of message.
 type MessageType string
 
@@ -30,6 +43,7 @@ const (
 	TypeAddAI          MessageType = "add_ai"
 	TypeRemovePlayer   MessageType = "remove_player"
 	TypeUpdateSettings MessageType = "update_settings"
+	TypeUpdateMap      MessageType = "update_map"
 	TypePlayerReady    MessageType = "player_ready"
 	TypeChangeColor    MessageType = "change_color"
 	TypeStartGame      MessageType = "start_game"
@@ -56,15 +70,15 @@ const (
 
 // Action message types
 const (
-	TypeSelectTerritory  MessageType = "select_territory"
-	TypePlaceStockpile   MessageType = "place_stockpile"
-	TypeEndPhase         MessageType = "end_phase"
-	TypeProposeTrade     MessageType = "propose_trade"
-	TypeTradeProposal    MessageType = "trade_proposal"    // Sent to target player
-	TypeRespondTrade     MessageType = "respond_trade"     // Target's response
-	TypeTradeResult      MessageType = "trade_result"      // Result sent to proposer
-	TypeSelectHorseDest  MessageType = "select_horse_dest" // Where to place received horses
-	TypeMoveStockpile    MessageType = "move_stockpile"
+	TypeSelectTerritory MessageType = "select_territory"
+	TypePlaceStockpile  MessageType = "place_stockpile"
+	TypeEndPhase        MessageType = "end_phase"
+	TypeProposeTrade    MessageType = "propose_trade"
+	TypeTradeProposal   MessageType = "trade_proposal"    // Sent to target player
+	TypeRespondTrade    MessageType = "respond_trade"     // Target's response
+	TypeTradeResult     MessageType = "trade_result"      // Result sent to proposer
+	TypeSelectHorseDest MessageType = "select_horse_dest" // Where to place received horses
+	TypeMoveStockpile   MessageType = "move_stockpile"
 	TypeMoveUnit        MessageType = "move_unit"
 	TypePlanAttack      MessageType = "plan_attack"
 	TypeAttackPreview   MessageType = "attack_preview"
@@ -87,12 +101,12 @@ const (
 
 // System message types
 const (
-	TypeWelcome     MessageType = "welcome"
-	TypeError       MessageType = "error"
-	TypeReconnect   MessageType = "reconnect"
-	TypeDisconnect  MessageType = "disconnect"
-	TypePing        MessageType = "ping"
-	TypePong        MessageType = "pong"
+	TypeWelcome    MessageType = "welcome"
+	TypeError      MessageType = "error"
+	TypeReconnect  MessageType = "reconnect"
+	TypeDisconnect MessageType = "disconnect"
+	TypePing       MessageType = "ping"
+	TypePong       MessageType = "pong"
 )
 
 // Message is the envelope for all messages.

@@ -45,6 +45,8 @@ func (h *Handlers) Handle(client *Client, msg *protocol.Message) {
 		err = h.handleAddAI(client, msg)
 	case protocol.TypeUpdateSettings:
 		err = h.handleUpdateSettings(client, msg)
+	case protocol.TypeUpdateMap:
+		err = h.handleUpdateMap(client, msg)
 	case protocol.TypePlayerReady:
 		err = h.handlePlayerReady(client, msg)
 	case protocol.TypeChangeColor:
@@ -214,22 +216,18 @@ func (h *Handlers) handleCreateGame(client *Client, msg *protocol.Message) error
 	// Set defaults
 	settings := database.GameSettings{
 		MaxPlayers:    payload.Settings.MaxPlayers,
-		GameLevel:     payload.Settings.GameLevel,
 		ChanceLevel:   payload.Settings.ChanceLevel,
 		VictoryCities: payload.Settings.VictoryCities,
 		MapID:         payload.Settings.MapID,
 	}
 	if settings.MaxPlayers == 0 {
-		settings.MaxPlayers = 8
+		settings.MaxPlayers = protocol.DefaultMaxPlayers
 	}
 	if settings.VictoryCities == 0 {
-		settings.VictoryCities = 6
-	}
-	if settings.GameLevel == "" {
-		settings.GameLevel = "expert"
+		settings.VictoryCities = protocol.DefaultVictoryCities
 	}
 	if settings.ChanceLevel == "" {
-		settings.ChanceLevel = "high"
+		settings.ChanceLevel = protocol.DefaultChanceLevel
 	}
 
 	game, err := h.hub.server.db.CreateGame(payload.Name, client.PlayerID, settings, payload.IsPublic, mapJSON)
@@ -354,12 +352,8 @@ func (h *Handlers) joinGame(client *Client, msgID string, gameID string, preferr
 		// Send game history
 		h.sendGameHistory(client, gameID)
 	} else {
-		// Game is in lobby - send lobby state
-		h.sendLobbyState(client, gameID)
-		h.hub.notifyGamePlayers(gameID, protocol.TypePlayerJoined, protocol.PlayerJoinedPayload{
-			PlayerID: client.PlayerID,
-			Name:     client.Name,
-		})
+		// Game is in lobby - broadcast lobby state to all players (including the one who just joined)
+		h.broadcastLobbyState(gameID)
 	}
 
 	return nil
@@ -389,10 +383,8 @@ func (h *Handlers) handleLeaveGame(client *Client, msg *protocol.Message) error 
 		db.LeaveGame(gameID, client.PlayerID)
 		h.hub.RemoveClientFromGame(client, gameID)
 
-		// Notify others
-		h.hub.notifyGamePlayers(gameID, protocol.TypePlayerLeft, protocol.PlayerLeftPayload{
-			PlayerID: client.PlayerID,
-		})
+		// Broadcast updated lobby state to remaining players
+		h.broadcastLobbyState(gameID)
 	}
 
 	log.Printf("Player %s left game %s", client.Name, gameID)
@@ -472,6 +464,49 @@ func (h *Handlers) handleUpdateSettings(client *Client, msg *protocol.Message) e
 	}
 
 	log.Printf("Host %s updated game setting: %s = %s", client.Name, payload.Key, payload.Value)
+
+	// Broadcast updated lobby state
+	h.broadcastLobbyState(client.GameID)
+
+	return nil
+}
+
+// handleUpdateMap handles the host changing the game's map.
+func (h *Handlers) handleUpdateMap(client *Client, msg *protocol.Message) error {
+	if client.GameID == "" {
+		return errors.New("not in a game")
+	}
+
+	// Verify client is host
+	game, err := h.hub.server.db.GetGame(client.GameID)
+	if err != nil {
+		return err
+	}
+	if game.HostPlayerID != client.PlayerID {
+		return errors.New("only host can change the map")
+	}
+
+	var payload protocol.UpdateMapPayload
+	if err := msg.ParsePayload(&payload); err != nil {
+		return err
+	}
+
+	if payload.MapData == nil {
+		return errors.New("no map data provided")
+	}
+
+	// Convert map data to JSON
+	mapJSON, err := json.Marshal(payload.MapData)
+	if err != nil {
+		return err
+	}
+
+	// Update map in database
+	if err := h.hub.server.db.UpdateGameMap(client.GameID, string(mapJSON)); err != nil {
+		return err
+	}
+
+	log.Printf("Host %s updated map for game %s", client.Name, client.GameID)
 
 	// Broadcast updated lobby state
 	h.broadcastLobbyState(client.GameID)
@@ -719,12 +754,19 @@ func (h *Handlers) sendLobbyState(client *Client, gameID string) {
 		IsPublic: game.IsPublic,
 		Settings: protocol.GameSettings{
 			MaxPlayers:    game.Settings.MaxPlayers,
-			GameLevel:     game.Settings.GameLevel,
 			ChanceLevel:   game.Settings.ChanceLevel,
 			VictoryCities: game.Settings.VictoryCities,
 			MapID:         game.Settings.MapID,
 		},
 		Players: lobbyPlayers,
+	}
+
+	// Include map data if available
+	if mapJSON, err := db.GetGameMapJSON(gameID); err == nil && mapJSON != "" {
+		var mapData protocol.MapData
+		if json.Unmarshal([]byte(mapJSON), &mapData) == nil {
+			payload.MapData = &mapData
+		}
 	}
 
 	msg, _ := protocol.NewMessage(protocol.TypeLobbyState, payload)
@@ -804,7 +846,6 @@ func (h *Handlers) initializeGameState(gameID string, dbGame *database.Game, dbP
 
 	// Convert database settings to game settings
 	gameSettings := game.Settings{
-		GameLevel:     parseGameLevel(dbGame.Settings.GameLevel),
 		ChanceLevel:   parseChanceLevel(dbGame.Settings.ChanceLevel),
 		VictoryCities: dbGame.Settings.VictoryCities,
 		MapID:         dbGame.Settings.MapID,
@@ -1271,21 +1312,6 @@ func (h *Handlers) handlePlaceStockpile(client *Client, msg *protocol.Message) e
 }
 
 // Helper functions for parsing settings
-func parseGameLevel(s string) game.GameLevel {
-	switch s {
-	case "beginner":
-		return game.LevelBeginner
-	case "intermediate":
-		return game.LevelIntermediate
-	case "advanced":
-		return game.LevelAdvanced
-	case "expert":
-		return game.LevelExpert
-	default:
-		return game.LevelExpert
-	}
-}
-
 func parseChanceLevel(s string) game.ChanceLevel {
 	switch s {
 	case "low":
@@ -2002,8 +2028,8 @@ func (h *Handlers) aiDevelopment(gameID string, state *game.GameState) {
 		}
 	}
 
-	// Try to build a boat if at advanced level and can afford it
-	if !built && state.Settings.GameLevel >= game.LevelAdvanced {
+	// Try to build a boat if can afford it
+	if !built {
 		if player.Stockpile.CanAffordStockpile(game.GetBuildCost(game.BuildBoat)) || player.Stockpile.Gold >= game.GoldCost(game.BuildBoat) {
 			// Find a coastal territory that can have more boats
 			for id, t := range state.Territories {

@@ -58,12 +58,9 @@ func (g *GameState) CanBuild(playerID string, buildType BuildType, territoryID s
 		return ErrInvalidTarget
 	}
 
-	// Check game level restrictions
+	// Check build restrictions
 	switch buildType {
 	case BuildBoat:
-		if g.Settings.GameLevel < LevelAdvanced {
-			return ErrInvalidAction
-		}
 		if !territory.IsCoastal() || !territory.CanAddBoat() {
 			return ErrInvalidTarget
 		}
@@ -487,8 +484,7 @@ func (g *GameState) GetBuildOptions(playerID string) []map[string]interface{} {
 	// Check what can be afforded
 	canAffordCity := player.Stockpile.CanAffordStockpile(GetBuildCost(BuildCity)) || player.Stockpile.Gold >= GoldCost(BuildCity)
 	canAffordWeapon := player.Stockpile.CanAffordStockpile(GetBuildCost(BuildWeapon)) || player.Stockpile.Gold >= GoldCost(BuildWeapon)
-	canAffordBoat := (g.Settings.GameLevel >= LevelAdvanced) &&
-		(player.Stockpile.CanAffordStockpile(GetBuildCost(BuildBoat)) || player.Stockpile.Gold >= GoldCost(BuildBoat))
+	canAffordBoat := player.Stockpile.CanAffordStockpile(GetBuildCost(BuildBoat)) || player.Stockpile.Gold >= GoldCost(BuildBoat)
 
 	// Find valid territories for each build type
 	for id, t := range g.Territories {

@@ -149,7 +149,6 @@ func (s *GameplayScene) drawLeftSidebar(screen *ebiten.Image) {
 			s.setAllyBtn.Y = playersY + playersH - 38
 			s.setAllyBtn.W = sidebarW - 20
 			s.setAllyBtn.Draw(screen)
-			s.setAllyBtn.Update()
 		}
 	}
 
