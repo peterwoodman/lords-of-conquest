@@ -645,6 +645,56 @@ func (s *GameplayScene) Update() error {
 	if s.showTradeIncoming {
 		s.tradeAcceptBtn.Update()
 		s.tradeRejectBtn.Update()
+
+		// Handle horse destination territory clicks (if receiving horses)
+		if s.tradeProposal != nil && s.tradeProposal.OfferHorses > 0 {
+			if inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) {
+				mx, my := ebiten.CursorPosition()
+
+				panelW := 400
+				panelH := 400 // Height when horses need destination
+				centerX, centerY := ScreenWidth/2, ScreenHeight/2
+				panelX, panelY := centerX-panelW/2, centerY-panelH/2
+
+				// Calculate Y position for territory buttons
+				terrY := panelY + 50 + 40 + 20 + 40 + 20 + 40 + 20 // After all the text sections
+
+				availableTerrs := s.getTerritoriesWithoutHorses()
+				for i, terrID := range availableTerrs {
+					if i >= 6 {
+						break
+					}
+					btnX := panelX + 20 + (i%3)*125
+					btnY := terrY + (i/3)*25
+
+					if mx >= btnX && mx < btnX+120 && my >= btnY && my < btnY+22 {
+						// Check if already selected
+						isSelected := false
+						for _, t := range s.tradeHorseDestTerrs {
+							if t == terrID {
+								isSelected = true
+								break
+							}
+						}
+						if isSelected {
+							// Remove from selection
+							newTerrs := make([]string, 0)
+							for _, t := range s.tradeHorseDestTerrs {
+								if t != terrID {
+									newTerrs = append(newTerrs, t)
+								}
+							}
+							s.tradeHorseDestTerrs = newTerrs
+						} else if len(s.tradeHorseDestTerrs) < s.tradeProposal.OfferHorses {
+							// Add to selection
+							s.tradeHorseDestTerrs = append(s.tradeHorseDestTerrs, terrID)
+						}
+						break
+					}
+				}
+			}
+		}
+
 		if inpututil.IsKeyJustPressed(ebiten.KeyEscape) {
 			s.rejectTrade()
 		}
@@ -655,6 +705,101 @@ func (s *GameplayScene) Update() error {
 	if s.showTradePropose {
 		s.tradeSendBtn.Update()
 		s.tradeCancelBtn.Update()
+
+		// Handle clicks
+		if inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) {
+			mx, my := ebiten.CursorPosition()
+			onlinePlayers := s.getOnlinePlayers()
+
+			panelW, panelH := 560, 450
+			if s.tradeOfferHorses > 0 {
+				panelH = 530
+			}
+			centerX, centerY := ScreenWidth/2, ScreenHeight/2
+			panelX, panelY := centerX-panelW/2, centerY-panelH/2
+			y := panelY + 50 + 25 // After "Trade with:" label
+
+			// Player selection
+			for i, playerID := range onlinePlayers {
+				btnX := panelX + 20 + (i%3)*150
+				btnY := y + (i/3)*35
+
+				if mx >= btnX && mx < btnX+140 && my >= btnY && my < btnY+30 {
+					s.tradeTargetPlayer = playerID
+					break
+				}
+			}
+
+			// Resource adjusters - calculate Y positions to match Draw
+			playerRows := (len(onlinePlayers) + 2) / 3
+			offerY := panelY + 50 + 25 + playerRows*35 + 20 + 25 + 18 // After player buttons + "I OFFER:" + label
+
+			myCoal, myGold, myIron, myTimber := s.getMyStockpile()
+			myHorses := s.countPlayerHorses(s.game.config.PlayerID)
+
+			s.handleResourceAdjusterClick(mx, my, panelX+20, offerY, &s.tradeOfferCoal, 0, myCoal)
+			s.handleResourceAdjusterClick(mx, my, panelX+120, offerY, &s.tradeOfferGold, 0, myGold)
+			s.handleResourceAdjusterClick(mx, my, panelX+220, offerY, &s.tradeOfferIron, 0, myIron)
+			s.handleResourceAdjusterClick(mx, my, panelX+320, offerY, &s.tradeOfferTimber, 0, myTimber)
+			s.handleResourceAdjusterClick(mx, my, panelX+420, offerY, &s.tradeOfferHorses, 0, myHorses)
+
+			// "I WANT" adjusters (only if target selected)
+			if s.tradeTargetPlayer != "" {
+				wantY := offerY + 70 + 25 + 18 // After offer section + "I WANT:" + label
+				targetCoal, targetGold, targetIron, targetTimber := s.getPlayerStockpile(s.tradeTargetPlayer)
+				targetHorses := s.countPlayerHorses(s.tradeTargetPlayer)
+
+				s.handleResourceAdjusterClick(mx, my, panelX+20, wantY, &s.tradeRequestCoal, 0, targetCoal)
+				s.handleResourceAdjusterClick(mx, my, panelX+120, wantY, &s.tradeRequestGold, 0, targetGold)
+				s.handleResourceAdjusterClick(mx, my, panelX+220, wantY, &s.tradeRequestIron, 0, targetIron)
+				s.handleResourceAdjusterClick(mx, my, panelX+320, wantY, &s.tradeRequestTimber, 0, targetTimber)
+				s.handleResourceAdjusterClick(mx, my, panelX+420, wantY, &s.tradeRequestHorses, 0, targetHorses)
+			}
+
+			// Horse territory selection (if offering horses)
+			if s.tradeOfferHorses > 0 {
+				horseTerrs := s.getPlayerHorseTerritories()
+				// Calculate Y position for horse territory buttons
+				horseY := offerY + 70 + 25 + 18 + 70 + 20 // After want section + label
+				if s.tradeTargetPlayer == "" {
+					horseY = offerY + 70 + 25 + 20 // Skip want section if no target
+				}
+
+				for i, terrID := range horseTerrs {
+					if i >= 6 {
+						break
+					}
+					btnX := panelX + 20 + (i%3)*150
+					btnY := horseY + (i/3)*25
+
+					if mx >= btnX && mx < btnX+140 && my >= btnY && my < btnY+22 {
+						// Check if already selected
+						isSelected := false
+						for _, t := range s.tradeOfferHorseTerrs {
+							if t == terrID {
+								isSelected = true
+								break
+							}
+						}
+						if isSelected {
+							// Remove from selection
+							newTerrs := make([]string, 0)
+							for _, t := range s.tradeOfferHorseTerrs {
+								if t != terrID {
+									newTerrs = append(newTerrs, t)
+								}
+							}
+							s.tradeOfferHorseTerrs = newTerrs
+						} else if len(s.tradeOfferHorseTerrs) < s.tradeOfferHorses {
+							// Add to selection
+							s.tradeOfferHorseTerrs = append(s.tradeOfferHorseTerrs, terrID)
+						}
+						break
+					}
+				}
+			}
+		}
+
 		if inpututil.IsKeyJustPressed(ebiten.KeyEscape) {
 			s.showTradePropose = false
 		}
@@ -966,5 +1111,20 @@ func (s *GameplayScene) updatePanZoom() {
 		s.zoom = 1.0
 		s.panX = 0
 		s.panY = 0
+	}
+}
+
+// handleResourceAdjusterClick handles +/- button clicks for resource adjusters.
+func (s *GameplayScene) handleResourceAdjusterClick(mx, my, x, y int, value *int, min, max int) {
+	minusBtnX, minusBtnY := x, y
+	plusBtnX := x + 60
+
+	if my >= minusBtnY && my < minusBtnY+20 {
+		if mx >= minusBtnX && mx < minusBtnX+20 && *value > min {
+			*value--
+		}
+		if mx >= plusBtnX && mx < plusBtnX+20 && *value < max {
+			*value++
+		}
 	}
 }

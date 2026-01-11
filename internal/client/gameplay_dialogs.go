@@ -1102,7 +1102,11 @@ func (s *GameplayScene) drawVictoryScreen(screen *ebiten.Image) {
 
 // drawTradePropose draws the popup for proposing a trade.
 func (s *GameplayScene) drawTradePropose(screen *ebiten.Image) {
-	panelW, panelH := 500, 450
+	panelW, panelH := 560, 450
+	// Make dialog taller when offering horses (need space for territory selection)
+	if s.tradeOfferHorses > 0 {
+		panelH = 530
+	}
 	centerX, centerY := ScreenWidth/2, ScreenHeight/2
 	panelX, panelY := centerX-panelW/2, centerY-panelH/2
 
@@ -1142,14 +1146,6 @@ func (s *GameplayScene) drawTradePropose(screen *ebiten.Image) {
 		vector.DrawFilledRect(screen, float32(btnX), float32(btnY), 140, 30, btnColor, false)
 		vector.StrokeRect(screen, float32(btnX), float32(btnY), 140, 30, 1, ColorBorder, false)
 		DrawTextCentered(screen, playerName, btnX+70, btnY+8, ColorText)
-
-		// Handle click
-		mx, my := ebiten.CursorPosition()
-		if inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) {
-			if mx >= btnX && mx < btnX+140 && my >= btnY && my < btnY+30 {
-				s.tradeTargetPlayer = playerID
-			}
-		}
 	}
 
 	// Calculate rows for players
@@ -1220,26 +1216,6 @@ func (s *GameplayScene) drawTradePropose(screen *ebiten.Image) {
 
 			vector.DrawFilledRect(screen, float32(btnX), float32(btnY), 140, 22, btnColor, false)
 			DrawText(screen, terrName, btnX+5, btnY+4, ColorText)
-
-			// Handle click
-			mx, my := ebiten.CursorPosition()
-			if inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) {
-				if mx >= btnX && mx < btnX+140 && my >= btnY && my < btnY+22 {
-					if isSelected {
-						// Remove from selection
-						newTerrs := make([]string, 0)
-						for _, t := range s.tradeOfferHorseTerrs {
-							if t != terrID {
-								newTerrs = append(newTerrs, t)
-							}
-						}
-						s.tradeOfferHorseTerrs = newTerrs
-					} else if len(s.tradeOfferHorseTerrs) < s.tradeOfferHorses {
-						// Add to selection
-						s.tradeOfferHorseTerrs = append(s.tradeOfferHorseTerrs, terrID)
-					}
-				}
-			}
 		}
 	}
 
@@ -1266,6 +1242,7 @@ func (s *GameplayScene) drawTradePropose(screen *ebiten.Image) {
 }
 
 // drawResourceAdjuster draws a resource adjuster (+/- buttons with value).
+// Note: Click handling is done in Update() via handleResourceAdjusterClick().
 func (s *GameplayScene) drawResourceAdjuster(screen *ebiten.Image, x, y int, label string, value *int, min, max int) {
 	DrawText(screen, label, x, y, ColorTextMuted)
 	y += 18
@@ -1284,19 +1261,6 @@ func (s *GameplayScene) drawResourceAdjuster(screen *ebiten.Image, x, y int, lab
 	vector.DrawFilledRect(screen, float32(plusBtnX), float32(minusBtnY), 20, 20, ColorPanel, false)
 	vector.StrokeRect(screen, float32(plusBtnX), float32(minusBtnY), 20, 20, 1, ColorBorder, false)
 	DrawTextCentered(screen, "+", plusBtnX+10, minusBtnY+3, ColorText)
-
-	// Handle clicks
-	mx, my := ebiten.CursorPosition()
-	if inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) {
-		if my >= minusBtnY && my < minusBtnY+20 {
-			if mx >= minusBtnX && mx < minusBtnX+20 && *value > min {
-				*value--
-			}
-			if mx >= plusBtnX && mx < plusBtnX+20 && *value < max {
-				*value++
-			}
-		}
-	}
 }
 
 // drawTradeIncoming draws the popup for an incoming trade proposal.
@@ -1369,26 +1333,6 @@ func (s *GameplayScene) drawTradeIncoming(screen *ebiten.Image) {
 
 			vector.DrawFilledRect(screen, float32(btnX), float32(btnY), 120, 22, btnColor, false)
 			DrawText(screen, terrName, btnX+5, btnY+4, ColorText)
-
-			// Handle click
-			mx, my := ebiten.CursorPosition()
-			if inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) {
-				if mx >= btnX && mx < btnX+120 && my >= btnY && my < btnY+22 {
-					if isSelected {
-						// Remove from selection
-						newTerrs := make([]string, 0)
-						for _, t := range s.tradeHorseDestTerrs {
-							if t != terrID {
-								newTerrs = append(newTerrs, t)
-							}
-						}
-						s.tradeHorseDestTerrs = newTerrs
-					} else if len(s.tradeHorseDestTerrs) < s.tradeProposal.OfferHorses {
-						// Add to selection
-						s.tradeHorseDestTerrs = append(s.tradeHorseDestTerrs, terrID)
-					}
-				}
-			}
 		}
 	}
 
