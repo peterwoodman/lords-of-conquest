@@ -14,20 +14,19 @@ echo ""
 # Create build directory
 mkdir -p build
 
-# Build client (universal binary)
-echo "Building client (universal binary)..."
-GOOS=darwin GOARCH=amd64 go build -o build/client-intel ./cmd/client
-GOOS=darwin GOARCH=arm64 go build -o build/client-arm ./cmd/client
-lipo -create -output "build/${BINARY_NAME}-client" build/client-intel build/client-arm
-rm build/client-intel build/client-arm
+# Detect architecture
+ARCH=$(uname -m)
+echo "Detected architecture: ${ARCH}"
+echo ""
+
+# Build client
+echo "Building client..."
+CGO_ENABLED=1 go build -o "build/${BINARY_NAME}-client" ./cmd/client
 echo "  Created build/${BINARY_NAME}-client"
 
-# Build server (universal binary)
-echo "Building server (universal binary)..."
-GOOS=darwin GOARCH=amd64 go build -o build/server-intel ./cmd/server
-GOOS=darwin GOARCH=arm64 go build -o build/server-arm ./cmd/server
-lipo -create -output "build/${BINARY_NAME}-server" build/server-intel build/server-arm
-rm build/server-intel build/server-arm
+# Build server
+echo "Building server..."
+CGO_ENABLED=1 go build -o "build/${BINARY_NAME}-server" ./cmd/server
 echo "  Created build/${BINARY_NAME}-server"
 
 echo ""
@@ -97,7 +96,7 @@ Lords of Conquest - macOS
 
 Client:
   Double-click "Lords of Conquest.app" to play.
-  
+
   IMPORTANT: Since this app is not signed, you need to:
     1. Right-click the app -> Open -> Click "Open" in the dialog
     OR
@@ -106,7 +105,7 @@ Client:
 Server:
   Open Terminal and run: ./${BINARY_NAME}-server
   Default port: 8080
-  
+
   Usage: ./${BINARY_NAME}-server [-port PORT] [-db DATABASE_FILE]
 
 Version: ${VERSION}
