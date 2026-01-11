@@ -381,54 +381,184 @@ func (g *Generator) placeSeeds(count int) [][2]int {
 		minY, maxY = 1, g.height-2
 	}
 
-	// Base spacing ensures territories have room to grow (minimum ~3 cells radius)
-	// Islands setting adds extra spacing for water between landmasses
-	// Islands 1 = connected landmass (base spacing only)
-	// Islands 5 = many islands with water between (base + 4 extra spacing)
 	islandLevel := clamp(g.options.Islands, 1, 5)
-	baseSpacing := 3                        // Minimum spacing so territories can grow
-	extraSpacing := islandLevel - 1         // 0-4 extra based on islands setting
-	startSpacing := baseSpacing + extraSpacing
 
-	// Try to place all seeds, reducing spacing if needed to hit territory count
-	// Territory count takes priority over island spacing
-	minAllowedSpacing := 2 // Never go below 2, or territories will be too cramped
-	
-	for spacing := startSpacing; spacing >= minAllowedSpacing; spacing-- {
-		seeds = seeds[:0] // Reset seeds for each spacing attempt
-		attempts := 0
-		maxAttempts := count * 150
+	// Determine target number of island clusters based on setting
+	// Islands 1 (Few): 1 landmass
+	// Islands 2 (Some): 2-3 landmasses
+	// Islands 3 (Medium): ~4-6 landmasses
+	// Islands 4 (Many): ~8-12 landmasses
+	// Islands 5 (Lots): ~count/4 landmasses (many small islands)
+	var numClusters int
+	switch islandLevel {
+	case 1:
+		numClusters = 1
+	case 2:
+		numClusters = 2 + g.rng.Intn(2) // 2-3
+	case 3:
+		numClusters = 4 + g.rng.Intn(3) // 4-6
+	case 4:
+		numClusters = 8 + g.rng.Intn(5) // 8-12
+	case 5:
+		numClusters = count / 4 // Many small clusters
+		if numClusters < 10 {
+			numClusters = 10
+		}
+	}
+	if numClusters > count {
+		numClusters = count
+	}
 
-		for len(seeds) < count && attempts < maxAttempts {
-			attempts++
+	// Place cluster centers spread across the map
+	clusterCenters := make([][2]int, 0, numClusters)
+	areaW := maxX - minX
+	areaH := maxY - minY
 
-			x := minX + g.rng.Intn(maxX-minX+1)
-			y := minY + g.rng.Intn(maxY-minY+1)
+	for i := 0; i < numClusters; i++ {
+		placed := false
+		for attempts := 0; attempts < 100 && !placed; attempts++ {
+			cx := minX + g.rng.Intn(areaW+1)
+			cy := minY + g.rng.Intn(areaH+1)
 
-			// Check spacing from existing seeds
+			// For few clusters, ensure they're spread apart
+			minDist := (areaW + areaH) / (numClusters + 1)
+			if minDist < 3 {
+				minDist = 3
+			}
+
 			tooClose := false
-			for _, s := range seeds {
-				dx := x - s[0]
-				dy := y - s[1]
-				dist := dx*dx + dy*dy
-				if dist < spacing*spacing {
+			for _, c := range clusterCenters {
+				dx := cx - c[0]
+				dy := cy - c[1]
+				if dx*dx+dy*dy < minDist*minDist {
 					tooClose = true
 					break
 				}
 			}
 
 			if !tooClose {
-				seeds = append(seeds, [2]int{x, y})
+				clusterCenters = append(clusterCenters, [2]int{cx, cy})
+				placed = true
 			}
 		}
+		// If we couldn't place with spacing, just place randomly
+		if !placed {
+			cx := minX + g.rng.Intn(areaW+1)
+			cy := minY + g.rng.Intn(areaH+1)
+			clusterCenters = append(clusterCenters, [2]int{cx, cy})
+		}
+	}
 
-		// If we placed enough seeds, we're done
-		if len(seeds) >= count {
-			break
+	// Calculate cluster radius based on how many territories per cluster
+	// Smaller clusters = tighter grouping = territories more likely to connect
+	territoriesPerCluster := count / numClusters
+	// Radius should allow territories to pack together
+	// Each territory is ~6-12 cells, so diameter ~4. Pack them with some overlap.
+	clusterRadius := territoriesPerCluster * 2 // Rough estimate
+	if clusterRadius < 4 {
+		clusterRadius = 4
+	}
+	if clusterRadius > areaW/2 {
+		clusterRadius = areaW / 2
+	}
+
+	// Assign seeds to clusters
+	seedsPerCluster := count / numClusters
+	extraSeeds := count % numClusters
+
+	for i, center := range clusterCenters {
+		numSeeds := seedsPerCluster
+		if i < extraSeeds {
+			numSeeds++
+		}
+
+		for j := 0; j < numSeeds; j++ {
+			placed := false
+			for attempts := 0; attempts < 300 && !placed; attempts++ {
+				// Random position within cluster radius
+				angle := g.rng.Float64() * 6.283185 // 2*PI
+				dist := g.rng.Float64() * float64(clusterRadius)
+				x := center[0] + int(dist*cosApprox(angle))
+				y := center[1] + int(dist*sinApprox(angle))
+
+				// Clamp to valid area
+				if x < minX {
+					x = minX
+				}
+				if x > maxX {
+					x = maxX
+				}
+				if y < minY {
+					y = minY
+				}
+				if y > maxY {
+					y = maxY
+				}
+
+				// Minimum spacing between seeds (2 cells)
+				tooClose := false
+				for _, s := range seeds {
+					dx := x - s[0]
+					dy := y - s[1]
+					if dx*dx+dy*dy < 4 {
+						tooClose = true
+						break
+					}
+				}
+
+				if !tooClose {
+					seeds = append(seeds, [2]int{x, y})
+					placed = true
+				}
+			}
+
+			// Fallback: place anywhere if cluster is full
+			if !placed {
+				for attempts := 0; attempts < 100; attempts++ {
+					x := minX + g.rng.Intn(areaW+1)
+					y := minY + g.rng.Intn(areaH+1)
+
+					tooClose := false
+					for _, s := range seeds {
+						dx := x - s[0]
+						dy := y - s[1]
+						if dx*dx+dy*dy < 4 {
+							tooClose = true
+							break
+						}
+					}
+
+					if !tooClose {
+						seeds = append(seeds, [2]int{x, y})
+						break
+					}
+				}
+			}
 		}
 	}
 
 	return seeds
+}
+
+// Simple approximations for sin/cos to avoid importing math
+func sinApprox(x float64) float64 {
+	// Normalize to 0-2PI
+	for x < 0 {
+		x += 6.283185
+	}
+	for x > 6.283185 {
+		x -= 6.283185
+	}
+	// Simple approximation
+	if x < 3.14159 {
+		return 4 * x * (3.14159 - x) / (3.14159 * 3.14159)
+	}
+	x -= 3.14159
+	return -4 * x * (3.14159 - x) / (3.14159 * 3.14159)
+}
+
+func cosApprox(x float64) float64 {
+	return sinApprox(x + 1.5708) // cos(x) = sin(x + PI/2)
 }
 
 func (g *Generator) growTerritory(terrID, startX, startY, targetSize int) [][2]int {

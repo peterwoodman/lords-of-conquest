@@ -1,6 +1,7 @@
 package client
 
 import (
+	"fmt"
 	"image"
 	"image/color"
 	"runtime"
@@ -297,9 +298,10 @@ func (t *TextInput) IsFocused() bool {
 // Slider represents a draggable slider control.
 type Slider struct {
 	X, Y, W, H int
-	Min, Max   int    // Value range
-	Value      int    // Current value
-	Label      string // Label to display
+	Min, Max   int      // Value range
+	Value      int      // Current value
+	Label      string   // Label to display
+	Labels     []string // Optional: text labels instead of numbers (e.g., ["Low", "Medium", "High"])
 	OnChange   func(int)
 	dragging   bool
 	hovered    bool
@@ -308,12 +310,12 @@ type Slider struct {
 // Update handles slider input.
 func (s *Slider) Update() {
 	mx, my := ebiten.CursorPosition()
-	
+
 	// Track area (center bar of slider)
 	trackY := s.Y + s.H/2 - 4
 	trackH := 8
 	s.hovered = mx >= s.X && mx < s.X+s.W && my >= trackY && my < trackY+trackH+16
-	
+
 	// Handle dragging
 	if inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) && s.hovered {
 		s.dragging = true
@@ -321,7 +323,7 @@ func (s *Slider) Update() {
 	if inpututil.IsMouseButtonJustReleased(ebiten.MouseButtonLeft) {
 		s.dragging = false
 	}
-	
+
 	if s.dragging {
 		// Calculate value from mouse position
 		relX := mx - s.X
@@ -331,7 +333,7 @@ func (s *Slider) Update() {
 		if relX > s.W {
 			relX = s.W
 		}
-		
+
 		newValue := s.Min + (s.Max-s.Min)*relX/s.W
 		if newValue != s.Value {
 			s.Value = newValue
@@ -350,33 +352,41 @@ func (s *Slider) Draw(screen *ebiten.Image) {
 		labelText += ":"
 	}
 	DrawText(screen, labelText, s.X, s.Y, ColorText)
-	
+
 	// Value display on the right
 	valueStr := ""
-	switch {
-	case s.Max <= 10:
-		valueStr = []string{"Low", "Med-Low", "Medium", "Med-High", "High"}[(s.Value-s.Min)*4/(s.Max-s.Min)]
-	default:
-		valueStr = string(rune('0'+s.Value/100%10)) + string(rune('0'+s.Value/10%10)) + string(rune('0'+s.Value%10))
-		// Trim leading zeros for cleaner look
-		for len(valueStr) > 1 && valueStr[0] == '0' {
-			valueStr = valueStr[1:]
+	if len(s.Labels) > 0 {
+		// Use provided labels
+		valueRange := s.Max - s.Min
+		if valueRange <= 0 {
+			valueRange = 1
 		}
+		idx := (s.Value - s.Min) * (len(s.Labels) - 1) / valueRange
+		if idx < 0 {
+			idx = 0
+		}
+		if idx >= len(s.Labels) {
+			idx = len(s.Labels) - 1
+		}
+		valueStr = s.Labels[idx]
+	} else {
+		// Show numeric value
+		valueStr = fmt.Sprintf("%d", s.Value)
 	}
 	DrawText(screen, valueStr, s.X+s.W-len(valueStr)*6, s.Y, ColorPrimary)
-	
+
 	// Track background
 	trackY := s.Y + 18
 	trackH := 8
 	vector.DrawFilledRect(screen, float32(s.X), float32(trackY), float32(s.W), float32(trackH), ColorInputBg, false)
 	vector.StrokeRect(screen, float32(s.X), float32(trackY), float32(s.W), float32(trackH), 1, ColorBorderDark, false)
-	
+
 	// Filled portion
 	fillW := float32(s.W) * float32(s.Value-s.Min) / float32(s.Max-s.Min)
 	if fillW > 0 {
 		vector.DrawFilledRect(screen, float32(s.X), float32(trackY), fillW, float32(trackH), ColorPrimary, false)
 	}
-	
+
 	// Handle (knob)
 	handleX := float32(s.X) + fillW - 6
 	if handleX < float32(s.X) {

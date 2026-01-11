@@ -708,10 +708,11 @@ func NewLobbyScene(game *Game) *LobbyScene {
 	}
 
 	s.islandsSlider = &Slider{
-		Min:   1,
-		Max:   5,
-		Value: 3,
-		Label: "Islands",
+		Min:    1,
+		Max:    5,
+		Value:  3,
+		Label:  "Islands",
+		Labels: []string{"Few", "Some", "Medium", "Many", "Lots"},
 	}
 
 	s.resourcesSlider = &Slider{
@@ -772,6 +773,11 @@ func (s *LobbyScene) Update() error {
 		s.resourcesSlider.Update()
 		s.waterBorderBtn.Update()
 		s.waterBorderBtn.Primary = s.waterBorder
+		if s.waterBorder {
+			s.waterBorderBtn.Text = "[X] Water Border"
+		} else {
+			s.waterBorderBtn.Text = "[ ] Water Border"
+		}
 		s.generateBtn.Update()
 		s.regenerateBtn.Update()
 
@@ -784,6 +790,14 @@ func (s *LobbyScene) Update() error {
 					step := s.generatedSteps[s.animStep]
 					if step.IsComplete {
 						s.animating = false
+						// Copy the final grid which has lakes already filled
+						if s.generatedMap != nil {
+							for y := 0; y < len(s.previewGrid) && y < len(s.generatedMap.Grid); y++ {
+								for x := 0; x < len(s.previewGrid[y]) && x < len(s.generatedMap.Grid[y]); x++ {
+									s.previewGrid[y][x] = s.generatedMap.Grid[y][x]
+								}
+							}
+						}
 					} else {
 						// Apply all cells for this territory at once
 						for _, cell := range step.Cells {
