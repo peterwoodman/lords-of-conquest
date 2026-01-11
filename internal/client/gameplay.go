@@ -171,32 +171,44 @@ type GameplayScene struct {
 	usedColors      map[string]bool // Colors already used by other players
 
 	// Trade phase UI
-	proposeTradeBtn      *Button
-	showTradePropose     bool               // Show propose trade popup
-	showTradeIncoming    bool               // Show incoming trade popup
-	showTradeResult      bool               // Show trade result popup
-	waitingForTrade      bool               // Waiting for trade response
-	tradeProposal        *TradeProposalData // Incoming proposal
-	tradeResultAccepted  bool
-	tradeResultMessage   string
-	tradeTargetPlayer    string // Selected target player for trade
-	tradeOfferCoal       int
-	tradeOfferGold       int
-	tradeOfferIron       int
-	tradeOfferTimber     int
-	tradeOfferHorses     int
-	tradeOfferHorseTerrs []string // Territories for horses being offered
-	tradeRequestCoal     int
-	tradeRequestGold     int
-	tradeRequestIron     int
-	tradeRequestTimber   int
-	tradeRequestHorses   int
-	tradeHorseDestTerrs  []string // Where to place received horses
-	tradeSendBtn         *Button
-	tradeCancelBtn       *Button
-	tradeAcceptBtn       *Button
-	tradeRejectBtn       *Button
-	tradeResultOkBtn     *Button
+	proposeTradeBtn            *Button
+	showTradePropose           bool               // Show propose trade popup
+	showTradeIncoming          bool               // Show incoming trade popup
+	showTradeResult            bool               // Show trade result popup
+	waitingForTrade            bool               // Waiting for trade response
+	tradeProposal              *TradeProposalData // Incoming proposal
+	tradeResultAccepted        bool
+	tradeResultMessage         string
+	tradeTargetPlayer          string // Selected target player for trade
+	tradeOfferCoal             int
+	tradeOfferGold             int
+	tradeOfferIron             int
+	tradeOfferTimber           int
+	tradeOfferHorses           int
+	tradeOfferHorseTerrs       []string // Territories for horses being offered
+	tradeRequestCoal           int
+	tradeRequestGold           int
+	tradeRequestIron           int
+	tradeRequestTimber         int
+	tradeRequestHorses         int
+	tradeRequestHorseDestTerrs []string // Where proposer wants to receive requested horses
+	tradeHorseDestTerrs        []string // Where accepter wants to place offered horses (incoming trade)
+	tradeHorseSourceTerrs      []string // Which territories accepter gives horses FROM (incoming trade with RequestHorses)
+	tradeSendBtn               *Button
+	tradeCancelBtn             *Button
+	tradeAcceptBtn             *Button
+	tradeRejectBtn             *Button
+	tradeResultOkBtn           *Button
+
+	// Pending horse selection (after trade dialog closes, select on map)
+	// "offer" = proposer selecting horses to give
+	// "request" = proposer selecting where to receive requested horses
+	// "receive" = accepter selecting where to place offered horses
+	// "give" = accepter selecting which horses to give (when horses are requested from them)
+	pendingHorseSelection string
+	pendingHorseCount     int // How many territories to select
+	horseConfirmBtn       *Button
+	horseCancelBtn        *Button
 }
 
 // TradeProposalData holds data for an incoming trade proposal.
@@ -547,6 +559,19 @@ func NewGameplayScene(game *Game) *GameplayScene {
 		OnClick: func() { s.showTradeResult = false },
 	}
 
+	// Horse selection buttons
+	s.horseConfirmBtn = &Button{
+		X: 0, Y: 0, W: 100, H: 35,
+		Text:    "Confirm",
+		Primary: true,
+		OnClick: func() { s.confirmHorseSelection() },
+	}
+	s.horseCancelBtn = &Button{
+		X: 0, Y: 0, W: 100, H: 35,
+		Text:    "Cancel",
+		OnClick: func() { s.cancelHorseSelection() },
+	}
+
 	// Color picker buttons
 	s.cancelColorBtn = &Button{
 		X: 0, Y: 0, W: 100, H: 35,
@@ -629,6 +654,48 @@ func (s *GameplayScene) Update() error {
 		return nil
 	}
 
+	// Handle pending horse selection on map (after trade dialog closed)
+	if s.pendingHorseSelection != "" {
+		// Update buttons
+		s.horseCancelBtn.Update()
+		if s.isHorseSelectionComplete() {
+			s.horseConfirmBtn.Update()
+		}
+
+		// Handle map clicks to select/deselect territories
+		if inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) {
+			mx, my := ebiten.CursorPosition()
+			cell := s.screenToGrid(mx, my)
+			if cell[0] >= 0 {
+				terrID := s.getTerritoryAt(cell[0], cell[1])
+				if terrID != "" {
+					switch s.pendingHorseSelection {
+					case "offer":
+						s.handleOfferHorseClick(terrID)
+					case "request":
+						s.handleRequestHorseClick(terrID)
+					case "receive":
+						s.handleReceiveHorseClick(terrID)
+					case "give":
+						s.handleGiveHorseClick(terrID)
+					}
+				}
+			}
+		}
+
+		// ESC to cancel
+		if inpututil.IsKeyJustPressed(ebiten.KeyEscape) {
+			s.cancelHorseSelection()
+		}
+
+		// Enter to confirm when selection is complete (keyboard shortcut)
+		if inpututil.IsKeyJustPressed(ebiten.KeyEnter) && s.isHorseSelectionComplete() {
+			s.confirmHorseSelection()
+		}
+
+		return nil
+	}
+
 	// Handle color picker popup
 	if s.showColorPicker {
 		s.cancelColorBtn.Update()
@@ -646,55 +713,6 @@ func (s *GameplayScene) Update() error {
 		s.tradeAcceptBtn.Update()
 		s.tradeRejectBtn.Update()
 
-		// Handle horse destination territory clicks (if receiving horses)
-		if s.tradeProposal != nil && s.tradeProposal.OfferHorses > 0 {
-			if inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) {
-				mx, my := ebiten.CursorPosition()
-
-				panelW := 400
-				panelH := 400 // Height when horses need destination
-				centerX, centerY := ScreenWidth/2, ScreenHeight/2
-				panelX, panelY := centerX-panelW/2, centerY-panelH/2
-
-				// Calculate Y position for territory buttons
-				terrY := panelY + 50 + 40 + 20 + 40 + 20 + 40 + 20 // After all the text sections
-
-				availableTerrs := s.getTerritoriesWithoutHorses()
-				for i, terrID := range availableTerrs {
-					if i >= 6 {
-						break
-					}
-					btnX := panelX + 20 + (i%3)*125
-					btnY := terrY + (i/3)*25
-
-					if mx >= btnX && mx < btnX+120 && my >= btnY && my < btnY+22 {
-						// Check if already selected
-						isSelected := false
-						for _, t := range s.tradeHorseDestTerrs {
-							if t == terrID {
-								isSelected = true
-								break
-							}
-						}
-						if isSelected {
-							// Remove from selection
-							newTerrs := make([]string, 0)
-							for _, t := range s.tradeHorseDestTerrs {
-								if t != terrID {
-									newTerrs = append(newTerrs, t)
-								}
-							}
-							s.tradeHorseDestTerrs = newTerrs
-						} else if len(s.tradeHorseDestTerrs) < s.tradeProposal.OfferHorses {
-							// Add to selection
-							s.tradeHorseDestTerrs = append(s.tradeHorseDestTerrs, terrID)
-						}
-						break
-					}
-				}
-			}
-		}
-
 		if inpututil.IsKeyJustPressed(ebiten.KeyEscape) {
 			s.rejectTrade()
 		}
@@ -711,18 +729,18 @@ func (s *GameplayScene) Update() error {
 			mx, my := ebiten.CursorPosition()
 			onlinePlayers := s.getOnlinePlayers()
 
-			panelW, panelH := 560, 450
-			if s.tradeOfferHorses > 0 {
-				panelH = 530
-			}
+			panelW, panelH := 560, 420
 			centerX, centerY := ScreenWidth/2, ScreenHeight/2
 			panelX, panelY := centerX-panelW/2, centerY-panelH/2
-			y := panelY + 50 + 25 // After "Trade with:" label
+
+			// Y positions must match Draw function exactly
+			// Draw: y = panelY + 50, then y += 25 for "Trade with:" label
+			playerBtnY := panelY + 50 + 25 // Where player buttons start
 
 			// Player selection
 			for i, playerID := range onlinePlayers {
 				btnX := panelX + 20 + (i%3)*150
-				btnY := y + (i/3)*35
+				btnY := playerBtnY + (i/3)*35
 
 				if mx >= btnX && mx < btnX+140 && my >= btnY && my < btnY+30 {
 					s.tradeTargetPlayer = playerID
@@ -730,9 +748,10 @@ func (s *GameplayScene) Update() error {
 				}
 			}
 
-			// Resource adjusters - calculate Y positions to match Draw
+			// Resource adjusters - calculate Y positions to match Draw exactly
+			// Draw: y += playerRows*35 + 20 (for "I OFFER:" label), then y += 25 (for adjusters)
 			playerRows := (len(onlinePlayers) + 2) / 3
-			offerY := panelY + 50 + 25 + playerRows*35 + 20 + 25 + 18 // After player buttons + "I OFFER:" + label
+			offerY := panelY + 50 + 25 + playerRows*35 + 20 + 25 // = panelY + 120 + playerRows*35
 
 			myCoal, myGold, myIron, myTimber := s.getMyStockpile()
 			myHorses := s.countPlayerHorses(s.game.config.PlayerID)
@@ -744,8 +763,9 @@ func (s *GameplayScene) Update() error {
 			s.handleResourceAdjusterClick(mx, my, panelX+420, offerY, &s.tradeOfferHorses, 0, myHorses)
 
 			// "I WANT" adjusters (only if target selected)
+			// Draw: y += 70 (for "I WANT:" label), then y += 25 (for adjusters)
 			if s.tradeTargetPlayer != "" {
-				wantY := offerY + 70 + 25 + 18 // After offer section + "I WANT:" + label
+				wantY := offerY + 70 + 25 // = panelY + 215 + playerRows*35
 				targetCoal, targetGold, targetIron, targetTimber := s.getPlayerStockpile(s.tradeTargetPlayer)
 				targetHorses := s.countPlayerHorses(s.tradeTargetPlayer)
 
@@ -754,49 +774,6 @@ func (s *GameplayScene) Update() error {
 				s.handleResourceAdjusterClick(mx, my, panelX+220, wantY, &s.tradeRequestIron, 0, targetIron)
 				s.handleResourceAdjusterClick(mx, my, panelX+320, wantY, &s.tradeRequestTimber, 0, targetTimber)
 				s.handleResourceAdjusterClick(mx, my, panelX+420, wantY, &s.tradeRequestHorses, 0, targetHorses)
-			}
-
-			// Horse territory selection (if offering horses)
-			if s.tradeOfferHorses > 0 {
-				horseTerrs := s.getPlayerHorseTerritories()
-				// Calculate Y position for horse territory buttons
-				horseY := offerY + 70 + 25 + 18 + 70 + 20 // After want section + label
-				if s.tradeTargetPlayer == "" {
-					horseY = offerY + 70 + 25 + 20 // Skip want section if no target
-				}
-
-				for i, terrID := range horseTerrs {
-					if i >= 6 {
-						break
-					}
-					btnX := panelX + 20 + (i%3)*150
-					btnY := horseY + (i/3)*25
-
-					if mx >= btnX && mx < btnX+140 && my >= btnY && my < btnY+22 {
-						// Check if already selected
-						isSelected := false
-						for _, t := range s.tradeOfferHorseTerrs {
-							if t == terrID {
-								isSelected = true
-								break
-							}
-						}
-						if isSelected {
-							// Remove from selection
-							newTerrs := make([]string, 0)
-							for _, t := range s.tradeOfferHorseTerrs {
-								if t != terrID {
-									newTerrs = append(newTerrs, t)
-								}
-							}
-							s.tradeOfferHorseTerrs = newTerrs
-						} else if len(s.tradeOfferHorseTerrs) < s.tradeOfferHorses {
-							// Add to selection
-							s.tradeOfferHorseTerrs = append(s.tradeOfferHorseTerrs, terrID)
-						}
-						break
-					}
-				}
 			}
 		}
 
@@ -1115,16 +1092,61 @@ func (s *GameplayScene) updatePanZoom() {
 }
 
 // handleResourceAdjusterClick handles +/- button clicks for resource adjusters.
+// The y parameter is where the label is drawn; buttons are 18px below that.
 func (s *GameplayScene) handleResourceAdjusterClick(mx, my, x, y int, value *int, min, max int) {
-	minusBtnX, minusBtnY := x, y
+	btnY := y + 18 // Buttons are drawn 18px below the label (see drawResourceAdjuster)
+	minusBtnX := x
 	plusBtnX := x + 60
 
-	if my >= minusBtnY && my < minusBtnY+20 {
+	if my >= btnY && my < btnY+20 {
 		if mx >= minusBtnX && mx < minusBtnX+20 && *value > min {
 			*value--
 		}
 		if mx >= plusBtnX && mx < plusBtnX+20 && *value < max {
 			*value++
 		}
+	}
+}
+
+// isHorseSelectionComplete returns true if enough territories have been selected.
+func (s *GameplayScene) isHorseSelectionComplete() bool {
+	switch s.pendingHorseSelection {
+	case "offer":
+		return len(s.tradeOfferHorseTerrs) >= s.pendingHorseCount
+	case "request":
+		return len(s.tradeRequestHorseDestTerrs) >= s.pendingHorseCount
+	case "receive":
+		return len(s.tradeHorseDestTerrs) >= s.pendingHorseCount
+	case "give":
+		return len(s.tradeHorseSourceTerrs) >= s.pendingHorseCount
+	}
+	return false
+}
+
+// confirmHorseSelection confirms the horse selection and proceeds with the trade.
+func (s *GameplayScene) confirmHorseSelection() {
+	if !s.isHorseSelectionComplete() {
+		return
+	}
+	switch s.pendingHorseSelection {
+	case "offer", "request":
+		s.completeSendTradeOffer()
+	case "receive", "give":
+		s.completeAcceptTrade()
+	}
+}
+
+// cancelHorseSelection cancels the horse selection and the trade.
+func (s *GameplayScene) cancelHorseSelection() {
+	wasAccepting := s.pendingHorseSelection == "receive" || s.pendingHorseSelection == "give"
+	s.pendingHorseSelection = ""
+	s.pendingHorseCount = 0
+	s.tradeOfferHorseTerrs = nil
+	s.tradeRequestHorseDestTerrs = nil
+	s.tradeHorseDestTerrs = nil
+	s.tradeHorseSourceTerrs = nil
+	// If was accepting, reject the trade
+	if wasAccepting && s.tradeProposal != nil {
+		s.rejectTrade()
 	}
 }

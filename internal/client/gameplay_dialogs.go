@@ -1102,11 +1102,7 @@ func (s *GameplayScene) drawVictoryScreen(screen *ebiten.Image) {
 
 // drawTradePropose draws the popup for proposing a trade.
 func (s *GameplayScene) drawTradePropose(screen *ebiten.Image) {
-	panelW, panelH := 560, 450
-	// Make dialog taller when offering horses (need space for territory selection)
-	if s.tradeOfferHorses > 0 {
-		panelH = 530
-	}
+	panelW, panelH := 560, 420
 	centerX, centerY := ScreenWidth/2, ScreenHeight/2
 	panelX, panelY := centerX-panelW/2, centerY-panelH/2
 
@@ -1183,40 +1179,10 @@ func (s *GameplayScene) drawTradePropose(screen *ebiten.Image) {
 		DrawText(screen, "Select a player first", panelX+20, y, ColorTextMuted)
 	}
 
-	// Horse territory selection (if offering horses)
+	// Note about horse selection (if offering horses)
 	if s.tradeOfferHorses > 0 {
-		y += 60
-		DrawText(screen, "Select territories for horses:", panelX+20, y, ColorText)
-		horseTerrs := s.getPlayerHorseTerritories()
-		y += 20
-		// Show up to 6 territories
-		for i, terrID := range horseTerrs {
-			if i >= 6 {
-				break
-			}
-			tData := s.territories[terrID].(map[string]interface{})
-			terrName := tData["name"].(string)
-
-			btnX := panelX + 20 + (i%3)*150
-			btnY := y + (i/3)*25
-
-			// Check if selected
-			isSelected := false
-			for _, t := range s.tradeOfferHorseTerrs {
-				if t == terrID {
-					isSelected = true
-					break
-				}
-			}
-
-			btnColor := ColorPanel
-			if isSelected {
-				btnColor = ColorSuccess
-			}
-
-			vector.DrawFilledRect(screen, float32(btnX), float32(btnY), 140, 22, btnColor, false)
-			DrawText(screen, terrName, btnX+5, btnY+4, ColorText)
-		}
+		y += 50
+		DrawText(screen, "(Horse territories selected on map after clicking Send)", panelX+20, y, ColorTextMuted)
 	}
 
 	// Buttons
@@ -1225,11 +1191,6 @@ func (s *GameplayScene) drawTradePropose(screen *ebiten.Image) {
 			s.tradeOfferTimber > 0 || s.tradeOfferHorses > 0) &&
 		(s.tradeRequestCoal > 0 || s.tradeRequestGold > 0 || s.tradeRequestIron > 0 ||
 			s.tradeRequestTimber > 0 || s.tradeRequestHorses > 0)
-
-	// Validate horse territories selected
-	if s.tradeOfferHorses > 0 && len(s.tradeOfferHorseTerrs) < s.tradeOfferHorses {
-		canSend = false
-	}
 
 	s.tradeSendBtn.X = centerX - 130
 	s.tradeSendBtn.Y = panelY + panelH - 60
@@ -1269,13 +1230,8 @@ func (s *GameplayScene) drawTradeIncoming(screen *ebiten.Image) {
 		return
 	}
 
-	// Calculate panel height based on whether horses need destinations
 	needsHorseDest := s.tradeProposal.OfferHorses > 0
-	panelH := 300
-	if needsHorseDest {
-		panelH = 400
-	}
-
+	panelH := 320
 	panelW := 400
 	centerX, centerY := ScreenWidth/2, ScreenHeight/2
 	panelX, panelY := centerX-panelW/2, centerY-panelH/2
@@ -1299,45 +1255,14 @@ func (s *GameplayScene) drawTradeIncoming(screen *ebiten.Image) {
 		s.tradeProposal.RequestIron, s.tradeProposal.RequestTimber, s.tradeProposal.RequestHorses)
 	DrawText(screen, requestText, panelX+30, y, ColorText)
 
-	// Horse destination selection if receiving horses
+	// Note about horse selection (if receiving horses)
 	if needsHorseDest {
 		y += 40
-		DrawText(screen, fmt.Sprintf("Select territories for %d horse(s):", s.tradeProposal.OfferHorses), panelX+20, y, ColorText)
-		y += 20
-
-		// Get our territories without horses
-		availableTerrs := s.getTerritoriesWithoutHorses()
-		for i, terrID := range availableTerrs {
-			if i >= 6 {
-				break
-			}
-			tData := s.territories[terrID].(map[string]interface{})
-			terrName := tData["name"].(string)
-
-			btnX := panelX + 20 + (i%3)*125
-			btnY := y + (i/3)*25
-
-			// Check if selected
-			isSelected := false
-			for _, t := range s.tradeHorseDestTerrs {
-				if t == terrID {
-					isSelected = true
-					break
-				}
-			}
-
-			btnColor := ColorPanel
-			if isSelected {
-				btnColor = ColorSuccess
-			}
-
-			vector.DrawFilledRect(screen, float32(btnX), float32(btnY), 120, 22, btnColor, false)
-			DrawText(screen, terrName, btnX+5, btnY+4, ColorText)
-		}
+		DrawText(screen, "(Horse destinations selected on map after clicking Accept)", panelX+20, y, ColorTextMuted)
 	}
 
-	// Buttons
-	canAccept := !needsHorseDest || len(s.tradeHorseDestTerrs) >= s.tradeProposal.OfferHorses
+	// Buttons - always allow clicking Accept, will prompt for horse selection after
+	canAccept := true
 
 	s.tradeAcceptBtn.X = centerX - 110
 	s.tradeAcceptBtn.Y = panelY + panelH - 60

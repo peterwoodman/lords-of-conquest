@@ -2185,22 +2185,23 @@ func (h *Handlers) handleMoveUnit(client *Client, msg *protocol.Message) error {
 
 // PendingTrade tracks an ongoing trade waiting for response.
 type PendingTrade struct {
-	ID              string
-	GameID          string
-	FromPlayerID    string
-	ToPlayerID      string
-	OfferCoal       int
-	OfferGold       int
-	OfferIron       int
-	OfferTimber     int
-	OfferHorses     int
-	OfferHorseTerrs []string
-	RequestCoal     int
-	RequestGold     int
-	RequestIron     int
-	RequestTimber   int
-	RequestHorses   int
-	ResponseChan    chan bool
+	ID                    string
+	GameID                string
+	FromPlayerID          string
+	ToPlayerID            string
+	OfferCoal             int
+	OfferGold             int
+	OfferIron             int
+	OfferTimber           int
+	OfferHorses           int
+	OfferHorseTerrs       []string
+	RequestCoal           int
+	RequestGold           int
+	RequestIron           int
+	RequestTimber         int
+	RequestHorses         int
+	RequestHorseDestTerrs []string // Where proposer wants received horses placed
+	ResponseChan          chan bool
 }
 
 // handleProposeTrade handles a player proposing a trade to another player.
@@ -2283,22 +2284,23 @@ func (h *Handlers) handleProposeTrade(client *Client, msg *protocol.Message) err
 	// Create pending trade
 	tradeID := fmt.Sprintf("trade-%s-%d", client.GameID, time.Now().UnixNano())
 	trade := &PendingTrade{
-		ID:              tradeID,
-		GameID:          client.GameID,
-		FromPlayerID:    client.PlayerID,
-		ToPlayerID:      payload.TargetPlayer,
-		OfferCoal:       payload.OfferCoal,
-		OfferGold:       payload.OfferGold,
-		OfferIron:       payload.OfferIron,
-		OfferTimber:     payload.OfferTimber,
-		OfferHorses:     payload.OfferHorses,
-		OfferHorseTerrs: payload.OfferHorseTerrs,
-		RequestCoal:     payload.RequestCoal,
-		RequestGold:     payload.RequestGold,
-		RequestIron:     payload.RequestIron,
-		RequestTimber:   payload.RequestTimber,
-		RequestHorses:   payload.RequestHorses,
-		ResponseChan:    make(chan bool, 1),
+		ID:                    tradeID,
+		GameID:                client.GameID,
+		FromPlayerID:          client.PlayerID,
+		ToPlayerID:            payload.TargetPlayer,
+		OfferCoal:             payload.OfferCoal,
+		OfferGold:             payload.OfferGold,
+		OfferIron:             payload.OfferIron,
+		OfferTimber:           payload.OfferTimber,
+		OfferHorses:           payload.OfferHorses,
+		OfferHorseTerrs:       payload.OfferHorseTerrs,
+		RequestCoal:           payload.RequestCoal,
+		RequestGold:           payload.RequestGold,
+		RequestIron:           payload.RequestIron,
+		RequestTimber:         payload.RequestTimber,
+		RequestHorses:         payload.RequestHorses,
+		RequestHorseDestTerrs: payload.RequestHorseDestTerrs,
+		ResponseChan:          make(chan bool, 1),
 	}
 
 	// Store pending trade
@@ -2409,23 +2411,11 @@ func (h *Handlers) handleRespondTrade(client *Client, msg *protocol.Message) err
 			RequestHorses:   trade.RequestHorses,
 		}
 
-		// Get horse source territories from the target player
-		// For requested horses, the target needs to specify which territories
-		horseSourceTerrs := make([]string, 0)
-		if trade.RequestHorses > 0 {
-			// For simplicity, auto-select horses from any owned territories
-			for id, terr := range state.Territories {
-				if terr.Owner == trade.ToPlayerID && terr.HasHorse {
-					horseSourceTerrs = append(horseSourceTerrs, id)
-					if len(horseSourceTerrs) >= trade.RequestHorses {
-						break
-					}
-				}
-			}
-		}
-
 		// Execute the trade
-		if err := state.ExecuteTrade(offer, horseSourceTerrs, payload.HorseDestinations); err != nil {
+		// payload.HorseSources: where accepter's horses come from (for RequestHorses)
+		// payload.HorseDestinations: where accepter wants offered horses placed (for OfferHorses)
+		// trade.RequestHorseDestTerrs: where proposer wants received horses placed (for RequestHorses)
+		if err := state.ExecuteTrade(offer, payload.HorseSources, payload.HorseDestinations, trade.RequestHorseDestTerrs); err != nil {
 			trade.ResponseChan <- false
 			return err
 		}

@@ -265,18 +265,19 @@ type PlaceStockpilePayload struct {
 
 // ProposeTradePayload proposes a trade.
 type ProposeTradePayload struct {
-	TargetPlayer       string   `json:"target_player"`
-	OfferCoal          int      `json:"offer_coal"`
-	OfferGold          int      `json:"offer_gold"`
-	OfferIron          int      `json:"offer_iron"`
-	OfferTimber        int      `json:"offer_timber"`
-	OfferHorses        int      `json:"offer_horses"`
-	OfferHorseTerrs    []string `json:"offer_horse_territories"` // Which territories horses come from
-	RequestCoal        int      `json:"request_coal"`
-	RequestGold        int      `json:"request_gold"`
-	RequestIron        int      `json:"request_iron"`
-	RequestTimber      int      `json:"request_timber"`
-	RequestHorses      int      `json:"request_horses"`
+	TargetPlayer          string   `json:"target_player"`
+	OfferCoal             int      `json:"offer_coal"`
+	OfferGold             int      `json:"offer_gold"`
+	OfferIron             int      `json:"offer_iron"`
+	OfferTimber           int      `json:"offer_timber"`
+	OfferHorses           int      `json:"offer_horses"`
+	OfferHorseTerrs       []string `json:"offer_horse_territories"`        // Which territories horses come from (proposer's)
+	RequestCoal           int      `json:"request_coal"`
+	RequestGold           int      `json:"request_gold"`
+	RequestIron           int      `json:"request_iron"`
+	RequestTimber         int      `json:"request_timber"`
+	RequestHorses         int      `json:"request_horses"`
+	RequestHorseDestTerrs []string `json:"request_horse_destinations"`     // Where proposer wants received horses placed
 }
 
 // TradeProposalPayload is sent to the target player showing a trade offer.
@@ -298,9 +299,10 @@ type TradeProposalPayload struct {
 
 // RespondTradePayload responds to a trade offer.
 type RespondTradePayload struct {
-	TradeID            string   `json:"trade_id"`
-	Accepted           bool     `json:"accepted"`
-	HorseDestinations  []string `json:"horse_destinations,omitempty"` // Where to place received horses
+	TradeID           string   `json:"trade_id"`
+	Accepted          bool     `json:"accepted"`
+	HorseDestinations []string `json:"horse_destinations,omitempty"` // Where accepter wants offered horses placed
+	HorseSources      []string `json:"horse_sources,omitempty"`      // Which territories accepter gives horses from (for RequestHorses)
 }
 
 // TradeResultPayload tells the proposer the result of their trade.

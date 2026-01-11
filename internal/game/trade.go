@@ -90,9 +90,10 @@ func (g *GameState) ValidateTrade(offer *TradeOffer) error {
 }
 
 // ExecuteTrade performs the trade between two players.
-// horseSourceTerrs are the territories from the target player's horses.
-// horseDestTerrs are where the proposer wants received horses placed.
-func (g *GameState) ExecuteTrade(offer *TradeOffer, horseSourceTerrs, horseDestTerrs []string) error {
+// horseSourceTerrs are the territories from the target player's horses (for RequestHorses).
+// offerHorseDestTerrs are where the target wants received horses placed (for OfferHorses).
+// requestHorseDestTerrs are where the proposer wants received horses placed (for RequestHorses).
+func (g *GameState) ExecuteTrade(offer *TradeOffer, horseSourceTerrs, offerHorseDestTerrs, requestHorseDestTerrs []string) error {
 	fromPlayer := g.Players[offer.FromPlayerID]
 	toPlayer := g.Players[offer.ToPlayerID]
 
@@ -122,31 +123,32 @@ func (g *GameState) ExecuteTrade(offer *TradeOffer, horseSourceTerrs, horseDestT
 	fromPlayer.Stockpile.Iron += offer.RequestIron
 	fromPlayer.Stockpile.Timber += offer.RequestTimber
 
-	// Transfer horses from proposer to target
+	// Transfer horses from proposer to target (OfferHorses)
 	for i, terrID := range offer.OfferHorseTerrs {
-		// Remove horse from source
+		// Remove horse from proposer's source territory
 		if terr := g.Territories[terrID]; terr != nil {
 			terr.HasHorse = false
 		}
-		// Add horse to destination (where target wants it)
-		if i < len(horseDestTerrs) {
-			if destTerr := g.Territories[horseDestTerrs[i]]; destTerr != nil && destTerr.Owner == offer.ToPlayerID {
+		// Add horse to target's destination territory
+		if i < len(offerHorseDestTerrs) {
+			if destTerr := g.Territories[offerHorseDestTerrs[i]]; destTerr != nil && destTerr.Owner == offer.ToPlayerID {
 				destTerr.HasHorse = true
 			}
 		}
 	}
 
-	// Transfer horses from target to proposer
+	// Transfer horses from target to proposer (RequestHorses)
 	for i, terrID := range horseSourceTerrs {
-		// Remove horse from source
+		// Remove horse from target's source territory
 		if terr := g.Territories[terrID]; terr != nil {
 			terr.HasHorse = false
 		}
-		// For now, proposer needs to specify destination later
-		// Actually, the proposer should specify destinations when proposing
-		// But this is handled differently - the proposer picks destinations when trade is accepted
-		// Let's handle this via a separate message
-		_ = i // We'll handle proposer horse destinations separately
+		// Add horse to proposer's destination territory
+		if i < len(requestHorseDestTerrs) {
+			if destTerr := g.Territories[requestHorseDestTerrs[i]]; destTerr != nil && destTerr.Owner == offer.FromPlayerID {
+				destTerr.HasHorse = true
+			}
+		}
 	}
 
 	return nil

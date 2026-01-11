@@ -533,7 +533,9 @@ func (s *GameplayScene) resetTradeForm() {
 	s.tradeRequestIron = 0
 	s.tradeRequestTimber = 0
 	s.tradeRequestHorses = 0
+	s.tradeRequestHorseDestTerrs = nil
 	s.tradeHorseDestTerrs = nil
+	s.tradeHorseSourceTerrs = nil
 }
 
 // sendTradeOffer sends the trade offer to the server.
@@ -543,22 +545,53 @@ func (s *GameplayScene) sendTradeOffer() {
 		return
 	}
 
-	// Build horse territory list from selection
-	horseTerrs := make([]string, 0)
+	// If offering horses and not enough selected, enter map selection mode
+	if s.tradeOfferHorses > 0 && len(s.tradeOfferHorseTerrs) < s.tradeOfferHorses {
+		s.showTradePropose = false
+		s.pendingHorseSelection = "offer"
+		s.pendingHorseCount = s.tradeOfferHorses
+		s.tradeOfferHorseTerrs = nil // Reset selection
+		return
+	}
+
+	// If requesting horses and not enough destinations selected, enter map selection mode
+	if s.tradeRequestHorses > 0 && len(s.tradeRequestHorseDestTerrs) < s.tradeRequestHorses {
+		s.showTradePropose = false
+		s.pendingHorseSelection = "request"
+		s.pendingHorseCount = s.tradeRequestHorses
+		s.tradeRequestHorseDestTerrs = nil // Reset selection
+		return
+	}
+
+	s.completeSendTradeOffer()
+}
+
+// completeSendTradeOffer actually sends the trade after horse selection.
+func (s *GameplayScene) completeSendTradeOffer() {
+	// Build offer horse territory list from selection
+	offerHorseTerrs := make([]string, 0)
 	for i := 0; i < s.tradeOfferHorses && i < len(s.tradeOfferHorseTerrs); i++ {
-		horseTerrs = append(horseTerrs, s.tradeOfferHorseTerrs[i])
+		offerHorseTerrs = append(offerHorseTerrs, s.tradeOfferHorseTerrs[i])
+	}
+
+	// Build request horse destination list from selection
+	requestHorseDestTerrs := make([]string, 0)
+	for i := 0; i < s.tradeRequestHorses && i < len(s.tradeRequestHorseDestTerrs); i++ {
+		requestHorseDestTerrs = append(requestHorseDestTerrs, s.tradeRequestHorseDestTerrs[i])
 	}
 
 	log.Printf("Sending trade offer to %s", s.tradeTargetPlayer)
 	s.game.ProposeTrade(
 		s.tradeTargetPlayer,
 		s.tradeOfferCoal, s.tradeOfferGold, s.tradeOfferIron, s.tradeOfferTimber,
-		s.tradeOfferHorses, horseTerrs,
+		s.tradeOfferHorses, offerHorseTerrs,
 		s.tradeRequestCoal, s.tradeRequestGold, s.tradeRequestIron, s.tradeRequestTimber,
-		s.tradeRequestHorses,
+		s.tradeRequestHorses, requestHorseDestTerrs,
 	)
 	s.showTradePropose = false
-	s.waitingForTrade = true // Show waiting indicator
+	s.pendingHorseSelection = ""
+	s.pendingHorseCount = 0
+	s.waitingForTrade = true
 }
 
 // acceptTrade accepts an incoming trade proposal.
@@ -567,18 +600,50 @@ func (s *GameplayScene) acceptTrade() {
 		return
 	}
 
-	// Build horse destination list
+	// If receiving horses (OfferHorses) and not enough destinations selected, enter map selection mode
+	if s.tradeProposal.OfferHorses > 0 && len(s.tradeHorseDestTerrs) < s.tradeProposal.OfferHorses {
+		s.showTradeIncoming = false
+		s.pendingHorseSelection = "receive"
+		s.pendingHorseCount = s.tradeProposal.OfferHorses
+		s.tradeHorseDestTerrs = nil // Reset selection
+		return
+	}
+
+	// If giving horses (RequestHorses) and not enough sources selected, enter map selection mode
+	if s.tradeProposal.RequestHorses > 0 && len(s.tradeHorseSourceTerrs) < s.tradeProposal.RequestHorses {
+		s.showTradeIncoming = false
+		s.pendingHorseSelection = "give"
+		s.pendingHorseCount = s.tradeProposal.RequestHorses
+		s.tradeHorseSourceTerrs = nil // Reset selection
+		return
+	}
+
+	s.completeAcceptTrade()
+}
+
+// completeAcceptTrade actually accepts the trade after horse selection.
+func (s *GameplayScene) completeAcceptTrade() {
+	if s.tradeProposal == nil {
+		return
+	}
+
+	// Build horse destination list (for OfferHorses - horses accepter receives)
 	horseDests := make([]string, 0)
-	if s.tradeProposal.OfferHorses > 0 {
-		// Need to select destinations
-		for i := 0; i < s.tradeProposal.OfferHorses && i < len(s.tradeHorseDestTerrs); i++ {
-			horseDests = append(horseDests, s.tradeHorseDestTerrs[i])
-		}
+	for i := 0; i < s.tradeProposal.OfferHorses && i < len(s.tradeHorseDestTerrs); i++ {
+		horseDests = append(horseDests, s.tradeHorseDestTerrs[i])
+	}
+
+	// Build horse source list (for RequestHorses - horses accepter gives)
+	horseSources := make([]string, 0)
+	for i := 0; i < s.tradeProposal.RequestHorses && i < len(s.tradeHorseSourceTerrs); i++ {
+		horseSources = append(horseSources, s.tradeHorseSourceTerrs[i])
 	}
 
 	log.Printf("Accepting trade %s", s.tradeProposal.TradeID)
-	s.game.RespondTrade(s.tradeProposal.TradeID, true, horseDests)
+	s.game.RespondTrade(s.tradeProposal.TradeID, true, horseDests, horseSources)
 	s.showTradeIncoming = false
+	s.pendingHorseSelection = ""
+	s.pendingHorseCount = 0
 	s.tradeProposal = nil
 }
 
@@ -589,7 +654,7 @@ func (s *GameplayScene) rejectTrade() {
 	}
 
 	log.Printf("Rejecting trade %s", s.tradeProposal.TradeID)
-	s.game.RespondTrade(s.tradeProposal.TradeID, false, nil)
+	s.game.RespondTrade(s.tradeProposal.TradeID, false, nil, nil)
 	s.showTradeIncoming = false
 	s.tradeProposal = nil
 }
@@ -737,4 +802,162 @@ func (s *GameplayScene) getTerritoriesWithoutHorses() []string {
 		}
 	}
 	return terrs
+}
+
+// getTerritoryAt returns the territory ID at the given grid coordinates, or empty string if none.
+func (s *GameplayScene) getTerritoryAt(gx, gy int) string {
+	if s.mapData == nil {
+		return ""
+	}
+	grid, ok := s.mapData["grid"].([]interface{})
+	if !ok {
+		return ""
+	}
+	if gy < 0 || gy >= len(grid) {
+		return ""
+	}
+	row, ok := grid[gy].([]interface{})
+	if !ok {
+		return ""
+	}
+	if gx < 0 || gx >= len(row) {
+		return ""
+	}
+	terrNum, ok := row[gx].(float64)
+	if !ok || terrNum <= 0 {
+		return "" // Water or invalid
+	}
+	// Territory IDs in the game state have "t" prefix (e.g., "t77")
+	return fmt.Sprintf("t%d", int(terrNum))
+}
+
+// handleOfferHorseClick handles clicking a territory when selecting horses to offer.
+func (s *GameplayScene) handleOfferHorseClick(terrID string) {
+	// Check if territory is owned by player and has a horse
+	tData, ok := s.territories[terrID]
+	if !ok {
+		return
+	}
+	terr := tData.(map[string]interface{})
+	owner, _ := terr["owner"].(string)
+	if owner != s.game.config.PlayerID {
+		return // Not our territory
+	}
+	hasHorse, _ := terr["hasHorse"].(bool)
+	if !hasHorse {
+		return // No horse here
+	}
+
+	// Toggle selection
+	for i, t := range s.tradeOfferHorseTerrs {
+		if t == terrID {
+			// Remove from selection
+			s.tradeOfferHorseTerrs = append(s.tradeOfferHorseTerrs[:i], s.tradeOfferHorseTerrs[i+1:]...)
+			return
+		}
+	}
+
+	// Add to selection if not at limit
+	if len(s.tradeOfferHorseTerrs) < s.pendingHorseCount {
+		s.tradeOfferHorseTerrs = append(s.tradeOfferHorseTerrs, terrID)
+	}
+}
+
+// handleRequestHorseClick handles clicking a territory when selecting where to place requested horses.
+// This is for the PROPOSER who is requesting horses from the accepter.
+func (s *GameplayScene) handleRequestHorseClick(terrID string) {
+	// Check if territory is owned by player and doesn't have a horse
+	tData, ok := s.territories[terrID]
+	if !ok {
+		return
+	}
+	terr := tData.(map[string]interface{})
+	owner, _ := terr["owner"].(string)
+	if owner != s.game.config.PlayerID {
+		return // Not our territory
+	}
+	hasHorse, _ := terr["hasHorse"].(bool)
+	if hasHorse {
+		return // Already has a horse
+	}
+
+	// Toggle selection
+	for i, t := range s.tradeRequestHorseDestTerrs {
+		if t == terrID {
+			// Remove from selection
+			s.tradeRequestHorseDestTerrs = append(s.tradeRequestHorseDestTerrs[:i], s.tradeRequestHorseDestTerrs[i+1:]...)
+			return
+		}
+	}
+
+	// Add to selection if not at limit
+	if len(s.tradeRequestHorseDestTerrs) < s.pendingHorseCount {
+		s.tradeRequestHorseDestTerrs = append(s.tradeRequestHorseDestTerrs, terrID)
+	}
+}
+
+// handleReceiveHorseClick handles clicking a territory when selecting where to place offered horses.
+// This is for the ACCEPTER who is receiving horses offered by the proposer.
+func (s *GameplayScene) handleReceiveHorseClick(terrID string) {
+	// Check if territory is owned by player and doesn't have a horse
+	tData, ok := s.territories[terrID]
+	if !ok {
+		return
+	}
+	terr := tData.(map[string]interface{})
+	owner, _ := terr["owner"].(string)
+	if owner != s.game.config.PlayerID {
+		return // Not our territory
+	}
+	hasHorse, _ := terr["hasHorse"].(bool)
+	if hasHorse {
+		return // Already has a horse
+	}
+
+	// Toggle selection
+	for i, t := range s.tradeHorseDestTerrs {
+		if t == terrID {
+			// Remove from selection
+			s.tradeHorseDestTerrs = append(s.tradeHorseDestTerrs[:i], s.tradeHorseDestTerrs[i+1:]...)
+			return
+		}
+	}
+
+	// Add to selection if not at limit
+	if len(s.tradeHorseDestTerrs) < s.pendingHorseCount {
+		s.tradeHorseDestTerrs = append(s.tradeHorseDestTerrs, terrID)
+	}
+}
+
+// handleGiveHorseClick handles clicking a territory when selecting which horses to give.
+// This is for the ACCEPTER who is giving horses to the proposer (RequestHorses).
+func (s *GameplayScene) handleGiveHorseClick(terrID string) {
+	// Check if territory is owned by player and HAS a horse
+	tData, ok := s.territories[terrID]
+	if !ok {
+		return
+	}
+	terr := tData.(map[string]interface{})
+	owner, _ := terr["owner"].(string)
+	if owner != s.game.config.PlayerID {
+		return // Not our territory
+	}
+	hasHorse, _ := terr["hasHorse"].(bool)
+	if !hasHorse {
+		return // No horse to give
+	}
+
+	// Toggle selection
+	for i, t := range s.tradeHorseSourceTerrs {
+		if t == terrID {
+			// Remove from selection
+			s.tradeHorseSourceTerrs = append(s.tradeHorseSourceTerrs[:i], s.tradeHorseSourceTerrs[i+1:]...)
+			return
+		}
+	}
+
+	// Add to selection if not at limit
+	if len(s.tradeHorseSourceTerrs) < s.pendingHorseCount {
+		s.tradeHorseSourceTerrs = append(s.tradeHorseSourceTerrs, terrID)
+	}
 }

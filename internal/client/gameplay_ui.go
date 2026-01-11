@@ -531,6 +531,53 @@ func (s *GameplayScene) drawBottomBar(screen *ebiten.Image) {
 		}
 	}
 
+	// Pending horse selection mode (takes priority over phase instructions)
+	if s.pendingHorseSelection != "" {
+		var horseInstruction string
+		var selectedCount int
+		switch s.pendingHorseSelection {
+		case "offer":
+			// Proposer selecting territories to give horses FROM
+			selectedCount = len(s.tradeOfferHorseTerrs)
+			horseInstruction = fmt.Sprintf("Click %d territory(s) WITH horses to trade (%d/%d selected)",
+				s.pendingHorseCount, selectedCount, s.pendingHorseCount)
+		case "request":
+			// Proposer selecting territories to RECEIVE requested horses ON
+			selectedCount = len(s.tradeRequestHorseDestTerrs)
+			horseInstruction = fmt.Sprintf("Click %d territory(s) WITHOUT horses to receive them (%d/%d selected)",
+				s.pendingHorseCount, selectedCount, s.pendingHorseCount)
+		case "receive":
+			// Accepter selecting territories to place offered horses ON
+			selectedCount = len(s.tradeHorseDestTerrs)
+			horseInstruction = fmt.Sprintf("Click %d territory(s) WITHOUT horses to receive them (%d/%d selected)",
+				s.pendingHorseCount, selectedCount, s.pendingHorseCount)
+		case "give":
+			// Accepter selecting territories to give horses FROM
+			selectedCount = len(s.tradeHorseSourceTerrs)
+			horseInstruction = fmt.Sprintf("Click %d territory(s) WITH horses to give (%d/%d selected)",
+				s.pendingHorseCount, selectedCount, s.pendingHorseCount)
+		}
+		DrawText(screen, horseInstruction, rightX, barY+35, ColorWarning)
+
+		// Draw buttons
+		btnY := barY + 55
+		s.horseCancelBtn.X = rightX
+		s.horseCancelBtn.Y = btnY
+		s.horseCancelBtn.W = 100
+		s.horseCancelBtn.H = 35
+		s.horseCancelBtn.Draw(screen)
+
+		// Only show Confirm button when selection is complete
+		if selectedCount >= s.pendingHorseCount {
+			s.horseConfirmBtn.X = rightX + 110
+			s.horseConfirmBtn.Y = btnY
+			s.horseConfirmBtn.W = 100
+			s.horseConfirmBtn.H = 35
+			s.horseConfirmBtn.Draw(screen)
+		}
+		return
+	}
+
 	// Phase-specific instructions
 	instruction := ""
 	instruction2 := ""

@@ -453,30 +453,32 @@ func (g *Game) EndPhase() error {
 }
 
 // ProposeTrade proposes a trade to another player.
-func (g *Game) ProposeTrade(targetPlayer string, offerCoal, offerGold, offerIron, offerTimber, offerHorses int, offerHorseTerrs []string, requestCoal, requestGold, requestIron, requestTimber, requestHorses int) error {
+func (g *Game) ProposeTrade(targetPlayer string, offerCoal, offerGold, offerIron, offerTimber, offerHorses int, offerHorseTerrs []string, requestCoal, requestGold, requestIron, requestTimber, requestHorses int, requestHorseDestTerrs []string) error {
 	payload := protocol.ProposeTradePayload{
-		TargetPlayer:    targetPlayer,
-		OfferCoal:       offerCoal,
-		OfferGold:       offerGold,
-		OfferIron:       offerIron,
-		OfferTimber:     offerTimber,
-		OfferHorses:     offerHorses,
-		OfferHorseTerrs: offerHorseTerrs,
-		RequestCoal:     requestCoal,
-		RequestGold:     requestGold,
-		RequestIron:     requestIron,
-		RequestTimber:   requestTimber,
-		RequestHorses:   requestHorses,
+		TargetPlayer:          targetPlayer,
+		OfferCoal:             offerCoal,
+		OfferGold:             offerGold,
+		OfferIron:             offerIron,
+		OfferTimber:           offerTimber,
+		OfferHorses:           offerHorses,
+		OfferHorseTerrs:       offerHorseTerrs,
+		RequestCoal:           requestCoal,
+		RequestGold:           requestGold,
+		RequestIron:           requestIron,
+		RequestTimber:         requestTimber,
+		RequestHorses:         requestHorses,
+		RequestHorseDestTerrs: requestHorseDestTerrs,
 	}
 	return g.network.SendPayload(protocol.TypeProposeTrade, payload)
 }
 
 // RespondTrade responds to a trade proposal.
-func (g *Game) RespondTrade(tradeID string, accepted bool, horseDestinations []string) error {
+func (g *Game) RespondTrade(tradeID string, accepted bool, horseDestinations, horseSources []string) error {
 	payload := protocol.RespondTradePayload{
 		TradeID:           tradeID,
 		Accepted:          accepted,
 		HorseDestinations: horseDestinations,
+		HorseSources:      horseSources,
 	}
 	return g.network.SendPayload(protocol.TypeRespondTrade, payload)
 }
