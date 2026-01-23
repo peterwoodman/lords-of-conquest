@@ -106,20 +106,27 @@ func (g *GameState) IsEliminationVictory() bool {
 	return activePlayers <= 1
 }
 
-// IsCityVictory checks if any player has reached the victory city count.
+// IsCityVictory checks if any player has reached the victory city count
+// AND has strictly more cities than all other players.
 // This should only be checked at end of round (all players get a chance).
 func (g *GameState) IsCityVictory() bool {
 	for _, p := range g.Players {
-		if g.CountCities(p.ID) >= g.Settings.VictoryCities {
-			// Must be the only one at or above victory count
-			othersAtVictory := false
+		if p.Eliminated {
+			continue
+		}
+		cityCount := g.CountCities(p.ID)
+		if cityCount >= g.Settings.VictoryCities {
+			// Must have strictly more cities than ALL other players
+			hasStrictlyMore := true
 			for _, other := range g.Players {
-				if other.ID != p.ID && g.CountCities(other.ID) >= g.Settings.VictoryCities {
-					othersAtVictory = true
-					break
+				if other.ID != p.ID && !other.Eliminated {
+					if g.CountCities(other.ID) >= cityCount {
+						hasStrictlyMore = false
+						break
+					}
 				}
 			}
-			if !othersAtVictory {
+			if hasStrictlyMore {
 				return true
 			}
 		}
@@ -144,7 +151,7 @@ func (g *GameState) GetWinner() *Player {
 		return nil
 	}
 
-	// Check for last player standing
+	// Check for last player standing (elimination victory)
 	var lastPlayer *Player
 	for _, p := range g.Players {
 		if !p.Eliminated {
@@ -159,13 +166,21 @@ func (g *GameState) GetWinner() *Player {
 		return lastPlayer
 	}
 
-	// Check for city victory
+	// Check for city victory - return the player with the highest city count
+	// who is also at or above VictoryCities threshold
+	var winner *Player
+	highestCities := 0
 	for _, p := range g.Players {
-		if g.CountCities(p.ID) >= g.Settings.VictoryCities {
-			return p
+		if p.Eliminated {
+			continue
+		}
+		cityCount := g.CountCities(p.ID)
+		if cityCount >= g.Settings.VictoryCities && cityCount > highestCities {
+			winner = p
+			highestCities = cityCount
 		}
 	}
 
-	return nil
+	return winner
 }
 

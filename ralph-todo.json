@@ -1,1 +1,42 @@
-[]
+[
+  {
+    "category": "frontend",
+    "description": "Show popup when server connection fails due to sleeping server",
+    "status": "pending",
+    "priority": "medium",
+    "steps": [
+      "In ConnectScene (internal/client/scenes.go), modify the connection error handling in the go routine around line 551",
+      "Instead of just setting statusText, show a popup dialog explaining the server may be waking up",
+      "Popup message should say: 'Connection failed. The server may be sleeping. Please try again in 2 minutes.'",
+      "Ensure popup has an OK button that dismisses it and returns user to the connect screen"
+    ],
+    "dependencies": [],
+    "notes": [
+      "The central server goes to sleep when not in use (likely on Render.com free tier)",
+      "First connection attempt often fails while server is cold-starting",
+      "Current behavior: shows 'Connection failed: <error>' in status text",
+      "Desired behavior: show a user-friendly popup explaining the delay",
+      "Affected file: internal/client/scenes.go (ConnectScene.Update around line 548-556)"
+    ]
+  },
+  {
+    "category": "frontend",
+    "description": "Always show attack/defense numbers in territory hover tooltip",
+    "status": "pending",
+    "priority": "low",
+    "steps": [
+      "In internal/client/gameplay_ui.go, locate the drawHoverInfo function around line 992",
+      "Change the showAttackPreview condition from 'currentPhase == Conquest && isMyTurn && isEnemy' to always true (or remove the condition)",
+      "Consider showing attack/defense for all territories, not just enemy ones - may need to adjust the isEnemy check",
+      "Test that the tooltip displays correctly in all phases and for all territory types"
+    ],
+    "dependencies": [],
+    "notes": [
+      "Current behavior: attack/defense numbers only shown during Conquest phase when it's the player's turn and hovering enemy territory",
+      "Desired behavior: always show attack/defense numbers in the territory tooltip",
+      "The condition is on line 995: showAttackPreview := s.currentPhase == \"Conquest\" && isMyTurn && isEnemy",
+      "attackPreviewHeight and the attack preview section rendering are gated by this boolean",
+      "Affected file: internal/client/gameplay_ui.go (drawHoverInfo function, lines ~992-1096)"
+    ]
+  }
+]
