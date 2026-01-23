@@ -71,3 +71,33 @@
 - Go syntax validated with gofmt
 - All game tests pass
 - Server-side packages build successfully (client has WSL GUI dependency issues unrelated to changes)
+
+### 2026-01-23 08:37:20
+**Session 2 ended** - ✅ Task complete
+
+### 2026-01-23 08:37:22
+**Session 3 started** (model: opus-4.5-thinking)
+
+### 2026-01-23 - Session 3 Progress
+**Task completed:** Always show attack/defense numbers in territory hover tooltip
+
+**Changes made:**
+1. Updated `drawHoverInfo()` in `internal/client/gameplay_ui.go`:
+   - Removed the conditional `showAttackPreview` check that required Conquest phase, player's turn, and enemy territory
+   - Combat strength preview section now always displays for all territories
+   - For player's own territories: Shows "COMBAT STRENGTH" header with defense value and "(if attacked)" hint
+   - For enemy/unclaimed territories: Shows "ATTACK PREVIEW" header with attack vs defense values and odds indicator
+
+2. Simplified variable declarations:
+   - Replaced `isMyTurn`, `isEnemy`, `showAttackPreview` with single `isOwnTerritory` boolean
+   - Changed `attackPreviewHeight` to `strengthPreviewHeight` (always 65)
+
+**User benefit:**
+- Players can now always see combat strength information when hovering any territory
+- Helps with strategic planning in all game phases, not just during Conquest
+- Own territories show defensive strength; other territories show attack vs defense comparison
+
+**Verification:**
+- All 12 game unit tests pass
+- Server-side packages build successfully
+- Go syntax validated with gofmt

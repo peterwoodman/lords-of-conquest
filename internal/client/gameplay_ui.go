@@ -990,9 +990,7 @@ func (s *GameplayScene) drawHoverInfo(screen *ebiten.Image) {
 		mx, my := ebiten.CursorPosition()
 
 		owner := terr["owner"].(string)
-		isMyTurn := s.currentTurn == s.game.config.PlayerID
-		isEnemy := owner != "" && owner != s.game.config.PlayerID
-		showAttackPreview := s.currentPhase == "Conquest" && isMyTurn && isEnemy
+		isOwnTerritory := owner == s.game.config.PlayerID
 
 		// Collect territory contents for display
 		var contents []string
@@ -1046,11 +1044,8 @@ func (s *GameplayScene) drawHoverInfo(screen *ebiten.Image) {
 		// Determine box height based on content
 		baseHeight := 48 // Name + Owner/Unclaimed
 		contentHeight := len(contents) * 16
-		attackPreviewHeight := 0
-		if showAttackPreview {
-			attackPreviewHeight = 65
-		}
-		boxH := baseHeight + contentHeight + attackPreviewHeight
+		strengthPreviewHeight := 65 // Always show strength info
+		boxH := baseHeight + contentHeight + strengthPreviewHeight
 		if boxH < 60 {
 			boxH = 60
 		}
@@ -1089,13 +1084,22 @@ func (s *GameplayScene) drawHoverInfo(screen *ebiten.Image) {
 			contentY += 16
 		}
 
-		// Attack preview during conquest phase
-		if showAttackPreview {
-			attackStr, defenseStr := s.calculateCombatStrength(tid)
+		// Combat strength preview - always shown
+		attackStr, defenseStr := s.calculateCombatStrength(tid)
 
-			// Separator line
-			vector.StrokeLine(screen, float32(boxX+10), float32(contentY+2), float32(boxX+boxW-10), float32(contentY+2), 1, ColorBorder, false)
+		// Separator line
+		vector.StrokeLine(screen, float32(boxX+10), float32(contentY+2), float32(boxX+boxW-10), float32(contentY+2), 1, ColorBorder, false)
 
+		if isOwnTerritory {
+			// For own territories, show defense strength
+			DrawText(screen, "⚔ COMBAT STRENGTH", boxX+10, contentY+10, ColorWarning)
+
+			defenseText := fmt.Sprintf("Defense: %d", defenseStr)
+			DrawText(screen, defenseText, boxX+10, contentY+27, ColorText)
+
+			DrawText(screen, "(if attacked)", boxX+10, contentY+41, ColorTextMuted)
+		} else {
+			// For enemy/unclaimed territories, show attack vs defense
 			DrawText(screen, "⚔ ATTACK PREVIEW", boxX+10, contentY+10, ColorWarning)
 
 			// Attack strength (green)
