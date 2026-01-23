@@ -906,7 +906,7 @@ run_ralph_loop() {
     if [[ -n "$(git -C "$workspace" status --porcelain 2>/dev/null)" ]]; then
       # Get the task description for the commit message
       local task_desc
-      task_desc=$(jq -r '.[0].description // "task"' "$workspace/ralph-complete.json" 2>/dev/null | tail -1) || task_desc="task"
+      task_desc=$(jq -r '.[-1].description // "task"' "$workspace/ralph-complete.json" 2>/dev/null | tail -1) || task_desc="task"
       # Truncate to reasonable length for commit message
       task_desc="${task_desc:0:60}"
       
