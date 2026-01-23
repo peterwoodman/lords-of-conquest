@@ -1,0 +1,24 @@
+---
+description: Rules for creating and managing Ralph sprint tasks
+globs:
+  - ralph-backlog.json
+  - ralph-todo.json
+  - ralph-complete.json
+alwaysApply: false
+---
+
+# Ralph Task Management
+
+When adding, editing, or managing tasks in Ralph task files:
+
+1. **Read `.ralph/task-schema.json`** to understand the required task format
+2. **Analyze the codebase** to understand the scope and implications of the task
+3. **Ask clarifying questions** before creating tasks if the requirements are ambiguous
+4. **Split tasks** with natural boundaries into multiple smaller tasks
+
+## Task File Locations
+
+- `ralph-backlog.json` - Future tasks (add new tasks here)
+- `ralph-todo.json` - Current sprint (Ralph processes these)
+- `ralph-complete.json` - Completed tasks (moved automatically)
+

@@ -1,0 +1,118 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Ralph Task List",
+  "description": "Schema for ralph task tracking files (ralph-todo.json, ralph-complete.json, ralph-backlog.json)",
+  "type": "array",
+  "items": {
+    "type": "object",
+    "required": ["category", "description", "status", "priority", "steps", "dependencies"],
+    "properties": {
+      "category": {
+        "type": "string",
+        "enum": ["backend", "frontend", "data"],
+        "description": "The area of the codebase this task belongs to"
+      },
+      "description": {
+        "type": "string",
+        "description": "Brief description of the task"
+      },
+      "status": {
+        "type": "string",
+        "enum": ["pending", "in_progress", "completed", "blocked"],
+        "description": "Current status of the task"
+      },
+      "priority": {
+        "type": "string",
+        "enum": ["high", "medium", "low"],
+        "description": "Priority level of the task"
+      },
+      "steps": {
+        "type": "array",
+        "items": { "type": "string" },
+        "description": "List of implementation steps for this task"
+      },
+      "dependencies": {
+        "type": "array",
+        "items": { "type": "string" },
+        "description": "List of task descriptions that must be completed before this task"
+      },
+      "passes": {
+        "type": ["integer", "null"],
+        "minimum": 0,
+        "description": "Number of implementation passes/iterations completed"
+      },
+      "decisions": {
+        "type": "object",
+        "additionalProperties": true,
+        "description": "Design decisions made for this task (keys vary by task)"
+      },
+      "implementation": {
+        "type": "object",
+        "properties": {
+          "files": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Files created or modified"
+          },
+          "libraries": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "External libraries/dependencies used"
+          },
+          "structs": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Data structures defined"
+          },
+          "features": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Features implemented"
+          },
+          "tables": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Database tables created"
+          },
+          "details": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Additional implementation details"
+          },
+          "message_types": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Protocol message types defined"
+          },
+          "constants": {
+            "type": "object",
+            "additionalProperties": true,
+            "description": "Constants defined (keys vary)"
+          },
+          "tests": {
+            "type": "string",
+            "description": "Description of tests added"
+          },
+          "notes": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Additional notes about implementation"
+          }
+        },
+        "additionalProperties": true,
+        "description": "Implementation details recorded after completion"
+      },
+      "references": {
+        "type": "array",
+        "items": { "type": "string" },
+        "description": "Reference files or documentation"
+      },
+      "notes": {
+        "type": "array",
+        "items": { "type": "string" },
+        "description": "General notes about the task"
+      }
+    },
+    "additionalProperties": false
+  }
+}

@@ -39,3 +39,6 @@ coverage.html
 # Temporary files
 *.tmp
 *.temp
+
+# Ralph config (may contain API key)
+.cursor/ralph-config.json
