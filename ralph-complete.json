@@ -19,5 +19,27 @@
       "Affected files: internal/game/state.go (IsCityVictory, GetWinner functions)"
     ],
     "completed_at": "2026-01-23T12:03:38Z"
+  },
+  {
+    "category": "frontend",
+    "description": "Show popup when server connection fails due to sleeping server",
+    "status": "completed",
+    "priority": "medium",
+    "steps": [
+      "In ConnectScene (internal/client/scenes.go), modify the connection error handling in the go routine around line 551",
+      "Instead of just setting statusText, show a popup dialog explaining the server may be waking up",
+      "Popup message should say: 'Connection failed. The server may be sleeping. Please try again in 2 minutes.'",
+      "Ensure popup has an OK button that dismisses it and returns user to the connect screen"
+    ],
+    "dependencies": [],
+    "notes": [
+      "The central server goes to sleep when not in use (likely on Render.com free tier)",
+      "First connection attempt often fails while server is cold-starting",
+      "Current behavior: shows 'Connection failed: <error>' in status text",
+      "Desired behavior: show a user-friendly popup explaining the delay",
+      "Affected file: internal/client/scenes.go (ConnectScene.Update around line 548-556)"
+    ],
+    "passes": 1,
+    "completed_at": "2026-01-23T12:07:12Z"
   }
 ]

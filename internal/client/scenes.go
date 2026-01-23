@@ -316,6 +316,10 @@ type ConnectScene struct {
 
 	// If true, show the modern title screen as background
 	showTitleBackground bool
+
+	// Connection error popup
+	showConnectionPopup bool
+	popupOkBtn          *Button
 }
 
 // NewConnectScene creates a new connect scene.
@@ -358,6 +362,15 @@ func NewConnectScene(game *Game) *ConnectScene {
 
 	s.connectBtn.OnClick = s.onConnect
 
+	// Initialize connection error popup button
+	s.popupOkBtn = &Button{
+		Text:    "OK",
+		Primary: true,
+		OnClick: func() {
+			s.showConnectionPopup = false
+		},
+	}
+
 	return s
 }
 
@@ -381,11 +394,18 @@ func (s *ConnectScene) OnEnter() {
 	s.connecting = false
 	s.connectBtn.Disabled = false
 	s.statusText = ""
+	s.showConnectionPopup = false
 }
 
 func (s *ConnectScene) OnExit() {}
 
 func (s *ConnectScene) Update() error {
+	// Handle connection error popup
+	if s.showConnectionPopup {
+		s.popupOkBtn.Update()
+		return nil
+	}
+
 	if s.connecting {
 		return nil
 	}
@@ -495,6 +515,40 @@ func (s *ConnectScene) Draw(screen *ebiten.Image) {
 
 	// Version
 	DrawText(screen, "v0.1.0", 10, ScreenHeight-30, ColorTextMuted)
+
+	// Connection error popup
+	if s.showConnectionPopup {
+		s.drawConnectionPopup(screen)
+	}
+}
+
+func (s *ConnectScene) drawConnectionPopup(screen *ebiten.Image) {
+	// Semi-transparent overlay
+	vector.DrawFilledRect(screen, 0, 0, float32(ScreenWidth), float32(ScreenHeight),
+		color.RGBA{0, 0, 0, 200}, false)
+
+	// Popup panel
+	panelW := 450
+	panelH := 200
+	panelX := (ScreenWidth - panelW) / 2
+	panelY := (ScreenHeight - panelH) / 2
+
+	DrawFancyPanel(screen, panelX, panelY, panelW, panelH, "Connection Failed")
+
+	// Message lines
+	msg1 := "The server may be sleeping."
+	msg2 := "Please try again in 2 minutes."
+	DrawTextCentered(screen, msg1, ScreenWidth/2, panelY+70, ColorText)
+	DrawTextCentered(screen, msg2, ScreenWidth/2, panelY+95, ColorTextMuted)
+
+	// OK button
+	btnW := 100
+	btnH := 40
+	s.popupOkBtn.X = panelX + (panelW-btnW)/2
+	s.popupOkBtn.Y = panelY + panelH - 60
+	s.popupOkBtn.W = btnW
+	s.popupOkBtn.H = btnH
+	s.popupOkBtn.Draw(screen)
 }
 
 func (s *ConnectScene) drawTitleBackground(screen *ebiten.Image, img *ebiten.Image) {
@@ -550,9 +604,14 @@ func (s *ConnectScene) onConnect() {
 	go func() {
 		err := s.game.Connect(server)
 		if err != nil {
-			s.statusText = fmt.Sprintf("Connection failed: %v", err)
 			s.connecting = false
 			s.connectBtn.Disabled = false
+			// Show popup for central server (may be sleeping), regular status for self-hosted
+			if s.useCentralServer {
+				s.showConnectionPopup = true
+			} else {
+				s.statusText = fmt.Sprintf("Connection failed: %v", err)
+			}
 			return
 		}
 
