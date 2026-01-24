@@ -99,6 +99,18 @@ func (s *GameplayScene) drawLeftSidebar(screen *ebiten.Image) {
 	if playerCount > 0 {
 		DrawFancyPanel(screen, sidebarX, playersY, sidebarW, playersH, "Players")
 
+		// Count cities per player
+		cityCounts := make(map[string]int)
+		for _, terrData := range s.territories {
+			terr := terrData.(map[string]interface{})
+			owner := terr["owner"].(string)
+			if owner != "" {
+				if hasCity, ok := terr["hasCity"].(bool); ok && hasCity {
+					cityCounts[owner]++
+				}
+			}
+		}
+
 		y := playersY + 38
 		for _, playerIDInterface := range s.playerOrder {
 			playerID := playerIDInterface.(string)
@@ -128,8 +140,11 @@ func (s *GameplayScene) drawLeftSidebar(screen *ebiten.Image) {
 					vector.StrokeRect(screen, float32(sidebarX+22), float32(y+2), 14, 14, 1, ColorBorder, false)
 				}
 
-				// Player name
+				// Player name with city count if > 0
 				nameText := playerName
+				if cityCount := cityCounts[playerID]; cityCount > 0 {
+					nameText += fmt.Sprintf(" (%d)", cityCount)
+				}
 				if playerID == s.game.config.PlayerID {
 					nameText += " *"
 				}
