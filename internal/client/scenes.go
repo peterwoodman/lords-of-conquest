@@ -368,6 +368,7 @@ func NewConnectScene(game *Game) *ConnectScene {
 		Primary: true,
 		OnClick: func() {
 			s.showConnectionPopup = false
+			s.statusText = ""
 		},
 	}
 

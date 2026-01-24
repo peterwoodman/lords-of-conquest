@@ -1096,8 +1096,6 @@ func (s *GameplayScene) drawHoverInfo(screen *ebiten.Image) {
 
 			defenseText := fmt.Sprintf("Defense: %d", defenseStr)
 			DrawText(screen, defenseText, boxX+10, contentY+27, ColorText)
-
-			DrawText(screen, "(if attacked)", boxX+10, contentY+41, ColorTextMuted)
 		} else {
 			// For enemy/unclaimed territories, show attack vs defense
 			DrawText(screen, "⚔ ATTACK PREVIEW", boxX+10, contentY+10, ColorWarning)
