@@ -54,7 +54,7 @@ get_ralph_dir() {
 get_iteration() {
   local workspace="${1:-.}"
   local state_file="$workspace/.ralph/.iteration"
-  
+
   if [[ -f "$state_file" ]]; then
     cat "$state_file"
   else
@@ -67,7 +67,7 @@ set_iteration() {
   local workspace="${1:-.}"
   local iteration="$2"
   local ralph_dir="$workspace/.ralph"
-  
+
   mkdir -p "$ralph_dir"
   echo "$iteration" > "$ralph_dir/.iteration"
 }
@@ -92,7 +92,7 @@ log_activity() {
   local message="$2"
   local ralph_dir="$workspace/.ralph"
   local timestamp=$(date '+%H:%M:%S')
-  
+
   mkdir -p "$ralph_dir"
   echo "[$timestamp] $message" >> "$ralph_dir/activity.log"
 }
@@ -103,7 +103,7 @@ log_error() {
   local message="$2"
   local ralph_dir="$workspace/.ralph"
   local timestamp=$(date '+%H:%M:%S')
-  
+
   mkdir -p "$ralph_dir"
   echo "[$timestamp] $message" >> "$ralph_dir/errors.log"
 }
@@ -114,7 +114,7 @@ log_progress() {
   local message="$2"
   local timestamp=$(date '+%Y-%m-%d %H:%M:%S')
   local progress_file="$workspace/.ralph/progress.md"
-  
+
   echo "" >> "$progress_file"
   echo "### $timestamp" >> "$progress_file"
   echo "$message" >> "$progress_file"
@@ -128,9 +128,9 @@ log_progress() {
 init_ralph_dir() {
   local workspace="$1"
   local ralph_dir="$workspace/.ralph"
-  
+
   mkdir -p "$ralph_dir"
-  
+
   # Initialize progress.md if it doesn't exist
   if [[ ! -f "$ralph_dir/progress.md" ]]; then
     cat > "$ralph_dir/progress.md" << 'EOF'
@@ -144,7 +144,7 @@ init_ralph_dir() {
 
 EOF
   fi
-  
+
   # Initialize guardrails.md if it doesn't exist
   if [[ ! -f "$ralph_dir/guardrails.md" ]]; then
     cat > "$ralph_dir/guardrails.md" << 'EOF'
@@ -175,7 +175,7 @@ EOF
 
 EOF
   fi
-  
+
   # Initialize errors.log if it doesn't exist
   if [[ ! -f "$ralph_dir/errors.log" ]]; then
     cat > "$ralph_dir/errors.log" << 'EOF'
@@ -185,7 +185,7 @@ EOF
 
 EOF
   fi
-  
+
   # Initialize activity.log if it doesn't exist
   if [[ ! -f "$ralph_dir/activity.log" ]]; then
     cat > "$ralph_dir/activity.log" << 'EOF'
@@ -223,7 +223,7 @@ init_sprint_files() {
   local todo_file=$(get_todo_file "$workspace")
   local complete_file=$(get_complete_file "$workspace")
   local backlog_file=$(get_backlog_file "$workspace")
-  
+
   # Create empty arrays if files don't exist
   [[ ! -f "$todo_file" ]] && echo "[]" > "$todo_file"
   [[ ! -f "$complete_file" ]] && echo "[]" > "$complete_file"
@@ -239,12 +239,12 @@ init_sprint_files() {
 has_workable_tasks() {
   local workspace="${1:-.}"
   local todo_file=$(get_todo_file "$workspace")
-  
+
   if [[ ! -f "$todo_file" ]]; then
     echo "false"
     return
   fi
-  
+
   local workable
   workable=$(jq --argjson max "$MAX_PASSES" '
     [.[] | select(
@@ -252,7 +252,7 @@ has_workable_tasks() {
       ((.passes // 0) < $max)
     )] | length
   ' "$todo_file" 2>/dev/null) || workable=0
-  
+
   if [[ "$workable" -gt 0 ]]; then
     echo "true"
   else
@@ -264,15 +264,15 @@ has_workable_tasks() {
 has_any_todo_tasks() {
   local workspace="${1:-.}"
   local todo_file=$(get_todo_file "$workspace")
-  
+
   if [[ ! -f "$todo_file" ]]; then
     echo "false"
     return
   fi
-  
+
   local total
   total=$(jq 'length' "$todo_file" 2>/dev/null) || total=0
-  
+
   if [[ "$total" -gt 0 ]]; then
     echo "true"
   else
@@ -285,12 +285,12 @@ has_any_todo_tasks() {
 count_todo_tasks() {
   local workspace="${1:-.}"
   local todo_file=$(get_todo_file "$workspace")
-  
+
   if [[ ! -f "$todo_file" ]]; then
     echo "0:0:0"
     return
   fi
-  
+
   local total workable stalled
   total=$(jq 'length' "$todo_file" 2>/dev/null) || total=0
   workable=$(jq --argjson max "$MAX_PASSES" '
@@ -300,7 +300,7 @@ count_todo_tasks() {
     )] | length
   ' "$todo_file" 2>/dev/null) || workable=0
   stalled=$((total - workable))
-  
+
   echo "$workable:$stalled:$total"
 }
 
@@ -308,12 +308,12 @@ count_todo_tasks() {
 count_complete_tasks() {
   local workspace="${1:-.}"
   local complete_file=$(get_complete_file "$workspace")
-  
+
   if [[ ! -f "$complete_file" ]]; then
     echo "0"
     return
   fi
-  
+
   jq 'length' "$complete_file" 2>/dev/null || echo "0"
 }
 
@@ -324,33 +324,33 @@ move_task_to_complete() {
   local description="$2"
   local todo_file=$(get_todo_file "$workspace")
   local complete_file=$(get_complete_file "$workspace")
-  
+
   if [[ ! -f "$todo_file" ]] || [[ -z "$description" ]]; then
     return 1
   fi
-  
+
   # Find the task by description
   local task
   task=$(jq --arg desc "$description" '
     .[] | select(.description == $desc)
   ' "$todo_file" 2>/dev/null)
-  
+
   if [[ -z "$task" ]]; then
     log_error "$workspace" "Could not find task to move: $description"
     return 1
   fi
-  
+
   # Add completion timestamp to the task
   local completed_task
   completed_task=$(echo "$task" | jq '. + {status: "completed", completed_at: now | todate}')
-  
+
   # Remove from todo
   local new_todo
   new_todo=$(jq --arg desc "$description" '
     [.[] | select(.description != $desc)]
   ' "$todo_file")
   echo "$new_todo" > "$todo_file"
-  
+
   # Append to complete
   local new_complete
   if [[ -f "$complete_file" ]]; then
@@ -359,7 +359,7 @@ move_task_to_complete() {
     new_complete=$(echo "[$completed_task]")
   fi
   echo "$new_complete" > "$complete_file"
-  
+
   log_activity "$workspace" "Moved completed task to ralph-complete.json: $description"
   return 0
 }
@@ -368,18 +368,18 @@ move_task_to_complete() {
 check_task_status() {
   local workspace="$1"
   local todo_file=$(get_todo_file "$workspace")
-  
+
   if [[ ! -f "$todo_file" ]]; then
     echo "NO_FILE"
     return
   fi
-  
+
   local counts=$(count_todo_tasks "$workspace")
   local workable=${counts%%:*}
   local rest=${counts#*:}
   local stalled=${rest%%:*}
   local total=${rest#*:}
-  
+
   if [[ "$total" -eq 0 ]]; then
     echo "EMPTY"
   elif [[ "$workable" -gt 0 ]]; then
@@ -397,7 +397,7 @@ has_pending_tasks() {
 check_task_complete() {
   local workspace="$1"
   local status=$(check_task_status "$workspace")
-  
+
   case "$status" in
     WORKABLE:*) echo "INCOMPLETE:${status#WORKABLE:}" ;;
     STALLED:*) echo "STALLED:${status#STALLED:}" ;;
@@ -423,7 +423,7 @@ count_criteria() {
 build_sprint_prompt() {
   local workspace="$1"
   local iteration="$2"
-  
+
   cat << EOF
 # Ralph Iteration $iteration (Sprint Mode)
 
@@ -523,7 +523,7 @@ The ralph-todo.json file is an array of task objects:
 ]
 \`\`\`
 
-**Your job**: 
+**Your job**:
 1. Choose the most impactful WORKABLE task (passes < $MAX_PASSES)
 2. Complete it and mark it \`"completed"\` in ralph-todo.json
 3. If ALL tasks are stalled (passes >= $MAX_PASSES), output \`<ralph>STALLED</ralph>\`
@@ -550,10 +550,10 @@ EOF
 build_prompt() {
   local workspace="$1"
   local iteration="$2"
-  
+
   # Check task status
   local status=$(check_task_status "$workspace")
-  
+
   case "$status" in
     WORKABLE:*)
       # Has workable tasks - normal prompt
@@ -661,7 +661,7 @@ wait_with_countdown() {
   local msg_key="${emoji}${message}"
   local spin='⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'
   local i=0
-  
+
   # Only show the header if it's a new message or first time
   if [[ "$WAITING_MSG_SHOWN" != "$msg_key" ]]; then
     local quote=$(random_quote)
@@ -671,7 +671,7 @@ wait_with_countdown() {
     echo ""
     WAITING_MSG_SHOWN="$msg_key"
   fi
-  
+
   while [[ $seconds -gt 0 ]]; do
     printf "\r   %s Next check in %2ds... (Ctrl+C to stop, add tasks to ralph-todo.json to continue)" "${spin:i++%${#spin}:1}" "$seconds"
     sleep 1
@@ -690,24 +690,24 @@ reset_waiting_state() {
 # =============================================================================
 
 # Run a single agent iteration
-# Returns: signal (GUTTER, COMPLETE, or empty)
+# Returns: signal (COMPLETE, GUTTER, STALLED, EMPTY, or empty)
 run_iteration() {
   local workspace="$1"
   local iteration="$2"
   local session_id="${3:-}"
   local script_dir="${4:-$(dirname "${BASH_SOURCE[0]}")}"
-  
+
   # Write prompt to temp file (command-line args can't handle multi-line prompts)
   local prompt_file="/tmp/ralph_prompt_$$.md"
   build_prompt "$workspace" "$iteration" > "$prompt_file"
-  
+
   # Use /tmp for FIFO since WSL can't create pipes on Windows filesystems
   local fifo="/tmp/ralph_parser_fifo_$$"
-  
+
   # Create named pipe for parser signals
   rm -f "$fifo"
   mkfifo "$fifo"
-  
+
   # Use stderr for display (stdout is captured for signal)
   echo "" >&2
   echo "═══════════════════════════════════════════════════════════════════" >&2
@@ -718,29 +718,29 @@ run_iteration() {
   echo "Model:     $MODEL" >&2
   echo "Monitor:   tail -f $workspace/.ralph/activity.log" >&2
   echo "" >&2
-  
+
   # Log session start to progress.md
   log_progress "$workspace" "**Session $iteration started** (model: $MODEL)"
-  
+
   # Build cursor-agent arguments
   local -a agent_args=(-p --force --output-format stream-json --model "$MODEL")
-  
+
   if [[ -n "$session_id" ]]; then
     echo "Resuming session: $session_id" >&2
     agent_args+=(--resume "$session_id")
   fi
-  
+
   # Change to workspace
   cd "$workspace"
-  
+
   # Start spinner to show we're alive
   spinner "$workspace" &
   local spinner_pid=$!
-  
+
   # Read prompt content
   local prompt_content
   prompt_content=$(cat "$prompt_file")
-  
+
   # Start parser in background, reading from cursor-agent
   # Parser outputs to fifo, we read signals from fifo
   (
@@ -748,7 +748,7 @@ run_iteration() {
     rm -f "$prompt_file"
   ) &
   local agent_pid=$!
-  
+
   # Read signals from parser
   local signal=""
   while IFS= read -r line; do
@@ -765,20 +765,30 @@ run_iteration() {
         signal="COMPLETE"
         # Let agent finish gracefully
         ;;
+      "STALLED")
+        printf "\r\033[K" >&2  # Clear spinner line
+        echo "⏸️ All tasks stalled (over pass limit)..." >&2
+        signal="STALLED"
+        ;;
+      "EMPTY")
+        printf "\r\033[K" >&2  # Clear spinner line
+        echo "📭 No tasks in todo..." >&2
+        signal="EMPTY"
+        ;;
     esac
   done < "$fifo"
-  
+
   # Wait for agent to finish
   wait $agent_pid 2>/dev/null || true
-  
+
   # Stop spinner and clear line
   kill $spinner_pid 2>/dev/null || true
   wait $spinner_pid 2>/dev/null || true
   printf "\r\033[K" >&2  # Clear spinner line
-  
+
   # Cleanup
   rm -f "$fifo"
-  
+
   echo "$signal"
 }
 
@@ -792,29 +802,28 @@ move_completed_tasks() {
   local workspace="$1"
   local todo_file=$(get_todo_file "$workspace")
   local complete_file=$(get_complete_file "$workspace")
-  
+
   if [[ ! -f "$todo_file" ]]; then
     return
   fi
-  
+
   # Find completed tasks
   local completed_tasks
   completed_tasks=$(jq '[.[] | select(.status == "completed")]' "$todo_file" 2>/dev/null)
   local count=$(echo "$completed_tasks" | jq 'length' 2>/dev/null) || count=0
-  
+
   if [[ "$count" -eq 0 ]]; then
     return
   fi
-  
+
   # Add completion timestamp to each
   completed_tasks=$(echo "$completed_tasks" | jq '[.[] | . + {completed_at: (now | todate)}]')
-  
-  # Remove from todo
+
+  # Build new todo (without completed tasks) but don't write yet
   local new_todo
   new_todo=$(jq '[.[] | select(.status != "completed")]' "$todo_file")
-  echo "$new_todo" > "$todo_file"
-  
-  # Append to complete
+
+  # Append to complete file FIRST (if this fails, todo remains intact)
   if [[ -f "$complete_file" ]]; then
     local new_complete
     new_complete=$(jq --argjson tasks "$completed_tasks" '. + $tasks' "$complete_file")
@@ -822,7 +831,10 @@ move_completed_tasks() {
   else
     echo "$completed_tasks" > "$complete_file"
   fi
-  
+
+  # Only now remove from todo (complete file write succeeded)
+  echo "$new_todo" > "$todo_file"
+
   log_activity "$workspace" "Moved $count completed task(s) to ralph-complete.json"
   echo "📦 Moved $count completed task(s) to ralph-complete.json"
 }
@@ -833,7 +845,7 @@ move_completed_tasks() {
 run_ralph_loop() {
   local workspace="$1"
   local script_dir="${2:-$(dirname "${BASH_SOURCE[0]}")}"
-  
+
   # Commit any uncommitted work first
   cd "$workspace"
   if [[ -n "$(git status --porcelain 2>/dev/null)" ]]; then
@@ -841,27 +853,27 @@ run_ralph_loop() {
     git add -A
     git commit -m "ralph: initial commit before loop" || true
   fi
-  
+
   # Create branch if requested
   if [[ -n "$USE_BRANCH" ]]; then
     echo "🌿 Creating branch: $USE_BRANCH"
     git checkout -b "$USE_BRANCH" 2>/dev/null || git checkout "$USE_BRANCH"
   fi
-  
+
   echo ""
   echo "🚀 Starting Ralph loop (continuous mode)..."
   echo "   Press Ctrl+C to stop"
   echo ""
-  
+
   # Main loop - runs continuously until stopped
   local iteration=1
   local session_id=""
   local task_iterations=0  # iterations spent on current task
-  
+
   while true; do
     # Check task status before running
     local task_status=$(check_task_status "$workspace")
-    
+
     case "$task_status" in
       WORKABLE:*)
         # Has work to do - reset waiting state and continue
@@ -882,7 +894,7 @@ run_ralph_loop() {
         continue
         ;;
     esac
-    
+
     # Check iteration limit for current task
     if [[ $task_iterations -ge $MAX_ITERATIONS ]]; then
       log_progress "$workspace" "**Task iteration limit** - ⚠️ Max iterations ($MAX_ITERATIONS) for task"
@@ -893,15 +905,15 @@ run_ralph_loop() {
       session_id=""
       continue
     fi
-    
+
     # Run iteration
     local signal
     signal=$(run_iteration "$workspace" "$iteration" "$session_id" "$script_dir")
     task_iterations=$((task_iterations + 1))
-    
+
     # Move any completed tasks to complete file
     move_completed_tasks "$workspace"
-    
+
     # Commit all changes (code + JSON) in one commit per task
     if [[ -n "$(git -C "$workspace" status --porcelain 2>/dev/null)" ]]; then
       # Get the task description for the commit message
@@ -909,14 +921,14 @@ run_ralph_loop() {
       task_desc=$(jq -r '.[-1].description // "task"' "$workspace/ralph-complete.json" 2>/dev/null | tail -1) || task_desc="task"
       # Truncate to reasonable length for commit message
       task_desc="${task_desc:0:60}"
-      
+
       git -C "$workspace" add -A
       git -C "$workspace" commit -m "ralph: $task_desc" 2>/dev/null || true
     fi
-    
+
     # Re-check task status after iteration
     task_status=$(check_task_status "$workspace")
-    
+
     # Handle signals
     case "$signal" in
       "COMPLETE")
@@ -924,11 +936,11 @@ run_ralph_loop() {
         log_progress "$workspace" "**Session $iteration ended** - ✅ Task complete"
         echo ""
         echo "✅ Task completed!"
-        
+
         # Reset task iteration counter for next task
         task_iterations=0
         session_id=""
-        
+
         # Check if more work available
         if [[ "$task_status" == WORKABLE:* ]]; then
           local remaining=${task_status#WORKABLE:}
@@ -977,9 +989,9 @@ run_ralph_loop() {
         fi
         ;;
     esac
-    
+
     iteration=$((iteration + 1))
-    
+
     # Brief pause between iterations
     sleep 2
   done
@@ -993,7 +1005,7 @@ run_ralph_loop() {
 check_prerequisites() {
   local workspace="$1"
   local todo_file=$(get_todo_file "$workspace")
-  
+
   # Check for jq (required for JSON parsing)
   if ! command -v jq &> /dev/null; then
     echo "❌ jq not found (required for JSON parsing)"
@@ -1004,7 +1016,7 @@ check_prerequisites() {
     echo "  Windows: choco install jq"
     return 1
   fi
-  
+
   # Check for cursor-agent CLI
   if ! command -v cursor-agent &> /dev/null; then
     echo "❌ cursor-agent CLI not found"
@@ -1013,17 +1025,17 @@ check_prerequisites() {
     echo "  curl https://cursor.com/install -fsS | bash"
     return 1
   fi
-  
+
   # Check for git repo
   if ! git -C "$workspace" rev-parse --git-dir > /dev/null 2>&1; then
     echo "❌ Not a git repository"
     echo "   Ralph requires git for state persistence."
     return 1
   fi
-  
+
   # Initialize sprint files if needed
   init_sprint_files "$workspace"
-  
+
   # Validate ralph-todo.json structure (if it has content)
   if [[ -f "$todo_file" ]]; then
     if ! jq empty "$todo_file" 2>/dev/null; then
@@ -1032,7 +1044,7 @@ check_prerequisites() {
       echo "Check syntax at: https://jsonlint.com/"
       return 1
     fi
-    
+
     # Check it's an array
     local is_array=$(jq 'type == "array"' "$todo_file" 2>/dev/null)
     if [[ "$is_array" != "true" ]]; then
@@ -1040,7 +1052,25 @@ check_prerequisites() {
       return 1
     fi
   fi
-  
+
+  # Validate ralph-complete.json structure (if it exists)
+  local complete_file=$(get_complete_file "$workspace")
+  if [[ -f "$complete_file" ]]; then
+    if ! jq empty "$complete_file" 2>/dev/null; then
+      echo "❌ ralph-complete.json is not valid JSON"
+      echo ""
+      echo "Check syntax at: https://jsonlint.com/"
+      return 1
+    fi
+
+    # Check it's an array
+    local is_array=$(jq 'type == "array"' "$complete_file" 2>/dev/null)
+    if [[ "$is_array" != "true" ]]; then
+      echo "❌ ralph-complete.json must be a JSON array of tasks"
+      return 1
+    fi
+  fi
+
   # Show status
   local counts=$(count_todo_tasks "$workspace")
   local workable=${counts%%:*}
@@ -1048,12 +1078,12 @@ check_prerequisites() {
   local stalled=${rest%%:*}
   local total=${rest#*:}
   local completed=$(count_complete_tasks "$workspace")
-  
+
   echo "✓ Sprint files ready"
   echo "  Todo:     $total tasks ($workable workable, $stalled stalled)"
   echo "  Complete: $completed tasks"
   echo "  Pass threshold: $MAX_PASSES"
-  
+
   return 0
 }
 
@@ -1062,18 +1092,19 @@ check_prerequisites() {
 # =============================================================================
 
 # Show sprint task summary
+# Display output goes to stderr, workable count goes to stdout for capture
 show_sprint_summary() {
   local workspace="$1"
   local todo_file=$(get_todo_file "$workspace")
   local complete_file=$(get_complete_file "$workspace")
-  
-  echo "📋 Sprint Todo List:"
-  echo "─────────────────────────────────────────────────────────────────"
-  
+
+  echo "📋 Sprint Todo List:" >&2
+  echo "─────────────────────────────────────────────────────────────────" >&2
+
   if [[ -f "$todo_file" ]]; then
-    # Show task summary using jq
+    # Show task summary using jq (suppress jq errors, output to stderr for display)
     jq -r --argjson max "$MAX_PASSES" '
-      to_entries | .[] | 
+      to_entries | .[] |
       "\(.key + 1). [\(
         if .value.status == "completed" then "✓"
         elif .value.status == "in_progress" then "→"
@@ -1085,14 +1116,14 @@ show_sprint_summary() {
       )\(
         if (.value.passes // 0) >= $max then " STALLED" else "" end
       )"
-    ' "$todo_file" 2>/dev/null || echo "(error reading ralph-todo.json)"
+    ' "$todo_file" 2>/dev/null >&2 || echo "(error reading ralph-todo.json)" >&2
   else
-    echo "(no tasks in todo)"
+    echo "(no tasks in todo)" >&2
   fi
-  
-  echo "─────────────────────────────────────────────────────────────────"
-  echo ""
-  
+
+  echo "─────────────────────────────────────────────────────────────────" >&2
+  echo "" >&2
+
   # Count tasks
   local counts=$(count_todo_tasks "$workspace")
   local workable=${counts%%:*}
@@ -1100,14 +1131,14 @@ show_sprint_summary() {
   local stalled=${rest%%:*}
   local total=${rest#*:}
   local completed=$(count_complete_tasks "$workspace")
-  
-  echo "Todo:        $total tasks ($workable workable, $stalled stalled)"
-  echo "Completed:   $completed tasks (in ralph-complete.json)"
-  echo "Pass limit:  $MAX_PASSES (tasks stall after this many attempts)"
-  echo "Model:       $MODEL"
-  echo ""
-  
-  # Return workable count for caller to check
+
+  echo "Todo:        $total tasks ($workable workable, $stalled stalled)" >&2
+  echo "Completed:   $completed tasks (in ralph-complete.json)" >&2
+  echo "Pass limit:  $MAX_PASSES (tasks stall after this many attempts)" >&2
+  echo "Model:       $MODEL" >&2
+  echo "" >&2
+
+  # Return workable count on stdout for caller to capture
   echo "$workable"
 }
 
