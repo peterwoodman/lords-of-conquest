@@ -71,25 +71,25 @@ func (g *GameState) CalculateAttackStrength(attackerID string, target *Territory
 
 	// Add strength from brought unit
 	if brought != nil {
-		fromAdj := g.isAdjacent(brought.FromTerritory, target.ID)
+		fromAdj := g.IsAdjacent(brought.FromTerritory, target.ID)
 
 		switch brought.UnitType {
 		case UnitHorse:
 			if !fromAdj {
 				strength += 1
 			}
-			if brought.CarryingWeapon && !g.isAdjacent(brought.WeaponFromTerritory, target.ID) {
+			if brought.CarryingWeapon && !g.IsAdjacent(brought.WeaponFromTerritory, target.ID) {
 				strength += 3
 			}
 		case UnitBoat:
 			strength += 2 // Boats always add (they're not counted in adjacent)
 			if brought.CarryingHorse {
-				if !g.isAdjacent(brought.HorseFromTerritory, target.ID) {
+				if !g.IsAdjacent(brought.HorseFromTerritory, target.ID) {
 					strength += 1
 				}
 			}
 			if brought.CarryingWeapon {
-				if !g.isAdjacent(brought.WeaponFromTerritory, target.ID) {
+				if !g.IsAdjacent(brought.WeaponFromTerritory, target.ID) {
 					strength += 3
 				}
 			}
@@ -372,9 +372,12 @@ func (g *GameState) ExecuteAttackWithAllies(attackerID string, plan *AttackPlan,
 	return result
 }
 
-// isAdjacent checks if two territories are adjacent.
-func (g *GameState) isAdjacent(id1, id2 string) bool {
+// IsAdjacent checks if two territories are adjacent.
+func (g *GameState) IsAdjacent(id1, id2 string) bool {
 	t1 := g.Territories[id1]
+	if t1 == nil {
+		return false
+	}
 	for _, adj := range t1.Adjacent {
 		if adj == id2 {
 			return true

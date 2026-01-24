@@ -75,7 +75,7 @@ func (g *GameState) GetAttackPlan(attackerID, targetID string) *PlanAttackResult
 			continue
 		}
 
-		isAdjacent := g.isAdjacent(id, targetID)
+		isAdjacent := g.IsAdjacent(id, targetID)
 
 		// Boats (water movement) - one option per water body with boats
 		// Boats are ALWAYS listed as reinforcements (even from adjacent territories)
@@ -130,7 +130,7 @@ func (g *GameState) canHorseReachTarget(playerID, fromID, targetID string) bool 
 	from := g.Territories[fromID]
 
 	// Direct adjacency to target
-	if g.isAdjacent(fromID, targetID) {
+	if g.IsAdjacent(fromID, targetID) {
 		return true
 	}
 
@@ -138,7 +138,7 @@ func (g *GameState) canHorseReachTarget(playerID, fromID, targetID string) bool 
 	for _, midID := range from.Adjacent {
 		mid := g.Territories[midID]
 		if mid.Owner == playerID {
-			if g.isAdjacent(midID, targetID) {
+			if g.IsAdjacent(midID, targetID) {
 				return true
 			}
 		}
@@ -164,7 +164,7 @@ func (g *GameState) canBoatReachTargetViaWater(fromID, targetID, waterBodyID str
 
 	// Check if any territory in this water body is adjacent to the target
 	for _, coastalID := range water.Territories {
-		if g.isAdjacent(coastalID, targetID) {
+		if g.IsAdjacent(coastalID, targetID) {
 			return true
 		}
 	}

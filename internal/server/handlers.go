@@ -2635,12 +2635,25 @@ func (h *Handlers) handlePlanAttack(client *Client, msg *protocol.Message) error
 			WaterBodyID:   r.WaterBodyID,
 			StrengthBonus: r.Strength,
 		}
+		// For units from the same territory as the unit itself
+		// Calculate strength bonuses based on whether source is adjacent to target
+		fromIsAdjacent := state.IsAdjacent(r.FromTerritory, plan.TargetID)
 		for _, carry := range r.CanCarry {
 			if carry == "weapon" {
 				opt.CanCarryWeapon = true
+				opt.WeaponAvailableAt = r.FromTerritory
+				// Weapon adds +3 only if source is not adjacent (otherwise already counted)
+				if !fromIsAdjacent {
+					opt.WeaponStrengthBonus = 3
+				}
 			}
 			if carry == "horse" {
 				opt.CanCarryHorse = true
+				opt.HorseAvailableAt = r.FromTerritory
+				// Horse adds +1 only if source is not adjacent (otherwise already counted)
+				if !fromIsAdjacent {
+					opt.HorseStrengthBonus = 1
+				}
 			}
 		}
 		reinforcements = append(reinforcements, opt)

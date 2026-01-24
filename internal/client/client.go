@@ -768,12 +768,14 @@ func (g *Game) handleMessage(msg *protocol.Message) {
 		reinforcements := make([]ReinforcementData, len(payload.AvailableReinforcements))
 		for i, r := range payload.AvailableReinforcements {
 			reinforcements[i] = ReinforcementData{
-				UnitType:       r.UnitType,
-				FromTerritory:  r.From,
-				WaterBodyID:    r.WaterBodyID,
-				StrengthBonus:  r.StrengthBonus,
-				CanCarryWeapon: r.CanCarryWeapon,
-				CanCarryHorse:  r.CanCarryHorse,
+				UnitType:            r.UnitType,
+				FromTerritory:       r.From,
+				WaterBodyID:         r.WaterBodyID,
+				StrengthBonus:       r.StrengthBonus,
+				CanCarryWeapon:      r.CanCarryWeapon,
+				WeaponStrengthBonus: r.WeaponStrengthBonus,
+				CanCarryHorse:       r.CanCarryHorse,
+				HorseStrengthBonus:  r.HorseStrengthBonus,
 			}
 		}
 		preview := &AttackPreviewData{

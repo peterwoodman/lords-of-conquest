@@ -255,17 +255,29 @@ func (s *GameplayScene) drawAttackPlan(screen *ebiten.Image) {
 			unitLabel := fmt.Sprintf("%s from %s (+%d)", reinf.UnitType, fromName, reinf.StrengthBonus)
 			DrawText(screen, unitLabel, panelX+25, optY+15, ColorText)
 
-			// Carry options
+			// Carry options with strength bonuses
 			carryText := ""
 			if reinf.UnitType == "boat" {
 				if reinf.CanCarryHorse {
-					carryText += "Can load Horse "
+					if reinf.HorseStrengthBonus > 0 {
+						carryText += fmt.Sprintf("Can load Horse (+%d) ", reinf.HorseStrengthBonus)
+					} else {
+						carryText += "Can load Horse (in range) "
+					}
 				}
 				if reinf.CanCarryWeapon {
-					carryText += "Can load Weapon"
+					if reinf.WeaponStrengthBonus > 0 {
+						carryText += fmt.Sprintf("Can load Weapon (+%d)", reinf.WeaponStrengthBonus)
+					} else {
+						carryText += "Can load Weapon (in range)"
+					}
 				}
 			} else if reinf.UnitType == "horse" && reinf.CanCarryWeapon {
-				carryText = "Can carry Weapon"
+				if reinf.WeaponStrengthBonus > 0 {
+					carryText = fmt.Sprintf("Can carry Weapon (+%d)", reinf.WeaponStrengthBonus)
+				} else {
+					carryText = "Can carry Weapon (in range)"
+				}
 			}
 			if carryText != "" {
 				DrawText(screen, carryText, panelX+25, optY+35, ColorTextMuted)
@@ -277,15 +289,33 @@ func (s *GameplayScene) drawAttackPlan(screen *ebiten.Image) {
 		if s.selectedReinforcement != nil {
 			if s.selectedReinforcement.UnitType == "boat" {
 				if s.selectedReinforcement.CanCarryHorse {
-					s.drawCheckbox(screen, panelX+20, yPos+10, "Load Horse onto Boat", &s.loadHorseCheckbox)
+					horseLabel := "Load Horse onto Boat"
+					if s.selectedReinforcement.HorseStrengthBonus > 0 {
+						horseLabel = fmt.Sprintf("Load Horse onto Boat (+%d)", s.selectedReinforcement.HorseStrengthBonus)
+					} else {
+						horseLabel = "Load Horse onto Boat (already in range)"
+					}
+					s.drawCheckbox(screen, panelX+20, yPos+10, horseLabel, &s.loadHorseCheckbox)
 					yPos += 25
 				}
 				if s.selectedReinforcement.CanCarryWeapon {
-					s.drawCheckbox(screen, panelX+20, yPos+10, "Load Weapon onto Boat", &s.loadWeaponCheckbox)
+					weaponLabel := "Load Weapon onto Boat"
+					if s.selectedReinforcement.WeaponStrengthBonus > 0 {
+						weaponLabel = fmt.Sprintf("Load Weapon onto Boat (+%d)", s.selectedReinforcement.WeaponStrengthBonus)
+					} else {
+						weaponLabel = "Load Weapon onto Boat (already in range)"
+					}
+					s.drawCheckbox(screen, panelX+20, yPos+10, weaponLabel, &s.loadWeaponCheckbox)
 					yPos += 25
 				}
 			} else if s.selectedReinforcement.UnitType == "horse" && s.selectedReinforcement.CanCarryWeapon {
-				s.drawCheckbox(screen, panelX+20, yPos+10, "Carry Weapon on Horse", &s.loadWeaponCheckbox)
+				weaponLabel := "Carry Weapon on Horse"
+				if s.selectedReinforcement.WeaponStrengthBonus > 0 {
+					weaponLabel = fmt.Sprintf("Carry Weapon on Horse (+%d)", s.selectedReinforcement.WeaponStrengthBonus)
+				} else {
+					weaponLabel = "Carry Weapon on Horse (already in range)"
+				}
+				s.drawCheckbox(screen, panelX+20, yPos+10, weaponLabel, &s.loadWeaponCheckbox)
 				yPos += 25
 			}
 		}
@@ -375,12 +405,14 @@ func (s *GameplayScene) updateAttackPlanInput() {
 			if mx >= panelX+15 && mx <= panelX+panelW-15 &&
 				my >= optY && my <= optY+55 {
 				s.selectedReinforcement = &ReinforcementData{
-					UnitType:       reinf.UnitType,
-					FromTerritory:  reinf.FromTerritory,
-					WaterBodyID:    reinf.WaterBodyID,
-					StrengthBonus:  reinf.StrengthBonus,
-					CanCarryWeapon: reinf.CanCarryWeapon,
-					CanCarryHorse:  reinf.CanCarryHorse,
+					UnitType:            reinf.UnitType,
+					FromTerritory:       reinf.FromTerritory,
+					WaterBodyID:         reinf.WaterBodyID,
+					StrengthBonus:       reinf.StrengthBonus,
+					CanCarryWeapon:      reinf.CanCarryWeapon,
+					WeaponStrengthBonus: reinf.WeaponStrengthBonus,
+					CanCarryHorse:       reinf.CanCarryHorse,
+					HorseStrengthBonus:  reinf.HorseStrengthBonus,
 				}
 				s.loadHorseCheckbox = false
 				s.loadWeaponCheckbox = false

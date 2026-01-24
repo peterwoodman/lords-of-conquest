@@ -345,14 +345,16 @@ type AttackPreviewPayload struct {
 
 // ReinforcementOption is a possible unit to bring.
 type ReinforcementOption struct {
-	UnitType          string `json:"unit_type"`
-	From              string `json:"from"`
-	WaterBodyID       string `json:"water_body_id,omitempty"` // For boats
-	StrengthBonus     int    `json:"strength_bonus"`
-	CanCarryWeapon    bool   `json:"can_carry_weapon,omitempty"`
-	WeaponAvailableAt string `json:"weapon_available_at,omitempty"`
-	CanCarryHorse     bool   `json:"can_carry_horse,omitempty"`
-	HorseAvailableAt  string `json:"horse_available_at,omitempty"`
+	UnitType           string `json:"unit_type"`
+	From               string `json:"from"`
+	WaterBodyID        string `json:"water_body_id,omitempty"` // For boats
+	StrengthBonus      int    `json:"strength_bonus"`
+	CanCarryWeapon     bool   `json:"can_carry_weapon,omitempty"`
+	WeaponAvailableAt  string `json:"weapon_available_at,omitempty"`
+	WeaponStrengthBonus int   `json:"weapon_strength_bonus,omitempty"` // Strength added if weapon is loaded (0 if already in range)
+	CanCarryHorse      bool   `json:"can_carry_horse,omitempty"`
+	HorseAvailableAt   string `json:"horse_available_at,omitempty"`
+	HorseStrengthBonus int    `json:"horse_strength_bonus,omitempty"` // Strength added if horse is loaded (0 if already in range)
 }
 
 // BringForcesPayload adds reinforcement to attack.

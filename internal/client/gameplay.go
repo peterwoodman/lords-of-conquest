@@ -326,12 +326,14 @@ type AttackPreviewData struct {
 
 // ReinforcementData holds info about a unit that can join an attack
 type ReinforcementData struct {
-	UnitType       string
-	FromTerritory  string
-	WaterBodyID    string // For boats
-	StrengthBonus  int
-	CanCarryWeapon bool
-	CanCarryHorse  bool
+	UnitType            string
+	FromTerritory       string
+	WaterBodyID         string // For boats
+	StrengthBonus       int
+	CanCarryWeapon      bool
+	WeaponStrengthBonus int // Strength added if weapon is loaded (0 if already in range)
+	CanCarryHorse       bool
+	HorseStrengthBonus  int // Strength added if horse is loaded (0 if already in range)
 }
 
 // PhaseSkipData holds info about a skipped phase for the popup queue
