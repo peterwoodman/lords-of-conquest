@@ -150,7 +150,7 @@ func (g *GameState) canHorseReachTarget(playerID, fromID, targetID string) bool 
 // canBoatReachTargetViaWater checks if a boat in a specific water body can attack the target.
 // Boats can attack:
 // 1. Coastal territories that share the same water body (direct water attack)
-// 2. Non-coastal territories adjacent to a coastal territory the attacker owns in that water body
+// 2. Truly landlocked territories (no water bodies at all) adjacent to a coastal territory the attacker owns
 func (g *GameState) canBoatReachTargetViaWater(attackerID, fromID, targetID, waterBodyID string) bool {
 	target := g.Territories[targetID]
 	water := g.WaterBodies[waterBodyID]
@@ -165,8 +165,16 @@ func (g *GameState) canBoatReachTargetViaWater(attackerID, fromID, targetID, wat
 		}
 	}
 
-	// Check if the target is adjacent to a coastal territory the ATTACKER owns in this water body
-	// This allows boats to "land" at an owned coastal territory and attack adjacent inland territories
+	// If target has ANY water bodies (is coastal on any body of water), boats can only
+	// attack it via direct water access (checked above). Per game rules: "Boats MUST be
+	// able to reach a coastal tile of the target territory."
+	if len(target.WaterBodies) > 0 {
+		return false
+	}
+
+	// Target is truly landlocked (no water bodies at all).
+	// Check if it's adjacent to a coastal territory the attacker owns in this water body.
+	// This allows boats to "land" at an owned coastal territory and attack adjacent inland territories.
 	for _, coastalID := range water.Territories {
 		coastal := g.Territories[coastalID]
 		if coastal != nil && coastal.Owner == attackerID && g.IsAdjacent(coastalID, targetID) {

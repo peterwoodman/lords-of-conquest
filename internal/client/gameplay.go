@@ -1043,6 +1043,30 @@ func (s *GameplayScene) isActionPhase() bool {
 	return s.currentPhase == "Trade" || s.currentPhase == "Shipment" || s.currentPhase == "Conquest" || s.currentPhase == "Development"
 }
 
+// isDialogOrAnimationShowing returns true if any modal dialog or animation is active.
+// Used to hide the territory hover info popup during these events.
+func (s *GameplayScene) isDialogOrAnimationShowing() bool {
+	return s.showProductionAnim ||
+		s.showStockpileCapture ||
+		s.showCombatAnimation ||
+		s.showCombatResult ||
+		s.showAttackPlan ||
+		s.showAttackConfirmation ||
+		s.showWaitingForAlliance ||
+		s.showWaterBodySelect ||
+		s.showAllyMenu ||
+		s.showAllyRequest ||
+		s.showSurrenderConfirm ||
+		s.showPhaseSkip ||
+		s.showVictory ||
+		s.showTradePropose ||
+		s.showTradeIncoming ||
+		s.showTradeResult ||
+		s.waitingForTrade ||
+		s.showColorPicker ||
+		s.pendingHorseSelection != ""
+}
+
 func (s *GameplayScene) Draw(screen *ebiten.Image) {
 	if s.mapData == nil {
 		DrawLargeTextCentered(screen, "Loading game...", ScreenWidth/2, ScreenHeight/2, ColorText)
@@ -1079,8 +1103,8 @@ func (s *GameplayScene) Draw(screen *ebiten.Image) {
 	s.drawBottomBar(screen)
 
 	// Draw hover info (includes attack preview during conquest)
-	// Hide when attack dialogs/animations are showing
-	if s.hoveredCell[0] >= 0 && !s.showAttackPlan && !s.showCombatAnimation && !s.showCombatResult {
+	// Hide when dialogs or animations are showing
+	if s.hoveredCell[0] >= 0 && !s.isDialogOrAnimationShowing() {
 		s.drawHoverInfo(screen)
 	}
 
