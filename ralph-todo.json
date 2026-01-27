@@ -1,26 +1,6 @@
 [
   {
     "category": "frontend",
-    "description": "Reset 'Use Gold' toggle to off at the start of each development phase",
-    "status": "pending",
-    "priority": "low",
-    "steps": [
-      "Find where the client receives phase change notifications (likely in gameplay_handlers.go)",
-      "When the phase changes to 'Development', set s.buildUseGold = false",
-      "Also reset s.selectedBuildType to empty string to clear any previous selection",
-      "Test by completing a development phase with Use Gold enabled, verify it resets next development phase"
-    ],
-    "dependencies": [],
-    "notes": [
-      "buildUseGold field is defined in gameplay.go line 65",
-      "Ensures consistent starting state each development phase"
-    ],
-    "references": [
-      "internal/client/gameplay.go - buildUseGold field and toggle logic"
-    ]
-  },
-  {
-    "category": "frontend",
     "description": "Show build costs permanently instead of in tooltips for city/weapon/boat buttons",
     "status": "pending",
     "priority": "low",

@@ -337,3 +337,30 @@
 
 ### 2026-01-27
 **Session 7 ended** - ✅ Task complete
+
+### 2026-01-27 12:11:26
+**Session 7 ended** - ✅ Task complete
+
+### 2026-01-27 12:11:28
+**Session 8 started** (model: opus-4.5-thinking)
+
+### 2026-01-27 - Session 8 Progress
+**Task completed:** Reset 'Use Gold' toggle to off at the start of each development phase
+
+**Changes made:**
+1. Updated `applyGameState()` in `internal/client/gameplay_util.go`:
+   - Added reset logic inside the phase change detection block (lines 86-90)
+   - When phase changes to "Development", resets `s.buildUseGold = false` and `s.selectedBuildType = ""`
+   - Ensures consistent starting state each development phase
+
+**User benefit:**
+- Previously, if player enabled "Use Gold" toggle in one development phase, it remained enabled for the next phase
+- Now the toggle resets to "off" at the start of each development phase for consistent UX
+- Also clears any selected build type (city/weapon/boat) from previous phase
+
+**Verification:**
+- All 12 game unit tests pass
+- Server package builds successfully
+
+### 2026-01-27
+**Session 8 ended** - ✅ Task complete

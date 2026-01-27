@@ -268,5 +268,27 @@
       "internal/client/gameplay_ui.go - other UI drawing functions for style reference"
     ],
     "completed_at": "2026-01-27T15:41:23Z"
+  },
+  {
+    "category": "frontend",
+    "description": "Reset 'Use Gold' toggle to off at the start of each development phase",
+    "status": "completed",
+    "priority": "low",
+    "passes": 1,
+    "steps": [
+      "Find where the client receives phase change notifications (likely in gameplay_handlers.go)",
+      "When the phase changes to 'Development', set s.buildUseGold = false",
+      "Also reset s.selectedBuildType to empty string to clear any previous selection",
+      "Test by completing a development phase with Use Gold enabled, verify it resets next development phase"
+    ],
+    "dependencies": [],
+    "notes": [
+      "buildUseGold field is defined in gameplay.go line 65",
+      "Ensures consistent starting state each development phase"
+    ],
+    "references": [
+      "internal/client/gameplay.go - buildUseGold field and toggle logic"
+    ],
+    "completed_at": "2026-01-27T15:43:03Z"
   }
 ]

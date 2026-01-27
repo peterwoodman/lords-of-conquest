@@ -82,6 +82,12 @@ func (s *GameplayScene) applyGameState(state map[string]interface{}) {
 			s.shipmentCarryHorse = false
 			s.shipmentCarryWeapon = false
 			s.shipmentWaterBodyID = ""
+
+			// Reset development phase UI state when entering Development phase
+			if phase == "Development" {
+				s.buildUseGold = false
+				s.selectedBuildType = ""
+			}
 		}
 		s.currentPhase = phase
 		log.Printf("Phase: %s", phase)
