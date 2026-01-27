@@ -663,12 +663,14 @@ func NewLobbyScene(game *Game) *LobbyScene {
 	s.yourGameList.itemHeight = 70 // Taller items to show player names
 	s.yourGameList.OnSelect = func(id string) {
 		s.selectedGame = id
+		s.gameList.ClearSelection() // Clear the other list to avoid conflicting selections
 	}
 
 	// Public game list (bottom half)
 	s.gameList = NewList(50, 320, 500, 280)
 	s.gameList.OnSelect = func(id string) {
 		s.selectedGame = id
+		s.yourGameList.ClearSelection() // Clear the other list to avoid conflicting selections
 	}
 
 	// Code input
@@ -804,14 +806,7 @@ func (s *LobbyScene) Update() error {
 		s.game.ListYourGames()
 	}
 
-	// Update selected game from either list - do this BEFORE button updates
-	if id := s.yourGameList.GetSelectedID(); id != "" {
-		s.selectedGame = id
-		s.gameList.ClearSelection()
-	} else if id := s.gameList.GetSelectedID(); id != "" {
-		s.selectedGame = id
-		s.yourGameList.ClearSelection()
-	}
+	// Selection synchronization is handled by OnSelect callbacks (mutual exclusion)
 
 	// Update button disabled state BEFORE button Update() so they respond correctly
 	s.joinBtn.Disabled = s.selectedGame == ""

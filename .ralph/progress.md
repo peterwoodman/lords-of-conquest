@@ -221,3 +221,41 @@
 
 ### 2026-01-27
 **Session 4 ended** - ✅ Task complete
+
+### 2026-01-27 12:03:20
+**Session 4 ended** - ✅ Task complete
+
+### 2026-01-27 12:03:22
+**Session 5 started** (model: opus-4.5-thinking)
+
+### 2026-01-27 - Session 5 Progress
+**Task completed:** Fix lobby: cannot join public game after selecting from Active games list
+
+**Changes made:**
+1. Updated `yourGameList.OnSelect` callback in `internal/client/scenes.go` (line 664-667):
+   - Now calls `s.gameList.ClearSelection()` when an item is selected
+   - This immediately clears the other list's visual selection
+
+2. Updated `gameList.OnSelect` callback in `internal/client/scenes.go` (line 671-674):
+   - Now calls `s.yourGameList.ClearSelection()` when an item is selected
+   - This immediately clears the other list's visual selection
+
+3. Removed buggy code at lines 809-816 that ran every frame:
+   - The old code always prioritized `yourGameList` in its if-else structure
+   - When `yourGameList` had any selection, it would clear `gameList`'s selection every frame
+   - This prevented clicks on `gameList` from registering when `yourGameList` had a selection
+
+**Root cause:**
+- Both lists maintained their own `selectedIdx` independently
+- The frame-by-frame synchronization code had a flawed if-else structure that always favored `yourGameList`
+- When clicking `gameList`, the click would set its selection, but the next line of code would immediately clear it
+
+**Fix approach:**
+- Handle mutual exclusivity at the moment of click (in OnSelect callbacks)
+- Each list clears the OTHER list's selection when clicked
+- Removed the broken every-frame synchronization code
+
+**Verification:**
+- All 12 game unit tests pass
+- Server package builds successfully
+- Go syntax validated with gofmt

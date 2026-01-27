@@ -172,5 +172,34 @@
       "internal/game/conquest.go - Attack() validation at line 201-214"
     ],
     "completed_at": "2026-01-27T15:33:18Z"
+  },
+  {
+    "category": "frontend",
+    "description": "Fix lobby: cannot join public game after selecting from Active games list",
+    "status": "completed",
+    "priority": "medium",
+    "passes": 1,
+    "steps": [
+      "Investigate the interaction between yourGameList (Active Games) and gameList (Public Games) in scenes.go",
+      "Both lists share s.selectedGame but each has its own selectedIdx - selecting from one doesn't clear the other's selection",
+      "Option A: Add a ClearSelection() method to List that sets selectedIdx = -1",
+      "In each list's OnSelect callback, call ClearSelection() on the OTHER list",
+      "Option B: Add a SetSelectedByID() method to List that finds and selects by ID, or clears if not found",
+      "Call SetSelectedByID(s.selectedGame) on both lists after any selection change",
+      "Test: Select from Active Games, then click an item in Public Games - should select and enable Join button",
+      "Test: Verify the previously selected item in Active Games is visually deselected"
+    ],
+    "dependencies": [],
+    "notes": [
+      "Root cause: yourGameList and gameList each maintain their own selectedIdx independently",
+      "s.selectedGame is shared but the visual selection state is per-list",
+      "May also need to check if click events are being captured/blocked incorrectly"
+    ],
+    "references": [
+      "internal/client/scenes.go - yourGameList and gameList setup at lines 662-672",
+      "internal/client/scenes.go - OnSelect callbacks at lines 664-671",
+      "internal/client/ui.go - List struct with selectedIdx at line 628"
+    ],
+    "completed_at": "2026-01-27T15:35:43Z"
   }
 ]
