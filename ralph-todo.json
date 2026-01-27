@@ -1,33 +1,6 @@
 [
   {
     "category": "frontend",
-    "description": "Fix territory hover popup not showing defense from boats",
-    "status": "pending",
-    "priority": "low",
-    "steps": [
-      "In `getTerritoryStrength()` in gameplay_handlers.go, add boat counting for defense calculations",
-      "Get the boats map from the territory data: boats, ok := terr[\"boats\"].(map[string]interface{})",
-      "Sum up all boat counts across water bodies and add boatCount * 2 to strength",
-      "Note: The comment says 'Boats: NOT counted in base attack strength' which is correct for ATTACK, but boats DO count for DEFENSE",
-      "Consider splitting into getTerritoryAttackStrength() and getTerritoryDefenseStrength() for clarity",
-      "Alternatively, add a bool parameter to indicate if calculating for attack or defense",
-      "Test: Hover over a territory with boats, verify defense strength matches server calculation"
-    ],
-    "dependencies": [],
-    "notes": [
-      "Server's CalculateDefenseStrength (combat.go line 120) includes: strength += target.TotalBoats() * 2",
-      "Client's getTerritoryStrength explicitly skips boats with comment at line 471-472",
-      "This causes the hover popup to show lower defense than actual combat would use",
-      "Boats add +2 each to defense strength"
-    ],
-    "references": [
-      "internal/client/gameplay_handlers.go - getTerritoryStrength() at line 451-475",
-      "internal/client/gameplay_handlers.go - calculateCombatStrength() at line 400",
-      "internal/game/combat.go - CalculateDefenseStrength() at line 106, boats at line 120"
-    ]
-  },
-  {
-    "category": "frontend",
     "description": "Reset 'Use Gold' toggle to off at the start of each development phase",
     "status": "pending",
     "priority": "low",

@@ -414,6 +414,16 @@ func (s *GameplayScene) calculateCombatStrength(targetTID string) (attack, defen
 	// Add target's buildings and units
 	defense += s.getTerritoryStrength(target)
 
+	// Add boats in target territory to defense (+2 each)
+	// Note: Boats only count for defense of the territory they're in, not for adjacent territories
+	if boats, ok := target["boats"].(map[string]interface{}); ok {
+		for _, count := range boats {
+			if bc, ok := count.(float64); ok {
+				defense += int(bc) * 2
+			}
+		}
+	}
+
 	// Attack: count our adjacent territories
 	for _, terrData := range s.territories {
 		terr := terrData.(map[string]interface{})
@@ -450,7 +460,8 @@ func (s *GameplayScene) calculateCombatStrength(targetTID string) (attack, defen
 }
 
 // getTerritoryStrength returns the combat strength bonus from a territory's buildings and units
-// Note: Boats are NOT counted here - they must be "brought" as reinforcements
+// Note: Boats are NOT counted here - for attack they must be "brought" as reinforcements,
+// and for defense they are only counted for the target territory (handled separately in calculateCombatStrength)
 func (s *GameplayScene) getTerritoryStrength(terr map[string]interface{}) int {
 	strength := 0
 

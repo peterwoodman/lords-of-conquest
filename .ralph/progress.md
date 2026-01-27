@@ -259,3 +259,35 @@
 - All 12 game unit tests pass
 - Server package builds successfully
 - Go syntax validated with gofmt
+
+### 2026-01-27 12:05:44
+**Session 5 ended** - ✅ Task complete
+
+### 2026-01-27 12:05:46
+**Session 6 started** (model: opus-4.5-thinking)
+
+### 2026-01-27 - Session 6 Progress
+**Task completed:** Fix territory hover popup not showing defense from boats
+
+**Changes made:**
+1. Updated `calculateCombatStrength()` in `internal/client/gameplay_handlers.go`:
+   - Added boat counting for target territory defense after line 415
+   - Iterates over `target["boats"]` map and adds `count * 2` for each boat
+   - This matches server behavior in `combat.go` line 120: `strength += target.TotalBoats() * 2`
+
+2. Updated comment on `getTerritoryStrength()`:
+   - Clarified that boats are NOT counted here for attack (must be brought as reinforcements)
+   - Clarified that boats ARE counted for defense but handled separately in calculateCombatStrength
+
+**Root cause:**
+- Server's `CalculateDefenseStrength` in combat.go adds +2 per boat in the target territory
+- Client's `calculateCombatStrength` was calling `getTerritoryStrength` which explicitly skipped boats
+- This caused the hover popup to show lower defense than actual combat would use
+
+**Verification:**
+- All 12 game unit tests pass
+- Server package builds successfully
+- Go syntax validated with gofmt (no formatting issues)
+
+### 2026-01-27
+**Session 6 ended** - ✅ Task complete
