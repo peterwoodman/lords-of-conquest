@@ -4,6 +4,8 @@ import (
 	"image"
 	"image/color"
 
+	"lords-of-conquest/internal/protocol"
+
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/inpututil"
 	"github.com/hajimehoshi/ebiten/v2/vector"
@@ -18,9 +20,9 @@ var emptyImage = func() *ebiten.Image {
 
 // Toast notification timing constants (at 60 FPS)
 const (
-	ToastSlideInFrames  = 15  // 0.25 seconds
-	ToastHoldFrames     = 90  // 1.5 seconds
-	ToastSlideOutFrames = 15  // 0.25 seconds
+	ToastSlideInFrames  = 15 // 0.25 seconds
+	ToastHoldFrames     = 90 // 1.5 seconds
+	ToastSlideOutFrames = 15 // 0.25 seconds
 )
 
 // GameplayScene handles the main game display and interaction.
@@ -122,6 +124,13 @@ type GameplayScene struct {
 	cancelAttackBtn       *Button
 	loadHorseCheckbox     bool // For boats: load horse?
 	loadWeaponCheckbox    bool // For boats: load weapon?
+
+	// Attack confirmation (after alliance voting)
+	showWaitingForAlliance bool                                // Waiting for server to resolve alliances
+	showAttackConfirmation bool                                // Show confirmation dialog with resolved totals
+	attackPlanResolved     *protocol.AttackPlanResolvedPayload // Resolved plan from server
+	confirmAttackBtn       *Button
+	cancelConfirmBtn       *Button
 
 	// Alliance UI
 	showAllyMenu      bool
@@ -442,6 +451,19 @@ func NewGameplayScene(game *Game) *GameplayScene {
 		X: 0, Y: 0, W: 100, H: 40,
 		Text:    "Cancel",
 		OnClick: func() { s.cancelAttackPlan() },
+	}
+
+	// Attack confirmation buttons
+	s.confirmAttackBtn = &Button{
+		X: 0, Y: 0, W: 140, H: 40,
+		Text:    "Confirm Attack",
+		Primary: true,
+		OnClick: func() { s.confirmAttack() },
+	}
+	s.cancelConfirmBtn = &Button{
+		X: 0, Y: 0, W: 100, H: 40,
+		Text:    "Cancel",
+		OnClick: func() { s.cancelAttackConfirmation() },
 	}
 
 	// Alliance menu buttons
@@ -857,6 +879,22 @@ func (s *GameplayScene) Update() error {
 		return nil // Block other input while showing selection
 	}
 
+	// Handle attack confirmation dialog
+	if s.showAttackConfirmation {
+		s.confirmAttackBtn.Update()
+		s.cancelConfirmBtn.Update()
+		if inpututil.IsKeyJustPressed(ebiten.KeyEscape) {
+			s.cancelAttackConfirmation()
+		}
+		return nil // Block other input while confirming
+	}
+
+	// Handle waiting for alliance overlay
+	if s.showWaitingForAlliance {
+		// Just block input while waiting
+		return nil
+	}
+
 	// Handle attack planning dialog
 	if s.showAttackPlan {
 		// Handle reinforcement selection clicks
@@ -1024,6 +1062,12 @@ func (s *GameplayScene) Draw(screen *ebiten.Image) {
 	}
 	if s.showAttackPlan {
 		s.drawAttackPlan(screen)
+	}
+	if s.showWaitingForAlliance {
+		s.drawWaitingForAlliance(screen)
+	}
+	if s.showAttackConfirmation {
+		s.drawAttackConfirmation(screen)
 	}
 	if s.showCombatResult {
 		s.drawCombatResult(screen)

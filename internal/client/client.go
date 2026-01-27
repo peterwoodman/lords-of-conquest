@@ -542,6 +542,41 @@ func (g *Game) ExecuteAttackWithReinforcement(targetTerritory string, reinforcem
 	return g.network.SendPayload(protocol.TypeExecuteAttack, payload)
 }
 
+// ExecuteAttackWithPlan executes an attack using a cached plan from RequestAttackPlan.
+func (g *Game) ExecuteAttackWithPlan(targetTerritory, planID string, reinforcement *ReinforcementInfo) error {
+	payload := protocol.ExecuteAttackPayload{
+		TargetTerritory: targetTerritory,
+		PlanID:          planID,
+	}
+	if reinforcement != nil {
+		payload.BringUnit = reinforcement.UnitType
+		payload.BringFrom = reinforcement.FromTerritory
+		payload.WaterBodyID = reinforcement.WaterBodyID
+		payload.CarryWeapon = reinforcement.CarryWeapon
+		payload.WeaponFrom = reinforcement.WeaponFrom
+		payload.CarryHorse = reinforcement.CarryHorse
+		payload.HorseFrom = reinforcement.HorseFrom
+	}
+	return g.network.SendPayload(protocol.TypeExecuteAttack, payload)
+}
+
+// RequestAttackPlan requests alliance resolution before committing to attack.
+func (g *Game) RequestAttackPlan(targetTerritory string, reinforcement *ReinforcementInfo) error {
+	payload := protocol.RequestAttackPlanPayload{
+		TargetTerritory: targetTerritory,
+	}
+	if reinforcement != nil {
+		payload.BringUnit = reinforcement.UnitType
+		payload.BringFrom = reinforcement.FromTerritory
+		payload.WaterBodyID = reinforcement.WaterBodyID
+		payload.CarryWeapon = reinforcement.CarryWeapon
+		payload.WeaponFrom = reinforcement.WeaponFrom
+		payload.CarryHorse = reinforcement.CarryHorse
+		payload.HorseFrom = reinforcement.HorseFrom
+	}
+	return g.network.SendPayload(protocol.TypeRequestAttackPlan, payload)
+}
+
 // ReinforcementInfo holds data about a unit to bring into battle.
 type ReinforcementInfo struct {
 	UnitType      string
@@ -809,6 +844,18 @@ func (g *Game) handleMessage(msg *protocol.Message) {
 			return
 		}
 		log.Printf("Alliance vote %s: accepted=%v", payload.BattleID, payload.Accepted)
+
+	case protocol.TypeAttackPlanResolved:
+		var payload protocol.AttackPlanResolvedPayload
+		if err := msg.ParsePayload(&payload); err != nil {
+			log.Printf("Failed to parse attack plan resolved: %v", err)
+			return
+		}
+		// Show the attack confirmation dialog with resolved alliance totals
+		g.gameplayScene.ShowAttackConfirmation(&payload)
+		log.Printf("Attack plan resolved: %d vs %d (allies: +%d vs +%d)",
+			payload.BaseAttackStrength, payload.BaseDefenseStrength,
+			payload.AttackerAllyStrength, payload.DefenderAllyStrength)
 
 	case protocol.TypeTradeProposal:
 		var payload protocol.TradeProposalPayload

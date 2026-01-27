@@ -511,3 +511,59 @@
 - All 12 game unit tests pass
 - Go syntax validated with gofmt
 - Server-side packages build successfully
+
+### 2026-01-27 12:31:43
+**Session 12 ended** - ✅ Task complete
+
+### 2026-01-27 12:31:45
+**Session 13 started** (model: opus-4.5-thinking)
+
+### 2026-01-27 - Session 13 Progress
+**Task completed:** Add 'Plan Attack' step with alliance waiting and confirmation dialog before executing attack
+
+**Changes made:**
+
+1. **Protocol changes** (`internal/protocol/messages.go`, `internal/protocol/payloads.go`):
+   - Added `TypeRequestAttackPlan` message type for requesting alliance resolution
+   - Added `TypeAttackPlanResolved` message type for server response with resolved totals
+   - Added `RequestAttackPlanPayload` with attack parameters
+   - Added `AttackPlanResolvedPayload` with resolved ally strengths and names
+   - Added `PlanID` field to `ExecuteAttackPayload` to reference cached plans
+
+2. **Server changes** (`internal/server/server.go`, `internal/server/handlers.go`):
+   - Added `PendingAttackPlan` struct to cache resolved attack plans
+   - Added `pendingAttackPlans` map to Hub for storing plans
+   - Added `handleRequestAttackPlan()` handler that:
+     - Triggers alliance voting (same as executeAttack used to do)
+     - Waits for votes with 60 second timeout
+     - Stores resolved plan with attacker/defender ally lists
+     - Returns resolved totals to client
+   - Updated `handleExecuteAttack()` to:
+     - Check for cached plan by PlanID
+     - Use pre-resolved allies if plan exists and is valid
+     - Fall back to live alliance resolution if no cached plan (legacy support)
+
+3. **Client changes** (`internal/client/gameplay.go`, `internal/client/gameplay_dialogs.go`, `internal/client/client.go`):
+   - Added state fields: `showWaitingForAlliance`, `showAttackConfirmation`, `attackPlanResolved`, `confirmAttackBtn`, `cancelConfirmBtn`
+   - Changed button text from "Attack"/"Attack Without" to "Plan Attack"/"Plan Without"
+   - Changed "With [unit]" to "Plan w/ [unit]"
+   - Updated `doAttack()` to send `RequestAttackPlan` instead of `ExecuteAttack`
+   - Added `drawWaitingForAlliance()` overlay shown during alliance resolution
+   - Added `drawAttackConfirmation()` dialog showing:
+     - Attack forces breakdown (your forces + ally names and totals)
+     - Defense forces breakdown (base defense + ally names and totals)
+     - "Confirm Attack" and "Cancel" buttons
+   - Added `ShowAttackConfirmation()`, `confirmAttack()`, `cancelAttackConfirmation()` methods
+   - Added `ExecuteAttackWithPlan()` and `RequestAttackPlan()` network methods
+   - Added handler for `TypeAttackPlanResolved` message
+
+**User benefit:**
+- Players now see a confirmation dialog with final ally contributions BEFORE committing to attack
+- Attackers can see who will join their attack and who will defend
+- Cancel option allows backing out without consuming attacks if odds look bad
+- Alliance voting happens during "plan" phase, not during execution
+
+**Verification:**
+- All 12 game unit tests pass
+- Server and protocol packages build successfully
+- Go syntax validated with gofmt

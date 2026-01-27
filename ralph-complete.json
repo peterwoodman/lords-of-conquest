@@ -415,5 +415,46 @@
       "internal/client/client.go - ScreenWidth=1280, ScreenHeight=720 at lines 17-18"
     ],
     "completed_at": "2026-01-27T16:01:42Z"
+  },
+  {
+    "category": "frontend",
+    "description": "Add 'Plan Attack' step with alliance waiting and confirmation dialog before executing attack",
+    "status": "completed",
+    "priority": "medium",
+    "passes": 1,
+    "steps": [
+      "FRONTEND - Attack Dialog Changes:",
+      "After player selects reinforcements, change button from 'Attack' to 'Plan Attack'",
+      "When 'Plan Attack' is clicked, send a new message type (e.g., TypePlanAttack) to server instead of TypeExecuteAttack",
+      "Show a 'Waiting for alliance decisions...' overlay while waiting for server response",
+      "BACKEND - New Planning Phase:",
+      "Add new message type TypePlanAttack and TypePlanAttackResult in protocol/messages.go",
+      "In handlePlanAttack, trigger alliance requests to 'ask' players (similar to current handleExecuteAttack flow)",
+      "Wait for alliance votes with timeout, then send TypePlanAttackResult with final totals back to attacker",
+      "FRONTEND - Confirmation Dialog:",
+      "Create new drawAttackConfirmation() dialog showing: base attack + reinforcement + ally totals vs defense + ally totals",
+      "Show breakdown: 'Your forces: X, Allies: Y, Total: Z' for both sides",
+      "Add 'Confirm Attack' and 'Cancel' buttons",
+      "'Confirm Attack' sends TypeExecuteAttack (server should cache the planned attack data)",
+      "'Cancel' cancels the attack (no attacks consumed)",
+      "BACKEND - State Management:",
+      "Store pending attack plan on server (attacker ID, target, reinforcements, resolved allies) with timeout",
+      "TypeExecuteAttack should use cached plan if within timeout, otherwise reject"
+    ],
+    "dependencies": [],
+    "notes": [
+      "Current flow: select target -> preview -> select reinforcements -> attack immediately (alliance requests sent during execution)",
+      "New flow: select target -> preview -> select reinforcements -> 'Plan Attack' -> wait for alliances -> confirmation dialog -> 'Confirm Attack'",
+      "This gives the attacker visibility into final ally contributions before committing",
+      "Alliance request UI already exists (drawAllyRequest) - just need to coordinate timing",
+      "Consider timeout for confirmation (auto-cancel if attacker doesn't confirm within X seconds)"
+    ],
+    "references": [
+      "internal/client/gameplay_dialogs.go - drawAttackPreviewDialog() at line 180",
+      "internal/server/handlers.go - handleExecuteAttack() at line 2680, alliance vote handling at line 2748",
+      "internal/protocol/messages.go - message types",
+      "internal/protocol/payloads.go - AttackPreviewPayload, AllianceRequestPayload"
+    ],
+    "completed_at": "2026-01-27T16:09:19Z"
   }
 ]

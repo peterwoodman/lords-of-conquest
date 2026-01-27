@@ -414,6 +414,32 @@ type ExecuteAttackPayload struct {
 	WeaponFrom      string `json:"weapon_from,omitempty"`    // Territory ID
 	CarryHorse      bool   `json:"carry_horse,omitempty"`    // For boat
 	HorseFrom       string `json:"horse_from,omitempty"`     // Territory ID
+	PlanID          string `json:"plan_id,omitempty"`        // Use cached plan from RequestAttackPlan
+}
+
+// RequestAttackPlanPayload requests alliance resolution before committing to attack.
+type RequestAttackPlanPayload struct {
+	TargetTerritory string `json:"target_territory"`
+	BringUnit       string `json:"bring_unit,omitempty"`
+	BringFrom       string `json:"bring_from,omitempty"`
+	WaterBodyID     string `json:"water_body_id,omitempty"`
+	CarryWeapon     bool   `json:"carry_weapon,omitempty"`
+	WeaponFrom      string `json:"weapon_from,omitempty"`
+	CarryHorse      bool   `json:"carry_horse,omitempty"`
+	HorseFrom       string `json:"horse_from,omitempty"`
+}
+
+// AttackPlanResolvedPayload is sent back with resolved alliance totals.
+type AttackPlanResolvedPayload struct {
+	PlanID               string   `json:"plan_id"`                // ID to reference this plan when confirming
+	TargetTerritory      string   `json:"target_territory"`
+	BaseAttackStrength   int      `json:"base_attack_strength"`   // Player's base attack
+	BaseDefenseStrength  int      `json:"base_defense_strength"`  // Defender's base defense
+	AttackerAllyStrength int      `json:"attacker_ally_strength"` // Total ally contribution to attack
+	DefenderAllyStrength int      `json:"defender_ally_strength"` // Total ally contribution to defense
+	AttackerAllyNames    []string `json:"attacker_ally_names"`    // Names of allies joining attack
+	DefenderAllyNames    []string `json:"defender_ally_names"`    // Names of allies joining defense
+	ExpiresAt            int64    `json:"expires_at"`             // Unix timestamp when plan expires
 }
 
 // CombatResultPayload reports the result of combat.

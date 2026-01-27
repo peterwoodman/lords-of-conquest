@@ -331,13 +331,13 @@ func (s *GameplayScene) drawAttackPlan(screen *ebiten.Image) {
 	totalBtnsWidth := btnWidth*3 + btnGap*2
 	btnStartX := panelX + (panelW-totalBtnsWidth)/2
 
-	// Attack button - only show if base attack strength > 0
+	// Plan Attack button - only show if base attack strength > 0
 	// (if strength is 0, player must bring reinforcements to attack)
 	if s.attackPreview.AttackStrength > 0 {
 		if reinforceCount == 0 {
-			s.attackNoReinfBtn.Text = "Attack"
+			s.attackNoReinfBtn.Text = "Plan Attack"
 		} else {
-			s.attackNoReinfBtn.Text = "Attack Without"
+			s.attackNoReinfBtn.Text = "Plan Without"
 		}
 		s.attackNoReinfBtn.W = btnWidth
 		s.attackNoReinfBtn.X = btnStartX
@@ -348,12 +348,12 @@ func (s *GameplayScene) drawAttackPlan(screen *ebiten.Image) {
 		DrawText(screen, "Bring forces to attack", btnStartX, btnY+10, ColorWarning)
 	}
 
-	// Attack with selected reinforcement (only if one is selected)
+	// Plan Attack with selected reinforcement (only if one is selected)
 	if s.selectedReinforcement != nil {
 		s.attackWithReinfBtn.W = btnWidth
 		s.attackWithReinfBtn.X = btnStartX + btnWidth + btnGap
 		s.attackWithReinfBtn.Y = btnY
-		s.attackWithReinfBtn.Text = "With " + s.selectedReinforcement.UnitType
+		s.attackWithReinfBtn.Text = "Plan w/ " + s.selectedReinforcement.UnitType
 		s.attackWithReinfBtn.Draw(screen)
 	}
 
@@ -698,7 +698,7 @@ func (s *GameplayScene) ShowAttackPlan(preview *AttackPreviewData) {
 	s.showAttackPlan = true
 }
 
-// doAttack executes the attack with or without reinforcement
+// doAttack requests the attack plan (triggers alliance resolution)
 func (s *GameplayScene) doAttack(withReinforcement bool) {
 	if s.attackPlanTarget == "" {
 		return
@@ -731,9 +731,15 @@ func (s *GameplayScene) doAttack(withReinforcement bool) {
 		}
 	}
 
-	log.Printf("Executing attack on %s with reinforcement: %v", s.attackPlanTarget, reinforcement)
-	s.game.ExecuteAttackWithReinforcement(s.attackPlanTarget, reinforcement)
-	s.cancelAttackPlan()
+	log.Printf("Requesting attack plan for %s with reinforcement: %v", s.attackPlanTarget, reinforcement)
+
+	// Store the reinforcement selection for later confirmation
+	// Hide the attack plan dialog and show waiting overlay
+	s.showAttackPlan = false
+	s.showWaitingForAlliance = true
+
+	// Send the request to server to resolve alliances
+	s.game.RequestAttackPlan(s.attackPlanTarget, reinforcement)
 }
 
 // cancelAttackPlan cancels the attack planning
@@ -1868,4 +1874,174 @@ func (s *GameplayScene) drawStockpileCapturePanel(screen *ebiten.Image, resource
 	// Progress indicator
 	progressText := fmt.Sprintf("%d / %d", current, total)
 	DrawText(screen, progressText, panelX+panelW-60, panelY+60, ColorTextMuted)
+}
+
+// ==================== Attack Confirmation ====================
+
+// ShowAttackConfirmation displays the confirmation dialog with resolved alliance totals.
+func (s *GameplayScene) ShowAttackConfirmation(payload *protocol.AttackPlanResolvedPayload) {
+	s.showWaitingForAlliance = false
+	s.attackPlanResolved = payload
+	s.showAttackConfirmation = true
+	log.Printf("Showing attack confirmation: plan %s", payload.PlanID)
+}
+
+// drawWaitingForAlliance draws the waiting overlay while alliances are being resolved.
+func (s *GameplayScene) drawWaitingForAlliance(screen *ebiten.Image) {
+	// Semi-transparent overlay
+	vector.DrawFilledRect(screen, 0, 0, float32(ScreenWidth), float32(ScreenHeight),
+		color.RGBA{0, 0, 0, 200}, false)
+
+	// Simple centered message
+	panelW, panelH := 350, 120
+	panelX := ScreenWidth/2 - panelW/2
+	panelY := ScreenHeight/2 - panelH/2
+
+	DrawFancyPanel(screen, panelX, panelY, panelW, panelH, "Planning Attack")
+
+	DrawTextCentered(screen, "Waiting for alliance decisions...", ScreenWidth/2, panelY+55, ColorText)
+	DrawTextCentered(screen, "(This may take up to 60 seconds)", ScreenWidth/2, panelY+80, ColorTextMuted)
+}
+
+// drawAttackConfirmation draws the confirmation dialog with resolved alliance totals.
+func (s *GameplayScene) drawAttackConfirmation(screen *ebiten.Image) {
+	if s.attackPlanResolved == nil {
+		return
+	}
+
+	// Semi-transparent overlay
+	vector.DrawFilledRect(screen, 0, 0, float32(ScreenWidth), float32(ScreenHeight),
+		color.RGBA{0, 0, 0, 200}, false)
+
+	// Get target name
+	targetName := s.attackPlanResolved.TargetTerritory
+	if terr, ok := s.territories[s.attackPlanResolved.TargetTerritory].(map[string]interface{}); ok {
+		if name, ok := terr["name"].(string); ok {
+			targetName = name
+		}
+	}
+
+	// Panel dimensions
+	panelW := 450
+	panelH := 280
+	panelX := ScreenWidth/2 - panelW/2
+	panelY := ScreenHeight/2 - panelH/2
+
+	DrawFancyPanel(screen, panelX, panelY, panelW, panelH, "Confirm Attack")
+
+	// Target info
+	DrawTextCentered(screen, "Attack: "+targetName, ScreenWidth/2, panelY+45, ColorText)
+
+	y := panelY + 75
+
+	// Attack side breakdown
+	DrawText(screen, "ATTACK FORCES:", panelX+20, y, ColorSuccess)
+	y += 22
+
+	totalAttack := s.attackPlanResolved.BaseAttackStrength + s.attackPlanResolved.AttackerAllyStrength
+	DrawText(screen, fmt.Sprintf("  Your forces: %d", s.attackPlanResolved.BaseAttackStrength), panelX+20, y, ColorText)
+	y += 20
+
+	if s.attackPlanResolved.AttackerAllyStrength > 0 {
+		allyNames := strings.Join(s.attackPlanResolved.AttackerAllyNames, ", ")
+		DrawText(screen, fmt.Sprintf("  Allies: +%d (%s)", s.attackPlanResolved.AttackerAllyStrength, allyNames), panelX+20, y, ColorText)
+		y += 20
+	} else {
+		DrawText(screen, "  Allies: none", panelX+20, y, ColorTextMuted)
+		y += 20
+	}
+
+	DrawText(screen, fmt.Sprintf("  Total: %d", totalAttack), panelX+20, y, ColorSuccess)
+	y += 30
+
+	// Defense side breakdown
+	DrawText(screen, "DEFENSE FORCES:", panelX+20, y, ColorDanger)
+	y += 22
+
+	totalDefense := s.attackPlanResolved.BaseDefenseStrength + s.attackPlanResolved.DefenderAllyStrength
+	DrawText(screen, fmt.Sprintf("  Base defense: %d", s.attackPlanResolved.BaseDefenseStrength), panelX+20, y, ColorText)
+	y += 20
+
+	if s.attackPlanResolved.DefenderAllyStrength > 0 {
+		allyNames := strings.Join(s.attackPlanResolved.DefenderAllyNames, ", ")
+		DrawText(screen, fmt.Sprintf("  Allies: +%d (%s)", s.attackPlanResolved.DefenderAllyStrength, allyNames), panelX+20, y, ColorText)
+		y += 20
+	} else {
+		DrawText(screen, "  Allies: none", panelX+20, y, ColorTextMuted)
+		y += 20
+	}
+
+	DrawText(screen, fmt.Sprintf("  Total: %d", totalDefense), panelX+20, y, ColorDanger)
+
+	// Buttons at bottom
+	btnY := panelY + panelH - 55
+	btnWidth := 140
+	btnGap := 20
+	totalBtnsWidth := btnWidth*2 + btnGap
+	btnStartX := panelX + (panelW-totalBtnsWidth)/2
+
+	s.confirmAttackBtn.X = btnStartX
+	s.confirmAttackBtn.Y = btnY
+	s.confirmAttackBtn.W = btnWidth
+	s.confirmAttackBtn.Draw(screen)
+
+	s.cancelConfirmBtn.X = btnStartX + btnWidth + btnGap
+	s.cancelConfirmBtn.Y = btnY
+	s.cancelConfirmBtn.W = btnWidth
+	s.cancelConfirmBtn.Draw(screen)
+}
+
+// confirmAttack executes the attack using the cached plan.
+func (s *GameplayScene) confirmAttack() {
+	if s.attackPlanResolved == nil {
+		return
+	}
+
+	log.Printf("Confirming attack with plan %s", s.attackPlanResolved.PlanID)
+
+	// Build reinforcement info from the stored selection
+	var reinforcement *ReinforcementInfo
+	if s.selectedReinforcement != nil {
+		reinforcement = &ReinforcementInfo{
+			UnitType:      s.selectedReinforcement.UnitType,
+			FromTerritory: s.selectedReinforcement.FromTerritory,
+			WaterBodyID:   s.selectedReinforcement.WaterBodyID,
+		}
+		// For boats: add cargo
+		if s.selectedReinforcement.UnitType == "boat" {
+			if s.loadWeaponCheckbox && s.selectedReinforcement.CanCarryWeapon {
+				reinforcement.CarryWeapon = true
+				reinforcement.WeaponFrom = s.selectedReinforcement.FromTerritory
+			}
+			if s.loadHorseCheckbox && s.selectedReinforcement.CanCarryHorse {
+				reinforcement.CarryHorse = true
+				reinforcement.HorseFrom = s.selectedReinforcement.FromTerritory
+			}
+		}
+		// For horses: add weapon cargo
+		if s.selectedReinforcement.UnitType == "horse" {
+			if s.loadWeaponCheckbox && s.selectedReinforcement.CanCarryWeapon {
+				reinforcement.CarryWeapon = true
+				reinforcement.WeaponFrom = s.selectedReinforcement.FromTerritory
+			}
+		}
+	}
+
+	// Execute attack with the cached plan ID
+	s.game.ExecuteAttackWithPlan(s.attackPlanResolved.TargetTerritory, s.attackPlanResolved.PlanID, reinforcement)
+
+	// Clean up
+	s.cancelAttackConfirmation()
+}
+
+// cancelAttackConfirmation cancels the attack confirmation without attacking.
+func (s *GameplayScene) cancelAttackConfirmation() {
+	s.showAttackConfirmation = false
+	s.showWaitingForAlliance = false
+	s.attackPlanResolved = nil
+	s.attackPlanTarget = ""
+	s.attackPreview = nil
+	s.selectedReinforcement = nil
+	s.loadHorseCheckbox = false
+	s.loadWeaponCheckbox = false
 }

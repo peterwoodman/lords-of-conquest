@@ -164,6 +164,24 @@ type PendingEvent struct {
 	completed    bool                    // Prevent double-completion
 }
 
+// PendingAttackPlan stores a resolved attack plan waiting for confirmation.
+type PendingAttackPlan struct {
+	ID               string
+	GameID           string
+	AttackerID       string
+	TargetTerritory  string
+	BringUnit        string
+	BringFrom        string
+	WaterBodyID      string
+	CarryWeapon      bool
+	WeaponFrom       string
+	CarryHorse       bool
+	HorseFrom        string
+	AttackerAllies   []string // Resolved ally player IDs supporting attacker
+	DefenderAllies   []string // Resolved ally player IDs supporting defender
+	ExpiresAt        time.Time
+}
+
 // Hub maintains the set of active clients and broadcasts messages.
 type Hub struct {
 	server *Server
@@ -186,6 +204,9 @@ type Hub struct {
 	// Pending events waiting for client acknowledgment
 	pendingEvents map[string]*PendingEvent
 
+	// Pending attack plans waiting for confirmation
+	pendingAttackPlans map[string]*PendingAttackPlan
+
 	// Register requests
 	register chan *Client
 
@@ -207,15 +228,16 @@ type ClientMessage struct {
 // NewHub creates a new Hub.
 func NewHub(server *Server) *Hub {
 	return &Hub{
-		server:         server,
-		clients:        make(map[*Client]bool),
-		playerClients:  make(map[string]*Client),
-		gameClients:    make(map[string]map[*Client]bool),
-		pendingBattles: make(map[string]*PendingBattle),
-		pendingEvents:  make(map[string]*PendingEvent),
-		register:       make(chan *Client, 100),
-		unregister:     make(chan *Client, 100),
-		broadcast:      make(chan *ClientMessage, 256),
+		server:             server,
+		clients:            make(map[*Client]bool),
+		playerClients:      make(map[string]*Client),
+		gameClients:        make(map[string]map[*Client]bool),
+		pendingBattles:     make(map[string]*PendingBattle),
+		pendingEvents:      make(map[string]*PendingEvent),
+		pendingAttackPlans: make(map[string]*PendingAttackPlan),
+		register:           make(chan *Client, 100),
+		unregister:         make(chan *Client, 100),
+		broadcast:          make(chan *ClientMessage, 256),
 	}
 }
 

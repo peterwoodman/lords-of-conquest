@@ -70,26 +70,28 @@ const (
 
 // Action message types
 const (
-	TypeSelectTerritory MessageType = "select_territory"
-	TypePlaceStockpile  MessageType = "place_stockpile"
-	TypeEndPhase        MessageType = "end_phase"
-	TypeProposeTrade    MessageType = "propose_trade"
-	TypeTradeProposal   MessageType = "trade_proposal"    // Sent to target player
-	TypeRespondTrade    MessageType = "respond_trade"     // Target's response
-	TypeTradeResult     MessageType = "trade_result"      // Result sent to proposer
-	TypeSelectHorseDest MessageType = "select_horse_dest" // Where to place received horses
-	TypeMoveStockpile   MessageType = "move_stockpile"
-	TypeMoveUnit        MessageType = "move_unit"
-	TypePlanAttack      MessageType = "plan_attack"
-	TypeAttackPreview   MessageType = "attack_preview"
-	TypeBringForces     MessageType = "bring_forces"
-	TypeExecuteAttack   MessageType = "execute_attack"
-	TypeCancelAttack    MessageType = "cancel_attack"
-	TypeSetAlliance     MessageType = "set_alliance"
-	TypeAllianceRequest MessageType = "alliance_request"
-	TypeAllianceVote    MessageType = "alliance_vote"
-	TypeAllianceResult  MessageType = "alliance_result"
-	TypeBuild           MessageType = "build"
+	TypeSelectTerritory    MessageType = "select_territory"
+	TypePlaceStockpile     MessageType = "place_stockpile"
+	TypeEndPhase           MessageType = "end_phase"
+	TypeProposeTrade       MessageType = "propose_trade"
+	TypeTradeProposal      MessageType = "trade_proposal"    // Sent to target player
+	TypeRespondTrade       MessageType = "respond_trade"     // Target's response
+	TypeTradeResult        MessageType = "trade_result"      // Result sent to proposer
+	TypeSelectHorseDest    MessageType = "select_horse_dest" // Where to place received horses
+	TypeMoveStockpile      MessageType = "move_stockpile"
+	TypeMoveUnit           MessageType = "move_unit"
+	TypePlanAttack         MessageType = "plan_attack"
+	TypeAttackPreview      MessageType = "attack_preview"
+	TypeBringForces        MessageType = "bring_forces"
+	TypeRequestAttackPlan  MessageType = "request_attack_plan"  // Request alliance resolution before attack
+	TypeAttackPlanResolved MessageType = "attack_plan_resolved" // Server returns resolved alliance totals
+	TypeExecuteAttack      MessageType = "execute_attack"
+	TypeCancelAttack       MessageType = "cancel_attack"
+	TypeSetAlliance        MessageType = "set_alliance"
+	TypeAllianceRequest    MessageType = "alliance_request"
+	TypeAllianceVote       MessageType = "alliance_vote"
+	TypeAllianceResult     MessageType = "alliance_result"
+	TypeBuild              MessageType = "build"
 )
 
 // Synchronization message types
