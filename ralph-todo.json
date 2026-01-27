@@ -1,1 +1,381 @@
-[]
+[
+  {
+    "category": "frontend",
+    "description": "Fix territory hover popup not showing defense from boats",
+    "status": "pending",
+    "priority": "low",
+    "steps": [
+      "In `getTerritoryStrength()` in gameplay_handlers.go, add boat counting for defense calculations",
+      "Get the boats map from the territory data: boats, ok := terr[\"boats\"].(map[string]interface{})",
+      "Sum up all boat counts across water bodies and add boatCount * 2 to strength",
+      "Note: The comment says 'Boats: NOT counted in base attack strength' which is correct for ATTACK, but boats DO count for DEFENSE",
+      "Consider splitting into getTerritoryAttackStrength() and getTerritoryDefenseStrength() for clarity",
+      "Alternatively, add a bool parameter to indicate if calculating for attack or defense",
+      "Test: Hover over a territory with boats, verify defense strength matches server calculation"
+    ],
+    "dependencies": [],
+    "notes": [
+      "Server's CalculateDefenseStrength (combat.go line 120) includes: strength += target.TotalBoats() * 2",
+      "Client's getTerritoryStrength explicitly skips boats with comment at line 471-472",
+      "This causes the hover popup to show lower defense than actual combat would use",
+      "Boats add +2 each to defense strength"
+    ],
+    "references": [
+      "internal/client/gameplay_handlers.go - getTerritoryStrength() at line 451-475",
+      "internal/client/gameplay_handlers.go - calculateCombatStrength() at line 400",
+      "internal/game/combat.go - CalculateDefenseStrength() at line 106, boats at line 120"
+    ]
+  },
+  {
+    "category": "frontend",
+    "description": "Fix lobby: cannot join public game after selecting from Active games list",
+    "status": "pending",
+    "priority": "medium",
+    "steps": [
+      "Investigate the interaction between yourGameList (Active Games) and gameList (Public Games) in scenes.go",
+      "Both lists share s.selectedGame but each has its own selectedIdx - selecting from one doesn't clear the other's selection",
+      "Option A: Add a ClearSelection() method to List that sets selectedIdx = -1",
+      "In each list's OnSelect callback, call ClearSelection() on the OTHER list",
+      "Option B: Add a SetSelectedByID() method to List that finds and selects by ID, or clears if not found",
+      "Call SetSelectedByID(s.selectedGame) on both lists after any selection change",
+      "Test: Select from Active Games, then click an item in Public Games - should select and enable Join button",
+      "Test: Verify the previously selected item in Active Games is visually deselected"
+    ],
+    "dependencies": [],
+    "notes": [
+      "Root cause: yourGameList and gameList each maintain their own selectedIdx independently",
+      "s.selectedGame is shared but the visual selection state is per-list",
+      "May also need to check if click events are being captured/blocked incorrectly"
+    ],
+    "references": [
+      "internal/client/scenes.go - yourGameList and gameList setup at lines 662-672",
+      "internal/client/scenes.go - OnSelect callbacks at lines 664-671",
+      "internal/client/ui.go - List struct with selectedIdx at line 628"
+    ]
+  },
+  {
+    "category": "frontend",
+    "description": "Fix trade dialog player buttons jumping around and sometimes missing players",
+    "status": "pending",
+    "priority": "medium",
+    "steps": [
+      "In `getOnlinePlayers()` in gameplay_handlers.go, sort the returned player IDs before returning",
+      "Use `sort.Strings(players)` to ensure consistent alphabetical ordering by player ID",
+      "This ensures Draw and Update get the same player order every frame",
+      "Test with 3+ human players to verify buttons stay in consistent positions",
+      "Verify clicking a player button selects the correct player"
+    ],
+    "dependencies": [],
+    "notes": [
+      "Root cause: Go map iteration order is random, so s.players returns different orders each call",
+      "getOnlinePlayers() is called separately in Draw (gameplay_dialogs.go:1146) and Update (gameplay.go:732)",
+      "Different orders cause button positions to mismatch between rendering and click detection"
+    ],
+    "references": [
+      "internal/client/gameplay_handlers.go - getOnlinePlayers() at line 692",
+      "internal/client/gameplay_dialogs.go - drawTradePropose() at line 1140",
+      "internal/client/gameplay.go - trade dialog click handling at line 730"
+    ]
+  },
+  {
+    "category": "frontend",
+    "description": "Reset 'Use Gold' toggle to off at the start of each development phase",
+    "status": "pending",
+    "priority": "low",
+    "steps": [
+      "Find where the client receives phase change notifications (likely in gameplay_handlers.go)",
+      "When the phase changes to 'Development', set s.buildUseGold = false",
+      "Also reset s.selectedBuildType to empty string to clear any previous selection",
+      "Test by completing a development phase with Use Gold enabled, verify it resets next development phase"
+    ],
+    "dependencies": [],
+    "notes": [
+      "buildUseGold field is defined in gameplay.go line 65",
+      "Ensures consistent starting state each development phase"
+    ],
+    "references": [
+      "internal/client/gameplay.go - buildUseGold field and toggle logic"
+    ]
+  },
+  {
+    "category": "frontend",
+    "description": "Show build costs permanently instead of in tooltips for city/weapon/boat buttons",
+    "status": "pending",
+    "priority": "low",
+    "steps": [
+      "In `drawDevelopmentPhaseStatus()` in gameplay_ui.go, remove the tooltip assignments for devCityBtn, devWeaponBtn, devBoatBtn",
+      "Add text labels below each button showing both cost types: normal resources AND gold-only cost",
+      "City: '1 C/G/I/T or 4G', Weapon: '1C+1I or 2G', Boat: '3T or 3G' (or similar compact format)",
+      "Position the cost text directly below each button (around btnY + btnH + 2)",
+      "Use smaller/muted text color (ColorTextMuted) for the cost labels",
+      "Verify the layout fits within the status bar without overlapping the Use Gold toggle or End Turn button",
+      "Test with both 'Use Gold' toggle states to ensure display remains clear"
+    ],
+    "dependencies": [],
+    "notes": [
+      "Current buttons are 80px wide with 10px gaps, starting at startX",
+      "Status bar has space below buttons before the bar ends",
+      "Consider highlighting which cost applies based on Use Gold toggle state"
+    ],
+    "references": [
+      "internal/client/gameplay_ui.go - drawDevelopmentPhaseStatus() around line 870-979",
+      "internal/client/ui.go - Button tooltip implementation for reference"
+    ]
+  },
+  {
+    "category": "backend",
+    "description": "Fix boats being able to attack landlocked territories or territories not in the same water body",
+    "status": "pending",
+    "priority": "medium",
+    "steps": [
+      "Review `canBoatReachTargetViaWater()` in conquest.go (line 150-173)",
+      "The second check (lines 166-170) allows boats to attack any territory adjacent to ANY coastal territory in the water body - this is too permissive",
+      "Boats should only be able to attack: (1) coastal territories that share the same water body, OR (2) territories directly adjacent to a coastal territory the attacker owns in that water body",
+      "Update validation to require the target to either share the water body OR be adjacent to an attacker-owned coastal territory in that water body",
+      "Also verify `GetAttackPlan()` filtering (line 85) uses the corrected validation",
+      "Test with maps that have landlocked territories adjacent to coastal ones"
+    ],
+    "dependencies": [],
+    "notes": [
+      "Current bug: canBoatReachTargetViaWater returns true if target is adjacent to ANY coastal territory in the water body, regardless of ownership",
+      "This allows boats to 'teleport' to attack inland territories they shouldn't reach",
+      "The validation is used both for showing reinforcement options (GetAttackPlan) and executing attacks (Attack)"
+    ],
+    "references": [
+      "internal/game/conquest.go - canBoatReachTargetViaWater() at line 150",
+      "internal/game/conquest.go - GetAttackPlan() boat filtering at line 83-102",
+      "internal/game/conquest.go - Attack() validation at line 201-214"
+    ]
+  },
+  {
+    "category": "frontend",
+    "description": "Add 'Plan Attack' step with alliance waiting and confirmation dialog before executing attack",
+    "status": "pending",
+    "priority": "medium",
+    "steps": [
+      "FRONTEND - Attack Dialog Changes:",
+      "After player selects reinforcements, change button from 'Attack' to 'Plan Attack'",
+      "When 'Plan Attack' is clicked, send a new message type (e.g., TypePlanAttack) to server instead of TypeExecuteAttack",
+      "Show a 'Waiting for alliance decisions...' overlay while waiting for server response",
+      "BACKEND - New Planning Phase:",
+      "Add new message type TypePlanAttack and TypePlanAttackResult in protocol/messages.go",
+      "In handlePlanAttack, trigger alliance requests to 'ask' players (similar to current handleExecuteAttack flow)",
+      "Wait for alliance votes with timeout, then send TypePlanAttackResult with final totals back to attacker",
+      "FRONTEND - Confirmation Dialog:",
+      "Create new drawAttackConfirmation() dialog showing: base attack + reinforcement + ally totals vs defense + ally totals",
+      "Show breakdown: 'Your forces: X, Allies: Y, Total: Z' for both sides",
+      "Add 'Confirm Attack' and 'Cancel' buttons",
+      "'Confirm Attack' sends TypeExecuteAttack (server should cache the planned attack data)",
+      "'Cancel' cancels the attack (no attacks consumed)",
+      "BACKEND - State Management:",
+      "Store pending attack plan on server (attacker ID, target, reinforcements, resolved allies) with timeout",
+      "TypeExecuteAttack should use cached plan if within timeout, otherwise reject"
+    ],
+    "dependencies": [],
+    "notes": [
+      "Current flow: select target -> preview -> select reinforcements -> attack immediately (alliance requests sent during execution)",
+      "New flow: select target -> preview -> select reinforcements -> 'Plan Attack' -> wait for alliances -> confirmation dialog -> 'Confirm Attack'",
+      "This gives the attacker visibility into final ally contributions before committing",
+      "Alliance request UI already exists (drawAllyRequest) - just need to coordinate timing",
+      "Consider timeout for confirmation (auto-cancel if attacker doesn't confirm within X seconds)"
+    ],
+    "references": [
+      "internal/client/gameplay_dialogs.go - drawAttackPreviewDialog() at line 180",
+      "internal/server/handlers.go - handleExecuteAttack() at line 2680, alliance vote handling at line 2748",
+      "internal/protocol/messages.go - message types",
+      "internal/protocol/payloads.go - AttackPreviewPayload, AllianceRequestPayload"
+    ]
+  },
+  {
+    "category": "frontend",
+    "description": "Rename 'Set Ally' to 'Diplomacy' and add surrender option",
+    "status": "pending",
+    "priority": "low",
+    "steps": [
+      "FRONTEND - UI Changes:",
+      "Rename setAllyBtn from 'Set Ally' to 'Diplomacy' in gameplay.go",
+      "Rename drawAllyMenu() to drawDiplomacyMenu() and update panel title to 'Diplomacy'",
+      "Add a 'Surrender' section to the diplomacy dialog with player selection buttons",
+      "Add confirmation dialog: 'Surrender to [player]? All your territories and resources will be given to them.'",
+      "After surrender, show message 'You have surrendered. You may continue watching the game.'",
+      "BACKEND - Surrender Logic:",
+      "Add new message type TypeSurrender in protocol/messages.go with SurrenderPayload (target player ID)",
+      "Create handleSurrender() in handlers.go that: validates surrender is allowed, transfers all territories to target, transfers stockpile resources, marks player as Eliminated",
+      "In game/player.go or game/state.go, add Surrender() method that transfers ownership of all territories and stockpile",
+      "After surrender, call existing victory check - if only one non-eliminated player remains, end game",
+      "Broadcast game state update to all players showing the surrender result",
+      "FRONTEND - Post-Surrender State:",
+      "Surrendered player should see the game but status bar shows 'You have surrendered' instead of turn info",
+      "Hide action buttons (End Turn, attack options, etc.) for surrendered players",
+      "Player can still use chat and watch the game unfold"
+    ],
+    "dependencies": [],
+    "notes": [
+      "Reuses existing Eliminated flag on Player struct - surrender just sets this to true after transfer",
+      "checkElimination() in combat.go shows existing elimination pattern",
+      "Turn order logic already skips eliminated players (see development.go, shipment.go)",
+      "Victory conditions already check for single remaining player",
+      "Consider: Should surrender be allowed at any time, or only during your turn?"
+    ],
+    "references": [
+      "internal/client/gameplay.go - setAllyBtn at line 435, showAllyMenu",
+      "internal/client/gameplay_dialogs.go - drawAllyMenu() at line 749",
+      "internal/game/player.go - Player struct with Eliminated field at line 49",
+      "internal/game/combat.go - checkElimination() at line 422",
+      "internal/game/state.go - victory condition checks"
+    ]
+  },
+  {
+    "category": "backend",
+    "description": "Change alliance behavior: specific player ally should only auto-join for that player, treat other combat as 'ask'",
+    "status": "pending",
+    "priority": "medium",
+    "steps": [
+      "In handleExecuteAttack() in handlers.go, modify the alliance resolution logic around lines 2785-2795",
+      "Current behavior: if alliance is set to a specific player who isn't involved in the combat, log 'Allied with someone else, not participating' (effectively neutral)",
+      "New behavior: if alliance is set to a specific player who isn't involved, treat as 'ask' instead of neutral",
+      "Change the else branch at line 2795 to add the player to askPlayers list (if online) instead of skipping",
+      "Similarly update the attack preview logic around lines 2600-2604 to reflect this change",
+      "Test scenario: Player A allies with Player B. Player C attacks Player D. Player A should be prompted to choose a side (ask behavior), not ignored"
+    ],
+    "dependencies": [],
+    "notes": [
+      "Current logic at lines 2785-2795: specific player alliance only triggers when that player is attacker or defender, otherwise 'not participating'",
+      "The change makes specific-player alliance mean 'auto-join THIS player's battles, but ask me about OTHER battles'",
+      "This is more intuitive - alliance with one player shouldn't make you automatically neutral to everyone else",
+      "Two places need updating: handleExecuteAttack (actual combat) and attack preview calculation"
+    ],
+    "references": [
+      "internal/server/handlers.go - handleExecuteAttack() alliance resolution at lines 2763-2795",
+      "internal/server/handlers.go - attack preview ally calculation at lines 2593-2604"
+    ]
+  },
+  {
+    "category": "backend",
+    "description": "Fix turn order rotation - should rotate each year instead of re-randomizing",
+    "status": "pending",
+    "priority": "medium",
+    "steps": [
+      "Create a new `rotatePlayerOrder()` function in phases.go that moves the first player to last position and shifts everyone else up",
+      "In `NextPhase()` (around line 210), replace the `shufflePlayerOrder()` call with `rotatePlayerOrder()` when advancing to a new round (Year 2+)",
+      "Keep the initial `shufflePlayerOrder()` call in `NextPhase()` line 157 for Year 1 start to ensure random initial order",
+      "Update `startNewRound()` in development.go (line 352) to use `rotatePlayerOrder()` instead of `shufflePlayerOrder()`",
+      "Verify `startFirstRound()` in selection.go keeps using shuffle for the initial random order",
+      "Test with 3+ players to verify rotation works correctly across multiple years"
+    ],
+    "dependencies": [],
+    "notes": [
+      "Current bug: shufflePlayerOrder() is called each round, re-randomizing the order",
+      "Expected behavior: Random order at game start, then rotate each year so first player goes last",
+      "Affects files: internal/game/phases.go, internal/game/development.go"
+    ],
+    "references": [
+      "internal/game/phases.go - shufflePlayerOrder() at line 235, NextPhase() at line 145",
+      "internal/game/development.go - startNewRound() at line 343",
+      "internal/game/selection.go - startFirstRound() at line 66"
+    ]
+  },
+  {
+    "category": "data",
+    "description": "Increase maximum resource percentage in map generation from 80% to 100%",
+    "status": "pending",
+    "priority": "low",
+    "steps": [
+      "In `pkg/maps/generator.go` line 16, update the comment from '10-80' to '10-100'",
+      "In `pkg/maps/generator.go` line 760, change `clamp(g.options.Resources, 10, 80)` to `clamp(g.options.Resources, 10, 100)`",
+      "In `internal/client/ui.go` line 848, change the ResourcesSlider Max from 80 to 100",
+      "Test: Generate a map with 100% resources, verify all territories have resources assigned"
+    ],
+    "dependencies": [],
+    "notes": [
+      "Simple configuration change across 3 locations",
+      "Current limit of 80% may leave some territories without resources"
+    ],
+    "references": [
+      "pkg/maps/generator.go - GeneratorOptions.Resources field at line 16",
+      "pkg/maps/generator.go - clamp call at line 760",
+      "internal/client/ui.go - ResourcesSlider initialization at line 847-850"
+    ]
+  },
+  {
+    "category": "frontend",
+    "description": "Add toast notification when it becomes your turn",
+    "status": "pending",
+    "priority": "medium",
+    "steps": [
+      "Add toast state fields to GameplayScene in gameplay.go: showTurnToast bool, turnToastTimer int, turnToastPhase string (slide-in, hold, slide-out)",
+      "Add constants for toast timing: ToastSlideInFrames=15, ToastHoldFrames=90 (~1.5s), ToastSlideOutFrames=15",
+      "In handleGameState() or wherever turn changes are processed, detect when currentTurn changes TO the local player's ID",
+      "When turn changes to player, set showTurnToast=true, turnToastTimer=0, turnToastPhase='slide-in'",
+      "Create drawTurnToast(screen) function in gameplay_ui.go that renders the toast banner",
+      "Toast design: horizontal banner at top-center, ~400px wide, 60px tall, with 'YOUR TURN!' text and phase name",
+      "Use player's color as accent on the toast border or background",
+      "Implement slide animation: calculate Y offset based on turnToastPhase and turnToastTimer (start at -60, animate to 20)",
+      "In GameplayScene.Update(), advance turnToastTimer and transition between phases (slide-in -> hold -> slide-out -> hide)",
+      "Call drawTurnToast() near end of GameplayScene.Draw() so it renders on top of other UI",
+      "Test with 2+ players to verify toast appears only when turn changes TO you, not on initial load"
+    ],
+    "dependencies": [],
+    "decisions": {
+      "position": "Top-center of screen, slides down from off-screen",
+      "duration": "~2 seconds total (0.25s slide in, 1.5s hold, 0.25s slide out)",
+      "dismissal": "Auto-dismiss only, no click to dismiss needed"
+    },
+    "notes": [
+      "This provides a prominent but non-blocking notification when turn changes",
+      "Should NOT show on initial game load - only on turn transitions during gameplay",
+      "Consider: should toast also show for stockpile placement phase? (all players act simultaneously)",
+      "Future enhancement: could add sound cue when toast appears"
+    ],
+    "references": [
+      "internal/client/gameplay.go - GameplayScene struct, currentTurn field at line 30",
+      "internal/client/gameplay_handlers.go - handleGameState() processes state updates",
+      "internal/client/gameplay_ui.go - other UI drawing functions for style reference"
+    ]
+  },
+  {
+    "category": "frontend",
+    "description": "Show map preview inline in game lobby instead of View Map button with popup",
+    "status": "pending",
+    "priority": "medium",
+    "steps": [
+      "LAYOUT CHANGES (WaitingScene in scenes.go):",
+      "Current layout: Player list (x=80, w=520), Actions panel (x=700, w=240) - screen is 1280x720",
+      "New layout option: Narrow the player list to ~400px, add map preview area (x=500, w=380) between player list and buttons, move buttons to right edge (x=900, w=160)",
+      "Alternative: Keep player list width, put map preview below actions panel (x=700, y=540, w=240, h=160)",
+      "Remove viewMapBtn, showMapPreview flag, and mapCloseBtn from WaitingScene struct",
+      "Remove drawMapPreviewDialog() function entirely",
+      "INLINE MAP PREVIEW:",
+      "Add a new drawInlineMapPreview(screen, x, y, w, h, mapData) helper function",
+      "Reuse the map rendering logic from drawMapPreviewDialog() but without the dialog overlay",
+      "Call drawInlineMapPreview() in WaitingScene.Draw() unconditionally (for both host and non-host)",
+      "Show map name and territory count below the preview",
+      "UPDATE HANDLING:",
+      "Map data is already broadcast via LobbyStatePayload.MapData when host changes the map",
+      "Verify that client receives and stores updated mapData in game.lobbyState when host changes map",
+      "The inline preview should automatically update since it reads from lobby.MapData each frame",
+      "BUTTON ADJUSTMENTS:",
+      "Make buttons narrower (160px instead of 200px) if needed to fit the new layout",
+      "Ensure Ready, Start Game, Leave buttons are still easily clickable",
+      "Test that nothing overlaps - use distinct panel backgrounds for player list, map preview, and actions"
+    ],
+    "dependencies": [],
+    "decisions": {
+      "layout": "Need to decide: (A) horizontal layout with narrower elements, or (B) map preview below actions panel"
+    },
+    "notes": [
+      "Current popup approach requires extra click and doesn't show live updates",
+      "Inline preview provides better UX - players always see what map they'll play",
+      "Host already has Change Map button which opens MapGenDialog - that stays as-is",
+      "Map rendering logic exists in drawMapPreviewDialog() at lines 1512-1580 - extract and reuse"
+    ],
+    "references": [
+      "internal/client/scenes.go - WaitingScene struct at line 1125",
+      "internal/client/scenes.go - NewWaitingScene layout constants at lines 1160-1164",
+      "internal/client/scenes.go - WaitingScene.Draw() at line 1385",
+      "internal/client/scenes.go - drawMapPreviewDialog() at line 1512 (map rendering logic to reuse)",
+      "internal/client/scenes.go - viewMapBtn at line 1267 (to remove)",
+      "internal/client/client.go - ScreenWidth=1280, ScreenHeight=720 at lines 17-18"
+    ]
+  }
+]

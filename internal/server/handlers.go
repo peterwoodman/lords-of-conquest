@@ -818,10 +818,15 @@ func (h *Handlers) pickColor(players []*database.GamePlayer, preferred string) s
 
 // initializeGameState creates the game state from the map and players.
 func (h *Handlers) initializeGameState(gameID string, dbGame *database.Game, dbPlayers []*database.GamePlayer) error {
-	// Get the map
-	mapData := maps.Get(dbGame.Settings.MapID)
+	// Get the map - prioritize stored map_json (from host's map changes) over Settings.MapID
+	// First try to load from database (where host's map changes are stored)
+	mapData := h.loadMapFromDatabase(gameID, dbGame.Settings.MapID)
 	if mapData == nil {
-		return errors.New("map not found: " + dbGame.Settings.MapID)
+		// No stored map in database, fall back to in-memory registry
+		mapData = maps.Get(dbGame.Settings.MapID)
+		if mapData == nil {
+			return errors.New("map not found: " + dbGame.Settings.MapID)
+		}
 	}
 
 	// Convert database players to game players

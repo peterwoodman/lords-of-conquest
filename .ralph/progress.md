@@ -104,3 +104,24 @@
 
 ### 2026-01-23 08:40:19
 **Session 3 ended** - ✅ Task complete
+
+### 2026-01-27 11:53:44
+**Session 1 started** (model: opus-4.5-thinking)
+
+### 2026-01-27 - Session 1 Progress
+**Task completed:** Fix lobby map change not applied when game starts - always uses first map
+
+**Changes made:**
+1. Updated `initializeGameState()` in `internal/server/handlers.go`:
+   - Changed map loading logic to prioritize the stored `map_json` column over `Settings.MapID`
+   - Now first calls `loadMapFromDatabase()` to check for host's map changes
+   - Falls back to `maps.Get(Settings.MapID)` only if no stored map exists in database
+
+**Root cause:**
+- When host changed the map via UpdateMap, only the `map_json` database column was updated
+- When game started, `initializeGameState()` only consulted `maps.Get(Settings.MapID)` which looked up from in-memory registry using the original map ID
+- The stored `map_json` (containing the host's new map) was never used
+
+**Verification:**
+- Server package builds successfully
+- All 12 game unit tests pass

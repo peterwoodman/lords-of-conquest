@@ -63,5 +63,34 @@
       "Affected file: internal/client/gameplay_ui.go (drawHoverInfo function, lines ~992-1096)"
     ],
     "completed_at": "2026-01-23T12:10:09Z"
+  },
+  {
+    "category": "backend",
+    "description": "Fix lobby map change not applied when game starts - always uses first map",
+    "status": "completed",
+    "priority": "high",
+    "passes": 1,
+    "steps": [
+      "In `initializeGameState()` in handlers.go (line 820), change map loading to prioritize the stored map_json over Settings.MapID",
+      "First, try to load the map from database using GetGameMapJSON(gameID)",
+      "If map_json exists, parse it and convert to maps.Map using the existing loadMapFromDatabase pattern (see lines 1073-1093)",
+      "Only fall back to maps.Get(dbGame.Settings.MapID) if no map_json is stored",
+      "Optionally: Also update Settings.MapID in handleUpdateMap when the host changes maps to keep them in sync",
+      "Test: Create a game, generate a new map, start the game, verify the new map is used (not the original)"
+    ],
+    "dependencies": [],
+    "notes": [
+      "Root cause: initializeGameState() at line 822 calls maps.Get(dbGame.Settings.MapID) which looks up from in-memory registry",
+      "When host changes map via UpdateMap, only map_json column is updated - Settings.MapID stays the same",
+      "The stored map_json (which has the new map) is never consulted when starting the game",
+      "Similar fallback logic already exists in getFullGameState() at lines 977-982 and 1030-1032 - follow that pattern"
+    ],
+    "references": [
+      "internal/server/handlers.go - initializeGameState() at line 820, map loading at line 822",
+      "internal/server/handlers.go - handleUpdateMap() at line 474 (updates map_json but not Settings.MapID)",
+      "internal/server/handlers.go - loadMapFromDatabase() at line 1073 (existing pattern to follow)",
+      "internal/database/games.go - GetGameMapJSON() at line 473"
+    ],
+    "completed_at": "2026-01-27T15:25:27Z"
   }
 ]
