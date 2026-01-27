@@ -103,28 +103,6 @@
     ]
   },
   {
-    "category": "data",
-    "description": "Increase maximum resource percentage in map generation from 80% to 100%",
-    "status": "pending",
-    "priority": "low",
-    "steps": [
-      "In `pkg/maps/generator.go` line 16, update the comment from '10-80' to '10-100'",
-      "In `pkg/maps/generator.go` line 760, change `clamp(g.options.Resources, 10, 80)` to `clamp(g.options.Resources, 10, 100)`",
-      "In `internal/client/ui.go` line 848, change the ResourcesSlider Max from 80 to 100",
-      "Test: Generate a map with 100% resources, verify all territories have resources assigned"
-    ],
-    "dependencies": [],
-    "notes": [
-      "Simple configuration change across 3 locations",
-      "Current limit of 80% may leave some territories without resources"
-    ],
-    "references": [
-      "pkg/maps/generator.go - GeneratorOptions.Resources field at line 16",
-      "pkg/maps/generator.go - clamp call at line 760",
-      "internal/client/ui.go - ResourcesSlider initialization at line 847-850"
-    ]
-  },
-  {
     "category": "frontend",
     "description": "Show map preview inline in game lobby instead of View Map button with popup",
     "status": "pending",

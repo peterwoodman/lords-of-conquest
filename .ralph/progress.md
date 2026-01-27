@@ -391,3 +391,34 @@
 
 ### 2026-01-27
 **Session 9 ended** - ✅ Task complete
+
+### 2026-01-27 12:14:49
+**Session 9 ended** - ✅ Task complete
+
+### 2026-01-27 12:14:51
+**Session 10 started** (model: opus-4.5-thinking)
+
+### 2026-01-27 - Session 10 Progress
+**Task completed:** Increase maximum resource percentage in map generation from 80% to 100%
+
+**Changes made:**
+1. Updated `GeneratorOptions.Resources` comment in `pkg/maps/generator.go` line 16:
+   - Changed "10-80" to "10-100"
+
+2. Updated `assignResources()` in `pkg/maps/generator.go` line 759-760:
+   - Changed comment from "(10-80)" to "(10-100)"
+   - Changed `clamp(g.options.Resources, 10, 80)` to `clamp(g.options.Resources, 10, 100)`
+
+3. Updated `ResourcesSlider` in `internal/client/ui.go` line 848:
+   - Changed `Max: 80` to `Max: 100`
+
+**User benefit:**
+- Players can now generate maps where up to 100% of territories have resources assigned
+- Previous 80% cap could leave some territories without resources
+
+**Verification:**
+- All game unit tests pass
+- Server package builds successfully
+
+### 2026-01-27
+**Session 10 ended** - ✅ Task complete

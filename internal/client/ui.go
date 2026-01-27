@@ -845,7 +845,7 @@ func NewMapGenDialog() *MapGenDialog {
 		Labels: []string{"Few", "Some", "Medium", "Many", "Lots"},
 	}
 	d.ResourcesSlider = &Slider{
-		Min: 10, Max: 80, Value: 40,
+		Min: 10, Max: 100, Value: 40,
 		Label: "Resources %",
 	}
 	d.WaterBorderBtn = &Button{

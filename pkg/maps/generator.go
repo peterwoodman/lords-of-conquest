@@ -13,7 +13,7 @@ type GeneratorOptions struct {
 	Territories int  // Target territory count: 24-120
 	WaterBorder bool // Whether to surround map with water
 	Islands     int  // Island spread: 1-5 (1=one landmass, 5=many islands)
-	Resources   int  // Resource coverage percentage: 10-80
+	Resources   int  // Resource coverage percentage: 10-100
 }
 
 // Legacy enum types kept for backwards compatibility during transition
@@ -756,8 +756,8 @@ func (g *Generator) buildMap() *Map {
 }
 
 func (g *Generator) assignResources(raw *RawMap) {
-	// Resources setting is a percentage (10-80)
-	resourcePct := clamp(g.options.Resources, 10, 80)
+	// Resources setting is a percentage (10-100)
+	resourcePct := clamp(g.options.Resources, 10, 100)
 	ratio := float64(resourcePct) / 100.0
 
 	ids := make([]int, 0, len(g.territories))
