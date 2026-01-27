@@ -368,5 +368,52 @@
       "internal/client/ui.go - Button tooltip implementation for reference"
     ],
     "completed_at": "2026-01-27T15:50:11Z"
+  },
+  {
+    "category": "frontend",
+    "description": "Show map preview inline in game lobby instead of View Map button with popup",
+    "status": "completed",
+    "priority": "medium",
+    "passes": 1,
+    "steps": [
+      "LAYOUT CHANGES (WaitingScene in scenes.go):",
+      "Current layout: Player list (x=80, w=520), Actions panel (x=700, w=240) - screen is 1280x720",
+      "New layout option: Narrow the player list to ~400px, add map preview area (x=500, w=380) between player list and buttons, move buttons to right edge (x=900, w=160)",
+      "Alternative: Keep player list width, put map preview below actions panel (x=700, y=540, w=240, h=160)",
+      "Remove viewMapBtn, showMapPreview flag, and mapCloseBtn from WaitingScene struct",
+      "Remove drawMapPreviewDialog() function entirely",
+      "INLINE MAP PREVIEW:",
+      "Add a new drawInlineMapPreview(screen, x, y, w, h, mapData) helper function",
+      "Reuse the map rendering logic from drawMapPreviewDialog() but without the dialog overlay",
+      "Call drawInlineMapPreview() in WaitingScene.Draw() unconditionally (for both host and non-host)",
+      "Show map name and territory count below the preview",
+      "UPDATE HANDLING:",
+      "Map data is already broadcast via LobbyStatePayload.MapData when host changes the map",
+      "Verify that client receives and stores updated mapData in game.lobbyState when host changes map",
+      "The inline preview should automatically update since it reads from lobby.MapData each frame",
+      "BUTTON ADJUSTMENTS:",
+      "Make buttons narrower (160px instead of 200px) if needed to fit the new layout",
+      "Ensure Ready, Start Game, Leave buttons are still easily clickable",
+      "Test that nothing overlaps - use distinct panel backgrounds for player list, map preview, and actions"
+    ],
+    "dependencies": [],
+    "decisions": {
+      "layout": "Used horizontal 3-column layout: Player list (400px), Map preview (400px), Actions (200px)"
+    },
+    "notes": [
+      "Current popup approach requires extra click and doesn't show live updates",
+      "Inline preview provides better UX - players always see what map they'll play",
+      "Host already has Change Map button which opens MapGenDialog - that stays as-is",
+      "Map rendering logic exists in drawMapPreviewDialog() at lines 1512-1580 - extract and reuse"
+    ],
+    "references": [
+      "internal/client/scenes.go - WaitingScene struct at line 1125",
+      "internal/client/scenes.go - NewWaitingScene layout constants at lines 1160-1164",
+      "internal/client/scenes.go - WaitingScene.Draw() at line 1385",
+      "internal/client/scenes.go - drawMapPreviewDialog() at line 1512 (map rendering logic to reuse)",
+      "internal/client/scenes.go - viewMapBtn at line 1267 (to remove)",
+      "internal/client/client.go - ScreenWidth=1280, ScreenHeight=720 at lines 17-18"
+    ],
+    "completed_at": "2026-01-27T16:01:42Z"
   }
 ]

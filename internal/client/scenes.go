@@ -1132,11 +1132,6 @@ type WaitingScene struct {
 	mapBtn      *Button
 	settingsBtn *Button
 
-	// Non-host map preview
-	viewMapBtn     *Button
-	showMapPreview bool
-	mapCloseBtn    *Button
-
 	// Map generation dialog (host only)
 	mapGenDialog *MapGenDialog
 
@@ -1152,13 +1147,13 @@ type WaitingScene struct {
 func NewWaitingScene(game *Game) *WaitingScene {
 	s := &WaitingScene{game: game}
 
-	// Layout constants
+	// Layout constants - 3-column layout: player list, map preview, actions
 	leftMargin := 80
-	rightPanelX := 700
-	btnW := 200
+	rightPanelX := 920
+	btnW := 170
 	btnH := 45
 
-	s.playerList = NewList(leftMargin, 210, 500, 410)
+	s.playerList = NewList(leftMargin, 210, 380, 410)
 
 	s.addAIBtn = &Button{
 		X: rightPanelX, Y: 210, W: btnW, H: btnH,
@@ -1258,18 +1253,6 @@ func NewWaitingScene(game *Game) *WaitingScene {
 		OnClick: func() { s.showSettings = false },
 	}
 
-	// Non-host view map button (same Y as addAIBtn since they're mutually exclusive)
-	s.viewMapBtn = &Button{
-		X: rightPanelX, Y: 210, W: btnW, H: btnH,
-		Text:    "View Map",
-		OnClick: func() { s.showMapPreview = true },
-	}
-
-	s.mapCloseBtn = &Button{
-		Text:    "Close",
-		OnClick: func() { s.showMapPreview = false },
-	}
-
 	// Map generation dialog
 	s.mapGenDialog = NewMapGenDialog()
 	s.mapGenDialog.OnConfirm = func(m *maps.Map) {
@@ -1304,15 +1287,6 @@ func (s *WaitingScene) Update() error {
 	// Handle map generation dialog
 	if s.mapGenDialog.Visible {
 		s.mapGenDialog.Update()
-		return nil
-	}
-
-	// Handle map preview dialog if open
-	if s.showMapPreview {
-		s.mapCloseBtn.Update()
-		if inpututil.IsKeyJustPressed(ebiten.KeyEscape) {
-			s.showMapPreview = false
-		}
 		return nil
 	}
 
@@ -1356,11 +1330,6 @@ func (s *WaitingScene) Update() error {
 		s.mapBtn.Update()
 		s.settingsBtn.Update()
 
-		// Update view map button for non-host
-		if !isHost {
-			s.viewMapBtn.Update()
-		}
-
 		// Update ready button text
 		for _, p := range lobby.Players {
 			if p.ID == s.game.config.PlayerID {
@@ -1385,7 +1354,8 @@ func (s *WaitingScene) Draw(screen *ebiten.Image) {
 	}
 
 	leftMargin := 80
-	rightPanelX := 700
+	mapPreviewX := 490
+	rightPanelX := 920
 
 	// Game name as title
 	DrawLargeText(screen, lobby.GameName, leftMargin, 50, ColorText)
@@ -1400,9 +1370,12 @@ func (s *WaitingScene) Draw(screen *ebiten.Image) {
 		lobby.Settings.ChanceLevel),
 		leftMargin, 140, ColorTextMuted)
 
-	// Player list panel
-	DrawFancyPanel(screen, leftMargin-10, 170, 520, 470, "Players")
+	// Player list panel (narrower to make room for map preview)
+	DrawFancyPanel(screen, leftMargin-10, 170, 400, 470, "Players")
 	s.playerList.Draw(screen)
+
+	// Map preview panel (center, visible to all players)
+	s.drawInlineMapPreview(screen, mapPreviewX, 170, 400, 470, lobby.MapData)
 
 	// Right side - Actions panel
 	isHost := lobby.HostID == s.game.config.PlayerID
@@ -1411,7 +1384,7 @@ func (s *WaitingScene) Draw(screen *ebiten.Image) {
 	if isHost {
 		actionsPanelTitle = "Host Actions"
 	}
-	DrawFancyPanel(screen, rightPanelX-20, 170, 240, 360, actionsPanelTitle)
+	DrawFancyPanel(screen, rightPanelX-10, 170, 200, 470, actionsPanelTitle)
 
 	if isHost {
 		s.addAIBtn.Draw(screen)
@@ -1428,11 +1401,10 @@ func (s *WaitingScene) Draw(screen *ebiten.Image) {
 			}
 		}
 		if playerReady {
-			DrawText(screen, "Waiting for host to start...", rightPanelX-10, 210, ColorTextMuted)
+			DrawText(screen, "Waiting for host...", rightPanelX, 220, ColorTextMuted)
 		} else {
-			DrawText(screen, "Click Ready when you're set", rightPanelX-10, 210, ColorTextMuted)
+			DrawText(screen, "Click Ready", rightPanelX, 220, ColorTextMuted)
 		}
-		s.viewMapBtn.Draw(screen)
 	}
 	s.readyBtn.Draw(screen)
 	s.leaveBtn.Draw(screen)
@@ -1440,11 +1412,6 @@ func (s *WaitingScene) Draw(screen *ebiten.Image) {
 	// Settings dialog overlay
 	if s.showSettings {
 		s.drawSettingsDialog(screen, lobby)
-	}
-
-	// Map preview dialog overlay
-	if s.showMapPreview {
-		s.drawMapPreviewDialog(screen, lobby)
 	}
 
 	// Map generation dialog overlay (host only)
@@ -1504,28 +1471,16 @@ func (s *WaitingScene) drawSettingsDialog(screen *ebiten.Image, lobby *protocol.
 	s.settingsCloseBtn.Draw(screen)
 }
 
-func (s *WaitingScene) drawMapPreviewDialog(screen *ebiten.Image, lobby *protocol.LobbyStatePayload) {
-	// Semi-transparent overlay
-	vector.DrawFilledRect(screen, 0, 0, float32(ScreenWidth), float32(ScreenHeight),
-		color.RGBA{0, 0, 0, 200}, false)
-
-	// Dialog dimensions
-	dialogW := 700
-	dialogH := 550
-	dialogX := (ScreenWidth - dialogW) / 2
-	dialogY := (ScreenHeight - dialogH) / 2
-
-	DrawFancyPanel(screen, dialogX, dialogY, dialogW, dialogH, "Map Preview")
+func (s *WaitingScene) drawInlineMapPreview(screen *ebiten.Image, panelX, panelY, panelW, panelH int, mapData *maps.Map) {
+	DrawFancyPanel(screen, panelX, panelY, panelW, panelH, "Map Preview")
 
 	// Draw the map if we have map data
-	if lobby.MapData != nil {
-		mapData := lobby.MapData
-
-		// Calculate scale to fit the map in the dialog
-		mapAreaW := dialogW - 40
-		mapAreaH := dialogH - 100
-		mapAreaX := dialogX + 20
-		mapAreaY := dialogY + 50
+	if mapData != nil {
+		// Calculate scale to fit the map in the panel
+		mapAreaW := panelW - 40
+		mapAreaH := panelH - 100
+		mapAreaX := panelX + 20
+		mapAreaY := panelY + 50
 
 		// Calculate cell size based on map dimensions
 		cellW := mapAreaW / mapData.Width
@@ -1569,20 +1524,14 @@ func (s *WaitingScene) drawMapPreviewDialog(screen *ebiten.Image, lobby *protoco
 			}
 		}
 
-		// Draw map info
+		// Draw map info at bottom of panel
 		DrawText(screen, fmt.Sprintf("Size: %dx%d  Territories: %d",
 			mapData.Width, mapData.Height, len(mapData.Territories)),
-			dialogX+20, dialogY+dialogH-70, ColorTextMuted)
+			panelX+20, panelY+panelH-40, ColorTextMuted)
 	} else {
-		DrawTextCentered(screen, "Map data not available", ScreenWidth/2, ScreenHeight/2, ColorTextMuted)
+		DrawTextCentered(screen, "Map data not available",
+			panelX+panelW/2, panelY+panelH/2, ColorTextMuted)
 	}
-
-	// Close button
-	s.mapCloseBtn.X = dialogX + dialogW/2 - 60
-	s.mapCloseBtn.Y = dialogY + dialogH - 55
-	s.mapCloseBtn.W = 120
-	s.mapCloseBtn.H = 40
-	s.mapCloseBtn.Draw(screen)
 }
 
 func (s *WaitingScene) onToggleReady() {

@@ -458,3 +458,56 @@
 
 ### 2026-01-27
 **Session 11 ended** - ✅ Task complete
+
+### 2026-01-27 12:20:12
+**Session 11 ended** - ✅ Task complete
+
+### 2026-01-27 12:20:14
+**Session 12 started** (model: opus-4.5-thinking)
+
+### 2026-01-27 - Session 12 Progress
+**Task completed:** Show map preview inline in game lobby instead of View Map button with popup
+
+**Changes made:**
+1. Removed popup-related fields from `WaitingScene` struct:
+   - Removed `viewMapBtn`, `showMapPreview`, `mapCloseBtn`
+
+2. Updated layout constants in `NewWaitingScene()`:
+   - Changed to 3-column layout: player list, map preview, actions
+   - `rightPanelX`: 700 → 920
+   - `btnW`: 200 → 170 (narrower buttons to fit)
+   - `playerList` width: 500 → 380 (narrower to make room)
+
+3. Updated `WaitingScene.Update()`:
+   - Removed map preview dialog input handling
+   - Removed `viewMapBtn.Update()` call
+
+4. Updated `WaitingScene.Draw()`:
+   - Added `mapPreviewX := 490` for center panel
+   - Player list panel: narrowed to 400px
+   - Added inline map preview panel (400x470) in center
+   - Actions panel: moved to right edge (x=910, width=200)
+   - Removed map preview dialog overlay
+   - Adjusted non-host status text position
+
+5. Replaced `drawMapPreviewDialog()` with `drawInlineMapPreview()`:
+   - Takes panel coordinates as parameters
+   - Draws panel with title "Map Preview"
+   - Reuses same map grid rendering logic
+   - Shows map info (size, territory count) at bottom
+
+**Layout summary:**
+- Player list panel: x=70, w=400 (80-470)
+- Map preview panel: x=490, w=400 (490-890)
+- Actions panel: x=910, w=200 (910-1110)
+- All panels: y=170, h=470
+
+**User benefit:**
+- Map preview is now always visible in the lobby without requiring a click
+- Both host and non-host players see the same inline map preview
+- Map updates live when host changes the map (since it reads from lobby.MapData each frame)
+
+**Verification:**
+- All 12 game unit tests pass
+- Go syntax validated with gofmt
+- Server-side packages build successfully
