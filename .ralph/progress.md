@@ -573,3 +573,51 @@
 
 ### 2026-01-27 12:39:24
 **Session 14 started** (model: opus-4.5-thinking)
+
+### 2026-01-27 12:45:42
+**Session 14 ended** - Agent finished (1 remaining)
+
+### 2026-01-27 12:45:44
+**Session 15 started** (model: opus-4.5-thinking)
+
+### 2026-01-27 - Session 15 Progress
+**Task completed:** Rename 'Set Ally' to 'Diplomacy' and add surrender option
+
+**Verified implementation (completed by previous session):**
+
+1. **Frontend UI Changes:**
+   - Button renamed from "Set Ally" to "Diplomacy" (gameplay.go line 479)
+   - `drawDiplomacyMenu()` renamed from `drawAllyMenu()` with title "Diplomacy" (gameplay_dialogs.go line 755)
+   - Surrender section added to diplomacy dialog with player selection buttons (lines 886-926)
+   - Confirmation dialog `drawSurrenderConfirm()` shows warning message (lines 935-975)
+   - `executeSurrender()` calls network surrender method (lines 977-987)
+
+2. **Backend - Surrender Logic:**
+   - `TypeSurrender` and `TypeSurrenderResult` message types in protocol/messages.go
+   - `SurrenderPayload` and `SurrenderResultPayload` in protocol/payloads.go
+   - `handleSurrender()` in handlers.go (lines 3545-3637):
+     - Validates surrender is allowed (player not already eliminated, target exists)
+     - Calls `state.Surrender()` to transfer territories and stockpile
+     - Logs surrender event to history
+     - Checks for victory (only one non-eliminated player remaining)
+     - Broadcasts SurrenderResult and updated game state
+   - `Surrender()` method in game/state.go (lines 187-222):
+     - Transfers all territories to target player
+     - Transfers stockpile resources (coal, gold, iron, timber)
+     - Clears surrendered player's stockpile
+     - Marks player as Eliminated
+
+3. **Frontend - Post-Surrender State:**
+   - Status bar shows "YOU HAVE SURRENDERED" for eliminated players (gameplay_ui.go lines 536-547)
+   - Action buttons hidden via early return
+   - Click handlers blocked for eliminated players (gameplay_handlers.go lines 16-22)
+   - Player can still watch the game
+
+4. **Network:**
+   - `Surrender()` method in client.go (lines 608-613)
+   - Handler for `TypeSurrenderResult` in handleMessage (lines 918-926)
+
+**Verification:**
+- All 12 game unit tests pass
+- Server-side packages build successfully
+- Implementation follows existing elimination pattern (combat.go checkElimination)
