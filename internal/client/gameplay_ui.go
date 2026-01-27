@@ -1280,3 +1280,69 @@ func (s *GameplayScene) drawColorPicker(screen *ebiten.Image) {
 	s.cancelColorBtn.H = 35
 	s.cancelColorBtn.Draw(screen)
 }
+
+// drawTurnToast draws the "YOUR TURN!" notification banner.
+func (s *GameplayScene) drawTurnToast(screen *ebiten.Image) {
+	if !s.showTurnToast {
+		return
+	}
+
+	// Toast dimensions
+	toastW := 400
+	toastH := 60
+	toastX := ScreenWidth/2 - toastW/2
+
+	// Calculate Y position based on animation phase
+	// Starts at -60 (off-screen), slides to 20, then slides back up
+	var toastY int
+	switch s.turnToastPhase {
+	case "slide-in":
+		// Animate from -60 to 20
+		progress := float64(s.turnToastTimer) / float64(ToastSlideInFrames)
+		toastY = int(-60 + progress*80)
+	case "hold":
+		toastY = 20
+	case "slide-out":
+		// Animate from 20 to -60
+		progress := float64(s.turnToastTimer) / float64(ToastSlideOutFrames)
+		toastY = int(20 - progress*80)
+	default:
+		toastY = 20
+	}
+
+	// Get player's color for accent
+	var accentColor color.RGBA
+	if myPlayer, ok := s.players[s.game.config.PlayerID]; ok {
+		player := myPlayer.(map[string]interface{})
+		if playerColor, ok := player["color"].(string); ok {
+			if pc, ok := PlayerColors[playerColor]; ok {
+				accentColor = pc
+			}
+		}
+	}
+	if accentColor.A == 0 {
+		accentColor = ColorPrimary // Fallback to cyan
+	}
+
+	// Draw toast background
+	vector.DrawFilledRect(screen, float32(toastX), float32(toastY), float32(toastW), float32(toastH),
+		color.RGBA{30, 30, 70, 240}, false)
+
+	// Draw accent border (using player color)
+	vector.StrokeRect(screen, float32(toastX), float32(toastY), float32(toastW), float32(toastH),
+		3, accentColor, false)
+
+	// Draw inner glow line at top
+	vector.DrawFilledRect(screen, float32(toastX+2), float32(toastY+2), float32(toastW-4), 3,
+		accentColor, false)
+
+	// Draw "YOUR TURN!" text - centered, large
+	titleText := "YOUR TURN!"
+	titleX := toastX + toastW/2 - len(titleText)*6 // Approximate centering for large text
+	DrawLargeText(screen, titleText, titleX, toastY+18, ColorText)
+
+	// Draw phase name below - smaller, muted
+	phaseText := s.currentPhase
+	phaseX := toastX + toastW/2 - len(phaseText)*3 // Approximate centering for normal text
+	DrawText(screen, phaseText, phaseX, toastY+42, ColorTextMuted)
+}

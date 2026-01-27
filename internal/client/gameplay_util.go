@@ -92,9 +92,22 @@ func (s *GameplayScene) applyGameState(state map[string]interface{}) {
 		if s.currentTurn != turn {
 			s.shipmentMode = ""
 			s.shipmentFromTerritory = ""
+
+			// Show turn toast if turn changed TO us (not on initial load)
+			if turn == s.game.config.PlayerID && !s.initialTurnLoad {
+				s.showTurnToast = true
+				s.turnToastTimer = 0
+				s.turnToastPhase = "slide-in"
+				log.Println("Turn toast: Your turn!")
+			}
 		}
 		s.currentTurn = turn
 		log.Printf("Current turn: %s", turn)
+	}
+
+	// After first state load, clear the initial load flag
+	if s.initialTurnLoad {
+		s.initialTurnLoad = false
 	}
 
 	if round, ok := state["round"].(float64); ok {

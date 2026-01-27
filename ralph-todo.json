@@ -171,42 +171,6 @@
   },
   {
     "category": "frontend",
-    "description": "Add toast notification when it becomes your turn",
-    "status": "pending",
-    "priority": "medium",
-    "steps": [
-      "Add toast state fields to GameplayScene in gameplay.go: showTurnToast bool, turnToastTimer int, turnToastPhase string (slide-in, hold, slide-out)",
-      "Add constants for toast timing: ToastSlideInFrames=15, ToastHoldFrames=90 (~1.5s), ToastSlideOutFrames=15",
-      "In handleGameState() or wherever turn changes are processed, detect when currentTurn changes TO the local player's ID",
-      "When turn changes to player, set showTurnToast=true, turnToastTimer=0, turnToastPhase='slide-in'",
-      "Create drawTurnToast(screen) function in gameplay_ui.go that renders the toast banner",
-      "Toast design: horizontal banner at top-center, ~400px wide, 60px tall, with 'YOUR TURN!' text and phase name",
-      "Use player's color as accent on the toast border or background",
-      "Implement slide animation: calculate Y offset based on turnToastPhase and turnToastTimer (start at -60, animate to 20)",
-      "In GameplayScene.Update(), advance turnToastTimer and transition between phases (slide-in -> hold -> slide-out -> hide)",
-      "Call drawTurnToast() near end of GameplayScene.Draw() so it renders on top of other UI",
-      "Test with 2+ players to verify toast appears only when turn changes TO you, not on initial load"
-    ],
-    "dependencies": [],
-    "decisions": {
-      "position": "Top-center of screen, slides down from off-screen",
-      "duration": "~2 seconds total (0.25s slide in, 1.5s hold, 0.25s slide out)",
-      "dismissal": "Auto-dismiss only, no click to dismiss needed"
-    },
-    "notes": [
-      "This provides a prominent but non-blocking notification when turn changes",
-      "Should NOT show on initial game load - only on turn transitions during gameplay",
-      "Consider: should toast also show for stockpile placement phase? (all players act simultaneously)",
-      "Future enhancement: could add sound cue when toast appears"
-    ],
-    "references": [
-      "internal/client/gameplay.go - GameplayScene struct, currentTurn field at line 30",
-      "internal/client/gameplay_handlers.go - handleGameState() processes state updates",
-      "internal/client/gameplay_ui.go - other UI drawing functions for style reference"
-    ]
-  },
-  {
-    "category": "frontend",
     "description": "Show map preview inline in game lobby instead of View Map button with popup",
     "status": "pending",
     "priority": "medium",

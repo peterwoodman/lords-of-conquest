@@ -16,6 +16,13 @@ var emptyImage = func() *ebiten.Image {
 	return img.SubImage(image.Rect(1, 1, 2, 2)).(*ebiten.Image)
 }()
 
+// Toast notification timing constants (at 60 FPS)
+const (
+	ToastSlideInFrames  = 15  // 0.25 seconds
+	ToastHoldFrames     = 90  // 1.5 seconds
+	ToastSlideOutFrames = 15  // 0.25 seconds
+)
+
 // GameplayScene handles the main game display and interaction.
 type GameplayScene struct {
 	game *Game
@@ -209,6 +216,12 @@ type GameplayScene struct {
 	pendingHorseCount     int // How many territories to select
 	horseConfirmBtn       *Button
 	horseCancelBtn        *Button
+
+	// Turn toast notification
+	showTurnToast   bool   // Whether to show the toast
+	turnToastTimer  int    // Frames elapsed in current phase
+	turnToastPhase  string // "slide-in", "hold", "slide-out"
+	initialTurnLoad bool   // Track if this is the first state load
 }
 
 // TradeProposalData holds data for an incoming trade proposal.
@@ -587,6 +600,8 @@ func NewGameplayScene(game *Game) *GameplayScene {
 
 func (s *GameplayScene) OnEnter() {
 	s.gameState = nil
+	s.initialTurnLoad = true // First state load - don't show toast
+	s.showTurnToast = false
 }
 
 func (s *GameplayScene) OnExit() {}
@@ -595,6 +610,27 @@ func (s *GameplayScene) Update() error {
 	// Only process input if we have map data
 	if s.mapData == nil {
 		return nil
+	}
+
+	// Update turn toast animation (runs even during other animations)
+	if s.showTurnToast {
+		s.turnToastTimer++
+		switch s.turnToastPhase {
+		case "slide-in":
+			if s.turnToastTimer >= ToastSlideInFrames {
+				s.turnToastPhase = "hold"
+				s.turnToastTimer = 0
+			}
+		case "hold":
+			if s.turnToastTimer >= ToastHoldFrames {
+				s.turnToastPhase = "slide-out"
+				s.turnToastTimer = 0
+			}
+		case "slide-out":
+			if s.turnToastTimer >= ToastSlideOutFrames {
+				s.showTurnToast = false
+			}
+		}
 	}
 
 	// Always handle pan/zoom - even during animations
@@ -978,6 +1014,9 @@ func (s *GameplayScene) Draw(screen *ebiten.Image) {
 	if s.hoveredCell[0] >= 0 && !s.showAttackPlan && !s.showCombatAnimation && !s.showCombatResult {
 		s.drawHoverInfo(screen)
 	}
+
+	// Draw turn toast notification (on top of UI, below modals)
+	s.drawTurnToast(screen)
 
 	// Draw modal overlays (on top of everything)
 	if s.showWaterBodySelect {

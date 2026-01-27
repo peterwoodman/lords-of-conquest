@@ -291,3 +291,49 @@
 
 ### 2026-01-27
 **Session 6 ended** - ✅ Task complete
+
+### 2026-01-27 12:08:16
+**Session 6 ended** - ✅ Task complete
+
+### 2026-01-27 12:08:18
+**Session 7 started** (model: opus-4.5-thinking)
+
+### 2026-01-27 - Session 7 Progress
+**Task completed:** Add toast notification when it becomes your turn
+
+**Changes made:**
+1. Added toast state fields to `GameplayScene` in `internal/client/gameplay.go`:
+   - `showTurnToast`, `turnToastTimer`, `turnToastPhase`, `initialTurnLoad`
+
+2. Added timing constants at top of gameplay.go:
+   - `ToastSlideInFrames = 15` (0.25s)
+   - `ToastHoldFrames = 90` (1.5s)
+   - `ToastSlideOutFrames = 15` (0.25s)
+
+3. Updated `OnEnter()` to initialize `initialTurnLoad = true` to prevent toast on initial game load
+
+4. Updated `applyGameState()` in `internal/client/gameplay_util.go`:
+   - Added detection for when turn changes TO the local player
+   - Triggers toast only when turn changes, not on initial load
+   - Clears `initialTurnLoad` flag after first state update
+
+5. Added toast animation update logic in `Update()`:
+   - Progresses through slide-in → hold → slide-out phases
+   - Runs independently of other animations (non-blocking)
+
+6. Created `drawTurnToast()` function in `internal/client/gameplay_ui.go`:
+   - Draws horizontal banner at top-center of screen
+   - Smooth slide animation from off-screen (-60) to visible (20)
+   - Shows "YOUR TURN!" in large text with current phase below
+   - Uses player's color as accent border/glow
+   - 400px wide, 60px tall
+
+7. Added `drawTurnToast()` call in `Draw()` after hover info but before modal overlays
+
+**Verification:**
+- Server package builds successfully
+- All 12 game unit tests pass
+- Go syntax validated with gofmt
+
+### 2026-01-27
+**Session 7 ended** - ✅ Task complete
