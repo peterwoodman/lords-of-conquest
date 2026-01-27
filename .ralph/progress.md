@@ -185,3 +185,39 @@
 **Verification:**
 - All 12 game unit tests pass
 - Server package builds successfully
+
+### 2026-01-27 12:01:01
+**Session 3 ended** - ✅ Task complete
+
+### 2026-01-27 12:01:03
+**Session 4 started** (model: opus-4.5-thinking)
+
+### 2026-01-27 - Session 4 Progress
+**Task completed:** Fix boats being able to attack landlocked territories or territories not in the same water body
+
+**Changes made:**
+1. Updated `canBoatReachTargetViaWater()` in `internal/game/conquest.go`:
+   - Added `attackerID` parameter to the function signature
+   - Modified the second check (lines 170-175) to verify the attacker owns the coastal territory
+   - Previous code allowed attacking if target was adjacent to ANY coastal territory in the water body
+   - New code requires target to be adjacent to a coastal territory the ATTACKER owns
+
+2. Updated call sites:
+   - `GetAttackPlan()` at line 85: passes `attackerID` to the function
+   - `AttackWithAllies()` at line 212: passes `attackerID` to the function
+
+**Root cause:**
+- The `canBoatReachTargetViaWater` function's second check allowed boats to attack any territory adjacent to any coastal territory in the water body, regardless of ownership
+- This allowed boats to effectively "teleport" to attack inland territories they shouldn't be able to reach
+- The fix now correctly requires the attacker to own the coastal territory being used as a "landing point"
+
+**Valid boat attack scenarios (after fix):**
+1. Direct water attack: Target is coastal and shares the same water body
+2. Landing attack: Target is adjacent to a coastal territory the attacker owns in that water body
+
+**Verification:**
+- All 12 game unit tests pass
+- Server package builds successfully
+
+### 2026-01-27
+**Session 4 ended** - ✅ Task complete

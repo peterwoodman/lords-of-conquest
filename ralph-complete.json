@@ -145,5 +145,32 @@
       "internal/game/selection.go - startFirstRound() at line 66"
     ],
     "completed_at": "2026-01-27T15:30:58Z"
+  },
+  {
+    "category": "backend",
+    "description": "Fix boats being able to attack landlocked territories or territories not in the same water body",
+    "status": "completed",
+    "priority": "medium",
+    "passes": 1,
+    "steps": [
+      "Review `canBoatReachTargetViaWater()` in conquest.go (line 150-173)",
+      "The second check (lines 166-170) allows boats to attack any territory adjacent to ANY coastal territory in the water body - this is too permissive",
+      "Boats should only be able to attack: (1) coastal territories that share the same water body, OR (2) territories directly adjacent to a coastal territory the attacker owns in that water body",
+      "Update validation to require the target to either share the water body OR be adjacent to an attacker-owned coastal territory in that water body",
+      "Also verify `GetAttackPlan()` filtering (line 85) uses the corrected validation",
+      "Test with maps that have landlocked territories adjacent to coastal ones"
+    ],
+    "dependencies": [],
+    "notes": [
+      "Current bug: canBoatReachTargetViaWater returns true if target is adjacent to ANY coastal territory in the water body, regardless of ownership",
+      "This allows boats to 'teleport' to attack inland territories they shouldn't reach",
+      "The validation is used both for showing reinforcement options (GetAttackPlan) and executing attacks (Attack)"
+    ],
+    "references": [
+      "internal/game/conquest.go - canBoatReachTargetViaWater() at line 150",
+      "internal/game/conquest.go - GetAttackPlan() boat filtering at line 83-102",
+      "internal/game/conquest.go - Attack() validation at line 201-214"
+    ],
+    "completed_at": "2026-01-27T15:33:18Z"
   }
 ]

@@ -82,7 +82,7 @@ func (g *GameState) GetAttackPlan(attackerID, targetID string) *PlanAttackResult
 		// because they are never counted in base attack strength
 		if t.TotalBoats() > 0 && t.IsCoastal() {
 			for waterID, boatCount := range t.Boats {
-				if boatCount > 0 && g.canBoatReachTargetViaWater(id, targetID, waterID) {
+				if boatCount > 0 && g.canBoatReachTargetViaWater(attackerID, id, targetID, waterID) {
 					opt := ReinforcementOption{
 						UnitType:      "boat",
 						FromTerritory: id,
@@ -148,23 +148,28 @@ func (g *GameState) canHorseReachTarget(playerID, fromID, targetID string) bool 
 }
 
 // canBoatReachTargetViaWater checks if a boat in a specific water body can attack the target.
-func (g *GameState) canBoatReachTargetViaWater(fromID, targetID, waterBodyID string) bool {
+// Boats can attack:
+// 1. Coastal territories that share the same water body (direct water attack)
+// 2. Non-coastal territories adjacent to a coastal territory the attacker owns in that water body
+func (g *GameState) canBoatReachTargetViaWater(attackerID, fromID, targetID, waterBodyID string) bool {
 	target := g.Territories[targetID]
 	water := g.WaterBodies[waterBodyID]
 	if water == nil {
 		return false
 	}
 
-	// Check if target borders this water body (boat can attack from water)
+	// Check if target borders this water body (boat can attack directly from water)
 	for _, tw := range target.WaterBodies {
 		if tw == waterBodyID {
 			return true
 		}
 	}
 
-	// Check if any territory in this water body is adjacent to the target
+	// Check if the target is adjacent to a coastal territory the ATTACKER owns in this water body
+	// This allows boats to "land" at an owned coastal territory and attack adjacent inland territories
 	for _, coastalID := range water.Territories {
-		if g.IsAdjacent(coastalID, targetID) {
+		coastal := g.Territories[coastalID]
+		if coastal != nil && coastal.Owner == attackerID && g.IsAdjacent(coastalID, targetID) {
 			return true
 		}
 	}
@@ -204,7 +209,7 @@ func (g *GameState) AttackWithAllies(attackerID, targetID string, brought *Broug
 		// Attacking via boat - verify the boat can reach the target
 		from := g.Territories[brought.FromTerritory]
 		if from != nil && from.TotalBoats() > 0 {
-			if g.canBoatReachTargetViaWater(brought.FromTerritory, targetID, brought.WaterBodyID) {
+			if g.canBoatReachTargetViaWater(attackerID, brought.FromTerritory, targetID, brought.WaterBodyID) {
 				canAttack = true
 			}
 		}
