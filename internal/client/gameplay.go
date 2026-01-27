@@ -145,11 +145,12 @@ type GameplayScene struct {
 	myAllianceSetting string // Current alliance setting
 
 	// Surrender UI
-	showSurrenderConfirm bool
-	surrenderTargetID    string
-	surrenderTargetName  string
-	confirmSurrenderBtn  *Button
-	cancelSurrenderBtn   *Button
+	showSurrenderConfirm  bool
+	surrenderTargetID     string
+	surrenderTargetName   string
+	confirmSurrenderBtn   *Button
+	cancelSurrenderBtn    *Button
+	surrenderPlayerBtns   []*Button // Buttons for surrendering to specific players
 
 	// Alliance request popup (when asked to join a battle)
 	showAllyRequest      bool
@@ -952,6 +953,9 @@ func (s *GameplayScene) Update() error {
 		s.allyAskBtn.Update()
 		s.cancelAllyMenuBtn.Update()
 		for _, btn := range s.allyPlayerBtns {
+			btn.Update()
+		}
+		for _, btn := range s.surrenderPlayerBtns {
 			btn.Update()
 		}
 		if inpututil.IsKeyJustPressed(ebiten.KeyEscape) {

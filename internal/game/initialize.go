@@ -4,15 +4,16 @@ import (
 	"fmt"
 
 	"github.com/google/uuid"
+	"lords-of-conquest/internal/protocol"
 )
 
 // InitializeGame creates a new game state from a map and players.
 func InitializeGame(mapData MapData, players []*Player, settings Settings) (*GameState, error) {
-	if len(players) < 2 {
-		return nil, fmt.Errorf("need at least 2 players")
+	if len(players) < protocol.MinPlayers {
+		return nil, fmt.Errorf("need at least %d players", protocol.MinPlayers)
 	}
-	if len(players) > 7 {
-		return nil, fmt.Errorf("max 7 players")
+	if len(players) > protocol.MaxPlayers {
+		return nil, fmt.Errorf("max %d players", protocol.MaxPlayers)
 	}
 
 	state := &GameState{

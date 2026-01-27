@@ -88,10 +88,19 @@ func (s *GameplayScene) drawLeftSidebar(screen *ebiten.Image) {
 		drawResource("timber", timber, col2X, resY)
 	}
 
-	// Players list - compact height based on player count
+	// Players list - use two columns if more than 6 players
 	playersY := sidebarY + youPanelH + 5 // Below the "You" panel with some spacing
 	playerCount := len(s.playerOrder)
-	playersH := 40 + playerCount*26 + 40 // Header + per-player height + space for Set Ally button
+	useTwoColumns := playerCount > 6
+	rowHeight := 26
+	var playersH int
+	if useTwoColumns {
+		// Two columns: ceil(playerCount/2) rows
+		rows := (playerCount + 1) / 2
+		playersH = 40 + rows*rowHeight + 40 // Header + rows + space for Set Ally button
+	} else {
+		playersH = 40 + playerCount*rowHeight + 40 // Header + per-player height + space for Set Ally button
+	}
 	if playersH > 240 {
 		playersH = 240 // Cap max height
 	}
@@ -111,8 +120,12 @@ func (s *GameplayScene) drawLeftSidebar(screen *ebiten.Image) {
 			}
 		}
 
+		// Column widths for two-column layout
+		colWidth := (sidebarW - 20) / 2 // 115px per column with margins
+
 		y := playersY + 38
-		for _, playerIDInterface := range s.playerOrder {
+		col := 0
+		for i, playerIDInterface := range s.playerOrder {
 			playerID := playerIDInterface.(string)
 			if playerData, ok := s.players[playerID]; ok {
 				player := playerData.(map[string]interface{})
@@ -123,8 +136,20 @@ func (s *GameplayScene) drawLeftSidebar(screen *ebiten.Image) {
 					isOnline = onlineVal
 				}
 
+				// Calculate X position based on column
+				var baseX int
+				if useTwoColumns {
+					col = i % 2
+					baseX = sidebarX + col*colWidth
+					if col == 0 && i > 0 {
+						y += rowHeight // Move to next row after completing both columns
+					}
+				} else {
+					baseX = sidebarX
+				}
+
 				// Online/offline indicator (small circle)
-				indicatorX := float32(sidebarX + 12)
+				indicatorX := float32(baseX + 12)
 				indicatorY := float32(y + 8)
 				if isOnline {
 					// Online - green
@@ -136,8 +161,8 @@ func (s *GameplayScene) drawLeftSidebar(screen *ebiten.Image) {
 
 				// Color indicator (moved right to make room for online indicator)
 				if pc, ok := PlayerColors[playerColor]; ok {
-					vector.DrawFilledRect(screen, float32(sidebarX+22), float32(y+2), 14, 14, pc, false)
-					vector.StrokeRect(screen, float32(sidebarX+22), float32(y+2), 14, 14, 1, ColorBorder, false)
+					vector.DrawFilledRect(screen, float32(baseX+22), float32(y+2), 14, 14, pc, false)
+					vector.StrokeRect(screen, float32(baseX+22), float32(y+2), 14, 14, 1, ColorBorder, false)
 				}
 
 				// Player name with city count if > 0
@@ -149,8 +174,17 @@ func (s *GameplayScene) drawLeftSidebar(screen *ebiten.Image) {
 					nameText += " *"
 				}
 
-				DrawText(screen, nameText, sidebarX+42, y, ColorText)
-				y += 26
+				// Truncate name if in two-column mode to fit
+				if useTwoColumns && len(nameText) > 10 {
+					nameText = nameText[:9] + "…"
+				}
+
+				DrawText(screen, nameText, baseX+42, y, ColorText)
+
+				// Only advance Y in single-column mode
+				if !useTwoColumns {
+					y += rowHeight
+				}
 
 				if y > playersY+playersH-50 {
 					break // Don't overflow, leave room for button

@@ -753,6 +753,7 @@ func (s *GameplayScene) cancelAttackPlan() {
 }
 
 // drawDiplomacyMenu draws the diplomacy menu (alliance + surrender options)
+// Uses two-column layout for player lists to fit 8 players on screen
 func (s *GameplayScene) drawDiplomacyMenu(screen *ebiten.Image) {
 	// Semi-transparent overlay
 	vector.DrawFilledRect(screen, 0, 0, float32(ScreenWidth), float32(ScreenHeight),
@@ -783,17 +784,21 @@ func (s *GameplayScene) drawDiplomacyMenu(screen *ebiten.Image) {
 		}
 	}
 
-	// Menu panel - calculate proper height
-	// Alliance section: 60 (header + current) + 3*45 (ask/defender/neutral) + 25 (label) + players*45
-	// Surrender section (if not eliminated): 30 (label) + players*45
-	// Plus 55 (cancel + padding)
-	menuW := 320
-	allianceSectionH := 60 + 3*45 + 25 + otherPlayerCount*45
-	surrenderSectionH := 0
-	if !amEliminated && otherPlayerCount > 0 {
-		surrenderSectionH = 30 + otherPlayerCount*45
-	}
-	menuH := allianceSectionH + surrenderSectionH + 55
+	// Two-column layout for player lists
+	// Top section: Current alliance display + 3 mode buttons (2 rows)
+	// Bottom section: Two columns - "Ally with" on left, "Surrender to" on right
+	colWidth := 180
+	colGap := 20
+	menuW := colWidth*2 + colGap + 60 // Two columns + gap + margins
+
+	// Calculate height based on player count (players shown in columns)
+	topSectionH := 45 + 90 // Header/current + mode buttons (2 rows)
+	playerSectionH := 25 + otherPlayerCount*40 // Label + player buttons
+	cancelSectionH := 55
+
+	// If not eliminated, we show surrender column too, but same height as ally column
+	menuH := topSectionH + playerSectionH + cancelSectionH
+
 	menuX := ScreenWidth/2 - menuW/2
 	menuY := ScreenHeight/2 - menuH/2
 
@@ -819,36 +824,55 @@ func (s *GameplayScene) drawDiplomacyMenu(screen *ebiten.Image) {
 	}
 	DrawText(screen, currentText, menuX+20, menuY+35, ColorTextMuted)
 
-	// Position buttons
-	btnX := menuX + 60
-	btnY := menuY + 60
+	// Mode buttons in a row (or two rows if needed)
+	btnY := menuY + 55
+	btnW := 130
+	btnH := 35
+	btnGap := 10
 
-	s.allyAskBtn.X = btnX
+	// First row: Ask and Defender
+	s.allyAskBtn.X = menuX + 20
 	s.allyAskBtn.Y = btnY
+	s.allyAskBtn.W = btnW
+	s.allyAskBtn.H = btnH
 	s.allyAskBtn.Primary = s.myAllianceSetting == "ask"
 	s.allyAskBtn.Draw(screen)
-	btnY += 45
 
-	s.allyDefenderBtn.X = btnX
+	s.allyDefenderBtn.X = menuX + 20 + btnW + btnGap
 	s.allyDefenderBtn.Y = btnY
+	s.allyDefenderBtn.W = btnW
+	s.allyDefenderBtn.H = btnH
 	s.allyDefenderBtn.Primary = s.myAllianceSetting == "defender"
 	s.allyDefenderBtn.Draw(screen)
-	btnY += 45
 
-	s.allyNeutralBtn.X = btnX
+	s.allyNeutralBtn.X = menuX + 20 + (btnW+btnGap)*2
 	s.allyNeutralBtn.Y = btnY
+	s.allyNeutralBtn.W = btnW
+	s.allyNeutralBtn.H = btnH
 	s.allyNeutralBtn.Primary = s.myAllianceSetting == "neutral"
 	s.allyNeutralBtn.Draw(screen)
-	btnY += 45
 
-	// Add alliance buttons for each other player
+	btnY += 50 // Move past mode buttons
+
+	// Two-column player section
+	leftColX := menuX + 20
+	rightColX := menuX + 20 + colWidth + colGap
+
+	// Left column: Ally with player
 	if otherPlayerCount > 0 {
-		DrawText(screen, "Ally with player:", menuX+20, btnY+5, ColorTextMuted)
-		btnY += 25
+		DrawText(screen, "Ally with:", leftColX, btnY+5, ColorTextMuted)
 
-		// Rebuild player buttons list
+		// Right column header (only if not eliminated)
+		if !amEliminated {
+			DrawText(screen, "Surrender to:", rightColX, btnY+5, ColorWarning)
+		}
+
+		playerBtnY := btnY + 25
+
+		// Rebuild player buttons lists
 		s.allyPlayerBtns = make([]*Button, 0, otherPlayerCount)
 		s.allyPlayerIDs = make([]string, 0, otherPlayerCount)
+		s.surrenderPlayerBtns = make([]*Button, 0, otherPlayerCount)
 
 		for _, playerIDInterface := range s.playerOrder {
 			playerID := playerIDInterface.(string)
@@ -863,71 +887,46 @@ func (s *GameplayScene) drawDiplomacyMenu(screen *ebiten.Image) {
 				}
 				playerName := player["name"].(string)
 
-				btn := &Button{
-					X: btnX, Y: btnY, W: 200, H: 35,
+				// Left column: Ally button
+				allyBtn := &Button{
+					X: leftColX, Y: playerBtnY, W: colWidth, H: 32,
 					Text:    playerName,
 					Primary: s.myAllianceSetting == playerID,
 				}
-				// Capture playerID for closure
 				pid := playerID
-				btn.OnClick = func() { s.setAlliance(pid) }
+				allyBtn.OnClick = func() { s.setAlliance(pid) }
+				allyBtn.Draw(screen)
 
-				// Update button to handle clicks (since we create it fresh each frame)
-				btn.Update()
-				btn.Draw(screen)
-
-				s.allyPlayerBtns = append(s.allyPlayerBtns, btn)
+				s.allyPlayerBtns = append(s.allyPlayerBtns, allyBtn)
 				s.allyPlayerIDs = append(s.allyPlayerIDs, playerID)
-				btnY += 45
+
+				// Right column: Surrender button (only if not eliminated)
+				if !amEliminated {
+					surrenderBtn := &Button{
+						X: rightColX, Y: playerBtnY, W: colWidth, H: 32,
+						Text:    playerName,
+						Primary: false,
+					}
+					pname := playerName
+					surrenderBtn.OnClick = func() {
+						s.surrenderTargetID = pid
+						s.surrenderTargetName = pname
+						s.showSurrenderConfirm = true
+						s.showAllyMenu = false
+					}
+					surrenderBtn.Draw(screen)
+					s.surrenderPlayerBtns = append(s.surrenderPlayerBtns, surrenderBtn)
+				}
+
+				playerBtnY += 40
 			}
 		}
+		btnY = playerBtnY
 	}
 
-	// Surrender section (only if not eliminated and there are other players)
-	if !amEliminated && otherPlayerCount > 0 {
-		btnY += 10 // Gap before surrender section
-		DrawText(screen, "Surrender to player:", menuX+20, btnY+5, ColorWarning)
-		btnY += 25
-
-		for _, playerIDInterface := range s.playerOrder {
-			playerID := playerIDInterface.(string)
-			if playerID == s.game.config.PlayerID {
-				continue
-			}
-			if playerData, ok := s.players[playerID]; ok {
-				player := playerData.(map[string]interface{})
-				// Skip eliminated players
-				if eliminated, ok := player["eliminated"].(bool); ok && eliminated {
-					continue
-				}
-				playerName := player["name"].(string)
-
-				// Create surrender button for this player
-				surrenderBtn := &Button{
-					X: btnX, Y: btnY, W: 200, H: 35,
-					Text:    "Surrender to " + playerName,
-					Primary: false,
-				}
-				// Capture values for closure
-				pid := playerID
-				pname := playerName
-				surrenderBtn.OnClick = func() {
-					s.surrenderTargetID = pid
-					s.surrenderTargetName = pname
-					s.showSurrenderConfirm = true
-					s.showAllyMenu = false
-				}
-
-				surrenderBtn.Update()
-				surrenderBtn.Draw(screen)
-				btnY += 45
-			}
-		}
-	}
-
-	// Cancel button after everything
-	btnY += 10 // Small gap before cancel
-	s.cancelAllyMenuBtn.X = btnX
+	// Cancel button centered at bottom
+	btnY += 10
+	s.cancelAllyMenuBtn.X = menuX + menuW/2 - 100
 	s.cancelAllyMenuBtn.Y = btnY
 	s.cancelAllyMenuBtn.Draw(screen)
 }
