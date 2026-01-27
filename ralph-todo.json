@@ -227,31 +227,6 @@
     ]
   },
   {
-    "category": "backend",
-    "description": "Fix turn order rotation - should rotate each year instead of re-randomizing",
-    "status": "pending",
-    "priority": "medium",
-    "steps": [
-      "Create a new `rotatePlayerOrder()` function in phases.go that moves the first player to last position and shifts everyone else up",
-      "In `NextPhase()` (around line 210), replace the `shufflePlayerOrder()` call with `rotatePlayerOrder()` when advancing to a new round (Year 2+)",
-      "Keep the initial `shufflePlayerOrder()` call in `NextPhase()` line 157 for Year 1 start to ensure random initial order",
-      "Update `startNewRound()` in development.go (line 352) to use `rotatePlayerOrder()` instead of `shufflePlayerOrder()`",
-      "Verify `startFirstRound()` in selection.go keeps using shuffle for the initial random order",
-      "Test with 3+ players to verify rotation works correctly across multiple years"
-    ],
-    "dependencies": [],
-    "notes": [
-      "Current bug: shufflePlayerOrder() is called each round, re-randomizing the order",
-      "Expected behavior: Random order at game start, then rotate each year so first player goes last",
-      "Affects files: internal/game/phases.go, internal/game/development.go"
-    ],
-    "references": [
-      "internal/game/phases.go - shufflePlayerOrder() at line 235, NextPhase() at line 145",
-      "internal/game/development.go - startNewRound() at line 343",
-      "internal/game/selection.go - startFirstRound() at line 66"
-    ]
-  },
-  {
     "category": "data",
     "description": "Increase maximum resource percentage in map generation from 80% to 100%",
     "status": "pending",

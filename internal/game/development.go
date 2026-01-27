@@ -348,8 +348,8 @@ func (g *GameState) startNewRound() {
 	g.SkippedPhases = nil
 	g.StockpilePlacementPending = false
 
-	// Shuffle player order
-	shufflePlayerOrder(g)
+	// Rotate player order (first player goes last for fairness)
+	rotatePlayerOrder(g)
 
 	// Reset player turns
 	for _, p := range g.Players {

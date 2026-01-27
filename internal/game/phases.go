@@ -207,7 +207,7 @@ func (pm *PhaseManager) NextPhase() (Phase, bool) {
 		// Game continues - increment round and go to Development
 		s.Round++
 		log.Printf("NextPhase: Advancing to round %d, Development phase", s.Round)
-		pm.shufflePlayerOrder()
+		pm.rotatePlayerOrder() // Rotate instead of shuffle for Year 2+
 		pm.resetPlayerTurns()
 
 		// Always go to Development first (Year 2+)
@@ -232,6 +232,7 @@ func (pm *PhaseManager) allTerritoriesClaimed() bool {
 }
 
 // shufflePlayerOrder randomizes player order for the new round.
+// Used only for Year 1 initial random order.
 func (pm *PhaseManager) shufflePlayerOrder() {
 	order := make([]string, 0, len(pm.State.Players))
 	for id, p := range pm.State.Players {
@@ -246,6 +247,39 @@ func (pm *PhaseManager) shufflePlayerOrder() {
 	if len(order) > 0 {
 		pm.State.CurrentPlayerID = order[0]
 	}
+}
+
+// rotatePlayerOrder moves the first player to the end of the order.
+// Used for Year 2+ to give each player a fair chance to go first.
+func (pm *PhaseManager) rotatePlayerOrder() {
+	if len(pm.State.PlayerOrder) <= 1 {
+		return
+	}
+
+	// Remove eliminated players from consideration
+	activeOrder := make([]string, 0, len(pm.State.PlayerOrder))
+	for _, pid := range pm.State.PlayerOrder {
+		if p := pm.State.Players[pid]; p != nil && !p.Eliminated {
+			activeOrder = append(activeOrder, pid)
+		}
+	}
+
+	if len(activeOrder) <= 1 {
+		pm.State.PlayerOrder = activeOrder
+		if len(activeOrder) > 0 {
+			pm.State.CurrentPlayerID = activeOrder[0]
+		}
+		return
+	}
+
+	// Rotate: move first player to end
+	rotated := make([]string, len(activeOrder))
+	copy(rotated, activeOrder[1:])
+	rotated[len(rotated)-1] = activeOrder[0]
+
+	pm.State.PlayerOrder = rotated
+	pm.State.CurrentPlayerID = rotated[0]
+	log.Printf("rotatePlayerOrder: New order %v, first player is %s", rotated, rotated[0])
 }
 
 // advancePlayerOrder moves to the next player.

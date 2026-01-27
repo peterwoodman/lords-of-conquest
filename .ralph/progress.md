@@ -149,3 +149,39 @@
 - All 12 game unit tests pass
 - Server-side packages build successfully
 - Go syntax validated with gofmt
+
+### 2026-01-27 11:57:09
+**Session 2 ended** - ✅ Task complete
+
+### 2026-01-27 11:57:11
+**Session 3 started** (model: opus-4.5-thinking)
+
+### 2026-01-27 - Session 3 Progress
+**Task completed:** Fix turn order rotation - should rotate each year instead of re-randomizing
+
+**Changes made:**
+1. Added `rotatePlayerOrder()` method to PhaseManager in `internal/game/phases.go`:
+   - Moves first player to end of order, shifts everyone else up
+   - Properly handles eliminated players (removes them from order)
+   - Includes logging for debugging
+
+2. Added standalone `rotatePlayerOrder(state *GameState)` function in `internal/game/initialize.go`:
+   - Same logic as PhaseManager method for use by GameState methods
+
+3. Updated `NextPhase()` in `internal/game/phases.go` (line 210):
+   - Changed from `shufflePlayerOrder()` to `rotatePlayerOrder()` when advancing from Conquest to Development (Year 2+)
+
+4. Updated `startNewRound()` in `internal/game/development.go` (line 352):
+   - Changed from `shufflePlayerOrder(g)` to `rotatePlayerOrder(g)`
+
+5. Kept `shufflePlayerOrder()` for Year 1:
+   - Territory selection → Production still uses shuffle (line 157 in phases.go)
+   - `startFirstRound()` still uses shuffle (line 75 in selection.go)
+
+**Behavior:**
+- Year 1: Random player order (fair starting conditions)
+- Year 2+: First player rotates to last position (ensures fairness across rounds)
+
+**Verification:**
+- All 12 game unit tests pass
+- Server package builds successfully
