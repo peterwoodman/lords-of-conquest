@@ -752,32 +752,55 @@ func (s *GameplayScene) cancelAttackPlan() {
 	s.loadWeaponCheckbox = false
 }
 
-// drawAllyMenu draws the alliance selection menu
-func (s *GameplayScene) drawAllyMenu(screen *ebiten.Image) {
+// drawDiplomacyMenu draws the diplomacy menu (alliance + surrender options)
+func (s *GameplayScene) drawDiplomacyMenu(screen *ebiten.Image) {
 	// Semi-transparent overlay
 	vector.DrawFilledRect(screen, 0, 0, float32(ScreenWidth), float32(ScreenHeight),
 		color.RGBA{0, 0, 0, 180}, false)
 
-	// Count other players for menu sizing
+	// Count other non-eliminated players for menu sizing
 	otherPlayerCount := 0
 	for _, playerIDInterface := range s.playerOrder {
 		playerID := playerIDInterface.(string)
-		if playerID != s.game.config.PlayerID {
+		if playerID == s.game.config.PlayerID {
+			continue
+		}
+		if playerData, ok := s.players[playerID]; ok {
+			player := playerData.(map[string]interface{})
+			if eliminated, ok := player["eliminated"].(bool); ok && eliminated {
+				continue
+			}
 			otherPlayerCount++
 		}
 	}
 
+	// Check if current player is eliminated (surrendered)
+	amEliminated := false
+	if myPlayer, ok := s.players[s.game.config.PlayerID]; ok {
+		player := myPlayer.(map[string]interface{})
+		if eliminated, ok := player["eliminated"].(bool); ok && eliminated {
+			amEliminated = true
+		}
+	}
+
 	// Menu panel - calculate proper height
-	// Base: 60 (header + current) + 3*45 (ask/defender/neutral) + 25 (label) + players*45 + 55 (cancel + padding)
-	menuW := 280
-	menuH := 60 + 3*45 + 25 + otherPlayerCount*45 + 55
+	// Alliance section: 60 (header + current) + 3*45 (ask/defender/neutral) + 25 (label) + players*45
+	// Surrender section (if not eliminated): 30 (label) + players*45
+	// Plus 55 (cancel + padding)
+	menuW := 320
+	allianceSectionH := 60 + 3*45 + 25 + otherPlayerCount*45
+	surrenderSectionH := 0
+	if !amEliminated && otherPlayerCount > 0 {
+		surrenderSectionH = 30 + otherPlayerCount*45
+	}
+	menuH := allianceSectionH + surrenderSectionH + 55
 	menuX := ScreenWidth/2 - menuW/2
 	menuY := ScreenHeight/2 - menuH/2
 
-	DrawFancyPanel(screen, menuX, menuY, menuW, menuH, "Set Alliance")
+	DrawFancyPanel(screen, menuX, menuY, menuW, menuH, "Diplomacy")
 
-	// Current setting display
-	currentText := "Current: "
+	// Current alliance setting display
+	currentText := "Alliance: "
 	switch s.myAllianceSetting {
 	case "neutral":
 		currentText += "Always Neutral"
@@ -797,7 +820,7 @@ func (s *GameplayScene) drawAllyMenu(screen *ebiten.Image) {
 	DrawText(screen, currentText, menuX+20, menuY+35, ColorTextMuted)
 
 	// Position buttons
-	btnX := menuX + 40
+	btnX := menuX + 60
 	btnY := menuY + 60
 
 	s.allyAskBtn.X = btnX
@@ -818,7 +841,7 @@ func (s *GameplayScene) drawAllyMenu(screen *ebiten.Image) {
 	s.allyNeutralBtn.Draw(screen)
 	btnY += 45
 
-	// Add buttons for each other player
+	// Add alliance buttons for each other player
 	if otherPlayerCount > 0 {
 		DrawText(screen, "Ally with player:", menuX+20, btnY+5, ColorTextMuted)
 		btnY += 25
@@ -834,6 +857,10 @@ func (s *GameplayScene) drawAllyMenu(screen *ebiten.Image) {
 			}
 			if playerData, ok := s.players[playerID]; ok {
 				player := playerData.(map[string]interface{})
+				// Skip eliminated players
+				if eliminated, ok := player["eliminated"].(bool); ok && eliminated {
+					continue
+				}
 				playerName := player["name"].(string)
 
 				btn := &Button{
@@ -856,11 +883,107 @@ func (s *GameplayScene) drawAllyMenu(screen *ebiten.Image) {
 		}
 	}
 
-	// Cancel button after all player buttons
+	// Surrender section (only if not eliminated and there are other players)
+	if !amEliminated && otherPlayerCount > 0 {
+		btnY += 10 // Gap before surrender section
+		DrawText(screen, "Surrender to player:", menuX+20, btnY+5, ColorWarning)
+		btnY += 25
+
+		for _, playerIDInterface := range s.playerOrder {
+			playerID := playerIDInterface.(string)
+			if playerID == s.game.config.PlayerID {
+				continue
+			}
+			if playerData, ok := s.players[playerID]; ok {
+				player := playerData.(map[string]interface{})
+				// Skip eliminated players
+				if eliminated, ok := player["eliminated"].(bool); ok && eliminated {
+					continue
+				}
+				playerName := player["name"].(string)
+
+				// Create surrender button for this player
+				surrenderBtn := &Button{
+					X: btnX, Y: btnY, W: 200, H: 35,
+					Text:    "Surrender to " + playerName,
+					Primary: false,
+				}
+				// Capture values for closure
+				pid := playerID
+				pname := playerName
+				surrenderBtn.OnClick = func() {
+					s.surrenderTargetID = pid
+					s.surrenderTargetName = pname
+					s.showSurrenderConfirm = true
+					s.showAllyMenu = false
+				}
+
+				surrenderBtn.Update()
+				surrenderBtn.Draw(screen)
+				btnY += 45
+			}
+		}
+	}
+
+	// Cancel button after everything
 	btnY += 10 // Small gap before cancel
 	s.cancelAllyMenuBtn.X = btnX
 	s.cancelAllyMenuBtn.Y = btnY
 	s.cancelAllyMenuBtn.Draw(screen)
+}
+
+// drawSurrenderConfirm draws the surrender confirmation dialog
+func (s *GameplayScene) drawSurrenderConfirm(screen *ebiten.Image) {
+	// Semi-transparent overlay
+	vector.DrawFilledRect(screen, 0, 0, float32(ScreenWidth), float32(ScreenHeight),
+		color.RGBA{0, 0, 0, 200}, false)
+
+	// Panel
+	panelW := 450
+	panelH := 200
+	panelX := ScreenWidth/2 - panelW/2
+	panelY := ScreenHeight/2 - panelH/2
+
+	DrawFancyPanel(screen, panelX, panelY, panelW, panelH, "Confirm Surrender")
+
+	// Warning text
+	y := panelY + 50
+	DrawTextCentered(screen, fmt.Sprintf("Surrender to %s?", s.surrenderTargetName), ScreenWidth/2, y, ColorWarning)
+	y += 30
+	DrawTextCentered(screen, "All your territories and resources", ScreenWidth/2, y, ColorText)
+	y += 20
+	DrawTextCentered(screen, "will be given to them.", ScreenWidth/2, y, ColorText)
+	y += 25
+	DrawTextCentered(screen, "You may continue watching the game.", ScreenWidth/2, y, ColorTextMuted)
+
+	// Buttons
+	btnY := panelY + panelH - 55
+	btnWidth := 140
+	btnGap := 20
+	totalBtnsWidth := btnWidth*2 + btnGap
+	btnStartX := panelX + (panelW-totalBtnsWidth)/2
+
+	s.confirmSurrenderBtn.X = btnStartX
+	s.confirmSurrenderBtn.Y = btnY
+	s.confirmSurrenderBtn.W = btnWidth
+	s.confirmSurrenderBtn.Draw(screen)
+
+	s.cancelSurrenderBtn.X = btnStartX + btnWidth + btnGap
+	s.cancelSurrenderBtn.Y = btnY
+	s.cancelSurrenderBtn.W = btnWidth
+	s.cancelSurrenderBtn.Draw(screen)
+}
+
+// executeSurrender sends the surrender request to the server
+func (s *GameplayScene) executeSurrender() {
+	if s.surrenderTargetID == "" {
+		return
+	}
+	log.Printf("Surrendering to player %s", s.surrenderTargetID)
+	s.game.Surrender(s.surrenderTargetID)
+	s.showSurrenderConfirm = false
+	s.surrenderTargetID = ""
+	s.surrenderTargetName = ""
 }
 
 // setAlliance sends the alliance setting to the server

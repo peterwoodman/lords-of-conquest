@@ -442,6 +442,20 @@ type AttackPlanResolvedPayload struct {
 	ExpiresAt            int64    `json:"expires_at"`             // Unix timestamp when plan expires
 }
 
+// SurrenderPayload is sent to surrender to another player.
+type SurrenderPayload struct {
+	TargetPlayerID string `json:"target_player_id"` // Player to surrender to
+}
+
+// SurrenderResultPayload reports the result of a surrender.
+type SurrenderResultPayload struct {
+	SurrenderedPlayerID   string `json:"surrendered_player_id"`
+	SurrenderedPlayerName string `json:"surrendered_player_name"`
+	TargetPlayerID        string `json:"target_player_id"`
+	TargetPlayerName      string `json:"target_player_name"`
+	TerritoriesGained     int    `json:"territories_gained"`
+}
+
 // CombatResultPayload reports the result of combat.
 type CombatResultPayload struct {
 	EventID         string   `json:"event_id"` // For sync acknowledgment

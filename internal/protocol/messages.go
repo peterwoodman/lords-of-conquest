@@ -92,6 +92,8 @@ const (
 	TypeAllianceVote       MessageType = "alliance_vote"
 	TypeAllianceResult     MessageType = "alliance_result"
 	TypeBuild              MessageType = "build"
+	TypeSurrender          MessageType = "surrender"
+	TypeSurrenderResult    MessageType = "surrender_result"
 )
 
 // Synchronization message types

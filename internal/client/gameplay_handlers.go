@@ -13,6 +13,14 @@ func (s *GameplayScene) handleCellClick(x, y int) {
 		return
 	}
 
+	// Check if player is eliminated (surrendered) - prevent actions
+	if myPlayer, ok := s.players[s.game.config.PlayerID]; ok {
+		player := myPlayer.(map[string]interface{})
+		if eliminated, ok := player["eliminated"].(bool); ok && eliminated {
+			return // Surrendered players can only watch
+		}
+	}
+
 	grid := s.mapData["grid"].([]interface{})
 	row := grid[y].([]interface{})
 	territoryID := int(row[x].(float64))

@@ -85,6 +85,8 @@ func (h *Handlers) Handle(client *Client, msg *protocol.Message) {
 		err = h.handleYourGames(client, msg)
 	case protocol.TypeClientReady:
 		err = h.handleClientReady(client, msg)
+	case protocol.TypeSurrender:
+		err = h.handleSurrender(client, msg)
 	default:
 		err = errors.New("unknown message type")
 	}
@@ -3537,6 +3539,100 @@ func (h *Handlers) handleSetAlliance(client *Client, msg *protocol.Message) erro
 	h.broadcastGameState(client.GameID)
 
 	log.Printf("Player %s set alliance to: %s - SUCCESS", client.PlayerID, setting)
+	return nil
+}
+
+// handleSurrender handles a player surrendering to another player.
+func (h *Handlers) handleSurrender(client *Client, msg *protocol.Message) error {
+	log.Printf("handleSurrender called by player %s in game %s", client.PlayerID, client.GameID)
+
+	if client.GameID == "" {
+		return errors.New("not in a game")
+	}
+
+	var payload protocol.SurrenderPayload
+	if err := msg.ParsePayload(&payload); err != nil {
+		log.Printf("Failed to parse Surrender payload: %v", err)
+		return err
+	}
+
+	// Validate target player
+	if payload.TargetPlayerID == "" {
+		return errors.New("target player ID required")
+	}
+	if payload.TargetPlayerID == client.PlayerID {
+		return errors.New("cannot surrender to yourself")
+	}
+
+	// Load game state
+	stateJSON, err := h.hub.server.db.GetGameState(client.GameID)
+	if err != nil {
+		return err
+	}
+
+	var state game.GameState
+	if err := json.Unmarshal([]byte(stateJSON), &state); err != nil {
+		return err
+	}
+
+	// Verify surrendering player is not already eliminated
+	surrenderPlayer := state.Players[client.PlayerID]
+	if surrenderPlayer == nil {
+		return errors.New("player not found in game")
+	}
+	if surrenderPlayer.Eliminated {
+		return errors.New("you are already eliminated")
+	}
+
+	// Verify target player exists and is not eliminated
+	targetPlayer := state.Players[payload.TargetPlayerID]
+	if targetPlayer == nil {
+		return errors.New("target player not found in game")
+	}
+	if targetPlayer.Eliminated {
+		return errors.New("cannot surrender to an eliminated player")
+	}
+
+	// Perform the surrender
+	territoriesTransferred := state.Surrender(client.PlayerID, payload.TargetPlayerID)
+
+	log.Printf("Player %s surrendered to %s, transferred %d territories",
+		client.PlayerID, payload.TargetPlayerID, territoriesTransferred)
+
+	// Log the surrender event
+	h.logHistory(client.GameID, state.Round, state.Phase.String(), client.PlayerID, surrenderPlayer.Name,
+		database.EventPlayerEliminated, fmt.Sprintf("%s surrendered to %s! (%d territories transferred)",
+			surrenderPlayer.Name, targetPlayer.Name, territoriesTransferred))
+
+	// Save updated state
+	newStateJSON, err := json.Marshal(state)
+	if err != nil {
+		return err
+	}
+	if err := h.hub.server.db.SaveGameState(client.GameID, string(newStateJSON), state.CurrentPlayerID, state.Round, string(state.Phase)); err != nil {
+		log.Printf("Failed to save game state: %v", err)
+		return err
+	}
+
+	// Broadcast surrender result to all players
+	surrenderResult := protocol.SurrenderResultPayload{
+		SurrenderedPlayerID:   client.PlayerID,
+		SurrenderedPlayerName: surrenderPlayer.Name,
+		TargetPlayerID:        payload.TargetPlayerID,
+		TargetPlayerName:      targetPlayer.Name,
+		TerritoriesGained:     territoriesTransferred,
+	}
+	h.hub.notifyGamePlayers(client.GameID, protocol.TypeSurrenderResult, surrenderResult)
+
+	// Check for victory (only one non-eliminated player remaining)
+	if state.IsEliminationVictory() {
+		h.handleGameOver(client.GameID, &state)
+		return nil
+	}
+
+	// Broadcast updated game state
+	h.broadcastGameState(client.GameID)
+
 	return nil
 }
 

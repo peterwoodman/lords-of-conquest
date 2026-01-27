@@ -184,3 +184,40 @@ func (g *GameState) GetWinner() *Player {
 	return winner
 }
 
+// Surrender transfers all of a player's territories and stockpile to another player.
+// Returns the number of territories transferred.
+func (g *GameState) Surrender(surrenderPlayerID, targetPlayerID string) int {
+	surrenderPlayer := g.Players[surrenderPlayerID]
+	targetPlayer := g.Players[targetPlayerID]
+
+	if surrenderPlayer == nil || targetPlayer == nil {
+		return 0
+	}
+
+	// Count and transfer territories
+	territoriesTransferred := 0
+	for _, t := range g.Territories {
+		if t.Owner == surrenderPlayerID {
+			t.Owner = targetPlayerID
+			territoriesTransferred++
+		}
+	}
+
+	// Transfer stockpile resources
+	if surrenderPlayer.Stockpile != nil && targetPlayer.Stockpile != nil {
+		targetPlayer.Stockpile.Coal += surrenderPlayer.Stockpile.Coal
+		targetPlayer.Stockpile.Gold += surrenderPlayer.Stockpile.Gold
+		targetPlayer.Stockpile.Iron += surrenderPlayer.Stockpile.Iron
+		targetPlayer.Stockpile.Timber += surrenderPlayer.Stockpile.Timber
+	}
+
+	// Clear surrendered player's stockpile
+	surrenderPlayer.Stockpile = NewStockpile()
+	surrenderPlayer.StockpileTerritory = ""
+
+	// Mark player as eliminated
+	surrenderPlayer.Eliminated = true
+
+	return territoriesTransferred
+}
+

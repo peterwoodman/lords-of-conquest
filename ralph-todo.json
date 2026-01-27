@@ -2,8 +2,9 @@
   {
     "category": "frontend",
     "description": "Rename 'Set Ally' to 'Diplomacy' and add surrender option",
-    "status": "pending",
+    "status": "in_progress",
     "priority": "low",
+    "passes": 1,
     "steps": [
       "FRONTEND - UI Changes:",
       "Rename setAllyBtn from 'Set Ally' to 'Diplomacy' in gameplay.go",

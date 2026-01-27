@@ -523,6 +523,30 @@ func (s *GameplayScene) drawBottomBar(screen *ebiten.Image) {
 		return
 	}
 
+	// Check if current player is eliminated (surrendered)
+	amEliminated := false
+	if myPlayer, ok := s.players[s.game.config.PlayerID]; ok {
+		player := myPlayer.(map[string]interface{})
+		if eliminated, ok := player["eliminated"].(bool); ok && eliminated {
+			amEliminated = true
+		}
+	}
+
+	// If player has surrendered, show special message
+	if amEliminated {
+		// Draw a muted message
+		boxX := rightX - 10
+		boxY := barY + 10
+		boxW := 350
+		boxH := 60
+		vector.DrawFilledRect(screen, float32(boxX), float32(boxY), float32(boxW), float32(boxH), color.RGBA{60, 40, 40, 255}, false)
+		vector.StrokeRect(screen, float32(boxX), float32(boxY), float32(boxW), float32(boxH), 2, ColorTextMuted, false)
+
+		DrawLargeText(screen, "YOU HAVE SURRENDERED", rightX, barY+18, ColorTextMuted)
+		DrawText(screen, "You may continue watching the game.", rightX, barY+45, ColorTextDim)
+		return
+	}
+
 	// Normal turn indicator (not during stockpile placement)
 	if s.currentTurn != "" {
 		if player, ok := s.players[s.currentTurn].(map[string]interface{}); ok {

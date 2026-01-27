@@ -604,6 +604,14 @@ func (g *Game) SetAlliance(setting string) error {
 	return g.network.SendPayload(protocol.TypeSetAlliance, payload)
 }
 
+// Surrender surrenders to another player, giving them all territories and resources.
+func (g *Game) Surrender(targetPlayerID string) error {
+	payload := protocol.SurrenderPayload{
+		TargetPlayerID: targetPlayerID,
+	}
+	return g.network.SendPayload(protocol.TypeSurrender, payload)
+}
+
 // AllianceVote sends the player's vote for an alliance request.
 func (g *Game) AllianceVote(battleID, side string) error {
 	payload := protocol.AllianceVotePayload{
@@ -906,6 +914,16 @@ func (g *Game) handleMessage(msg *protocol.Message) {
 		// Show victory screen
 		g.gameplayScene.ShowVictory(payload.WinnerID, payload.WinnerName, payload.Reason)
 		log.Printf("Game ended! Winner: %s by %s", payload.WinnerName, payload.Reason)
+
+	case protocol.TypeSurrenderResult:
+		var payload protocol.SurrenderResultPayload
+		if err := msg.ParsePayload(&payload); err != nil {
+			log.Printf("Failed to parse surrender result: %v", err)
+			return
+		}
+		log.Printf("Surrender: %s surrendered to %s (%d territories)",
+			payload.SurrenderedPlayerName, payload.TargetPlayerName, payload.TerritoriesGained)
+		// The game state update will handle showing the changes
 
 	case protocol.TypeError:
 		var payload protocol.ErrorPayload

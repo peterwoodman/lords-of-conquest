@@ -143,6 +143,13 @@ type GameplayScene struct {
 	cancelAllyMenuBtn *Button
 	myAllianceSetting string // Current alliance setting
 
+	// Surrender UI
+	showSurrenderConfirm bool
+	surrenderTargetID    string
+	surrenderTargetName  string
+	confirmSurrenderBtn  *Button
+	cancelSurrenderBtn   *Button
+
 	// Alliance request popup (when asked to join a battle)
 	showAllyRequest      bool
 	allyRequest          *AllianceRequestData
@@ -466,10 +473,10 @@ func NewGameplayScene(game *Game) *GameplayScene {
 		OnClick: func() { s.cancelAttackConfirmation() },
 	}
 
-	// Alliance menu buttons
+	// Diplomacy menu buttons (renamed from Alliance)
 	s.setAllyBtn = &Button{
 		X: 0, Y: 0, W: 180, H: 30,
-		Text:    "Set Ally",
+		Text:    "Diplomacy",
 		OnClick: func() { s.showAllyMenu = true },
 	}
 	s.allyNeutralBtn = &Button{
@@ -493,6 +500,19 @@ func NewGameplayScene(game *Game) *GameplayScene {
 		OnClick: func() { s.showAllyMenu = false },
 	}
 	s.myAllianceSetting = "ask" // Default
+
+	// Surrender confirmation buttons
+	s.confirmSurrenderBtn = &Button{
+		X: 0, Y: 0, W: 140, H: 40,
+		Text:    "Surrender",
+		Primary: false, // Danger action
+		OnClick: func() { s.executeSurrender() },
+	}
+	s.cancelSurrenderBtn = &Button{
+		X: 0, Y: 0, W: 100, H: 40,
+		Text:    "Cancel",
+		OnClick: func() { s.showSurrenderConfirm = false },
+	}
 
 	// Alliance request popup buttons
 	s.supportAttackerBtn = &Button{
@@ -914,7 +934,17 @@ func (s *GameplayScene) Update() error {
 		return nil // Block other input while planning
 	}
 
-	// Handle alliance menu
+	// Handle surrender confirmation dialog
+	if s.showSurrenderConfirm {
+		s.confirmSurrenderBtn.Update()
+		s.cancelSurrenderBtn.Update()
+		if inpututil.IsKeyJustPressed(ebiten.KeyEscape) {
+			s.showSurrenderConfirm = false
+		}
+		return nil // Block other input while confirming
+	}
+
+	// Handle alliance menu (now Diplomacy menu)
 	if s.showAllyMenu {
 		s.allyNeutralBtn.Update()
 		s.allyDefenderBtn.Update()
@@ -1072,9 +1102,13 @@ func (s *GameplayScene) Draw(screen *ebiten.Image) {
 	if s.showCombatResult {
 		s.drawCombatResult(screen)
 	}
-	// Draw alliance menu overlay
+	// Draw diplomacy menu overlay (renamed from alliance)
 	if s.showAllyMenu {
-		s.drawAllyMenu(screen)
+		s.drawDiplomacyMenu(screen)
+	}
+	// Draw surrender confirmation overlay
+	if s.showSurrenderConfirm {
+		s.drawSurrenderConfirm(screen)
 	}
 	// Draw alliance request popup overlay
 	if s.showAllyRequest {
