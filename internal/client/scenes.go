@@ -1471,7 +1471,7 @@ func (s *WaitingScene) drawSettingsDialog(screen *ebiten.Image, lobby *protocol.
 	s.settingsCloseBtn.Draw(screen)
 }
 
-func (s *WaitingScene) drawInlineMapPreview(screen *ebiten.Image, panelX, panelY, panelW, panelH int, mapData *maps.Map) {
+func (s *WaitingScene) drawInlineMapPreview(screen *ebiten.Image, panelX, panelY, panelW, panelH int, mapData *protocol.MapData) {
 	DrawFancyPanel(screen, panelX, panelY, panelW, panelH, "Map Preview")
 
 	// Draw the map if we have map data
