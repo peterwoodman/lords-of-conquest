@@ -103,31 +103,6 @@
     ]
   },
   {
-    "category": "backend",
-    "description": "Change alliance behavior: specific player ally should only auto-join for that player, treat other combat as 'ask'",
-    "status": "pending",
-    "priority": "medium",
-    "steps": [
-      "In handleExecuteAttack() in handlers.go, modify the alliance resolution logic around lines 2785-2795",
-      "Current behavior: if alliance is set to a specific player who isn't involved in the combat, log 'Allied with someone else, not participating' (effectively neutral)",
-      "New behavior: if alliance is set to a specific player who isn't involved, treat as 'ask' instead of neutral",
-      "Change the else branch at line 2795 to add the player to askPlayers list (if online) instead of skipping",
-      "Similarly update the attack preview logic around lines 2600-2604 to reflect this change",
-      "Test scenario: Player A allies with Player B. Player C attacks Player D. Player A should be prompted to choose a side (ask behavior), not ignored"
-    ],
-    "dependencies": [],
-    "notes": [
-      "Current logic at lines 2785-2795: specific player alliance only triggers when that player is attacker or defender, otherwise 'not participating'",
-      "The change makes specific-player alliance mean 'auto-join THIS player's battles, but ask me about OTHER battles'",
-      "This is more intuitive - alliance with one player shouldn't make you automatically neutral to everyone else",
-      "Two places need updating: handleExecuteAttack (actual combat) and attack preview calculation"
-    ],
-    "references": [
-      "internal/server/handlers.go - handleExecuteAttack() alliance resolution at lines 2763-2795",
-      "internal/server/handlers.go - attack preview ally calculation at lines 2593-2604"
-    ]
-  },
-  {
     "category": "data",
     "description": "Increase maximum resource percentage in map generation from 80% to 100%",
     "status": "pending",

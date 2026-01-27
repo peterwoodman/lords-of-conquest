@@ -2797,7 +2797,14 @@ func (h *Handlers) handleExecuteAttack(client *Client, msg *protocol.Message) er
 				log.Printf("    -> Supporting defender (allied with %s)", defenderID)
 				defenderAllies = append(defenderAllies, tpID)
 			} else {
-				log.Printf("    -> Allied with someone else (%s), not participating", alliance)
+				// Allied with someone not in this combat - treat as "ask" instead of neutral
+				// This allows the player to choose a side in battles their ally isn't involved in
+				if h.hub.IsPlayerOnline(tpID) {
+					log.Printf("    -> Allied with %s (not in combat), treating as 'ask' (online)", alliance)
+					askPlayers = append(askPlayers, tpID)
+				} else {
+					log.Printf("    -> Allied with %s (not in combat), treating as neutral (offline)", alliance)
+				}
 			}
 		}
 	}

@@ -364,3 +364,30 @@
 
 ### 2026-01-27
 **Session 8 ended** - ✅ Task complete
+
+### 2026-01-27 12:13:06
+**Session 8 ended** - ✅ Task complete
+
+### 2026-01-27 12:13:08
+**Session 9 started** (model: opus-4.5-thinking)
+
+### 2026-01-27 - Session 9 Progress
+**Task completed:** Change alliance behavior: specific player ally should only auto-join for that player, treat other combat as 'ask'
+
+**Changes made:**
+1. Updated `handleExecuteAttack()` in `internal/server/handlers.go` (lines 2799-2808):
+   - Changed the `else` branch for specific-player alliances where the allied player isn't the attacker or defender
+   - Previous behavior: logged "not participating" and skipped (treated as neutral)
+   - New behavior: if online, adds player to `askPlayers` list (prompts them to choose a side); if offline, treats as neutral
+
+**Why this matters:**
+- Before: If Player A allied with Player B, and Player C attacked Player D, Player A would be neutral (not participate)
+- After: Player A will be prompted to choose a side (attack/defend/neutral) in that combat
+- More intuitive: "I'm allied with Bob" now means "auto-join Bob's battles, ask me about others" instead of "auto-neutral in battles Bob isn't in"
+
+**Verification:**
+- Server package builds successfully
+- All game unit tests pass
+
+### 2026-01-27
+**Session 9 ended** - ✅ Task complete
