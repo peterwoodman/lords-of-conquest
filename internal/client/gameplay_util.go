@@ -54,6 +54,7 @@ func (s *GameplayScene) applyGameState(state map[string]interface{}) {
 
 	if territories, ok := state["territories"].(map[string]interface{}); ok {
 		s.territories = territories
+		s.missingTerritories = nil // Reset for new state
 		log.Printf("Loaded %d territories", len(territories))
 	} else {
 		log.Println("No territories in state")

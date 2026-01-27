@@ -45,29 +45,40 @@ func (s *GameplayScene) drawMap(screen *ebiten.Image) {
 			if territoryID == 0 {
 				// Water
 				cellColor = color.RGBA{20, 60, 120, 255}
-			} else {
-				// Land - get owner color
-				if terr, ok := s.territories[tid].(map[string]interface{}); ok {
-					owner := terr["owner"].(string)
-					if owner != "" {
-						if player, ok := s.players[owner].(map[string]interface{}); ok {
-							playerColor := player["color"].(string)
-							if pc, ok := PlayerColors[playerColor]; ok {
-								cellColor = pc
-							} else {
-								cellColor = ColorPanelLight
-							}
+		} else {
+			// Land - get owner color
+			if terr, ok := s.territories[tid].(map[string]interface{}); ok {
+				owner := terr["owner"].(string)
+				if owner != "" {
+					if player, ok := s.players[owner].(map[string]interface{}); ok {
+						playerColor := player["color"].(string)
+						if pc, ok := PlayerColors[playerColor]; ok {
+							cellColor = pc
 						} else {
 							cellColor = ColorPanelLight
 						}
 					} else {
-						// Unclaimed
-						cellColor = color.RGBA{100, 100, 100, 255}
+						cellColor = ColorPanelLight
 					}
 				} else {
-					cellColor = ColorPanelLight
+					// Unclaimed
+					cellColor = color.RGBA{100, 100, 100, 255}
 				}
+			} else {
+				// Territory not found - this indicates a bug in map generation
+				// Log once per missing territory
+				if s.missingTerritories == nil {
+					s.missingTerritories = make(map[string]bool)
+				}
+				if !s.missingTerritories[tid] {
+					s.missingTerritories[tid] = true
+					fmt.Printf("WARNING: Territory %s (grid ID %d) not found in territories map. Available: %v\n",
+						tid, territoryID, getTerritoriesKeys(s.territories))
+				}
+				// Use a distinct error color (magenta) to make it obvious
+				cellColor = color.RGBA{180, 50, 180, 255}
 			}
+		}
 
 			// Highlight selected territory (for shipment phase)
 			if s.selectedTerritory != "" && tid == s.selectedTerritory {
@@ -709,4 +720,16 @@ func (s *GameplayScene) hasCityInfluence(terrID string, terr map[string]interfac
 	}
 
 	return false
+}
+
+// getTerritoriesKeys returns the keys of the territories map for debugging
+func getTerritoriesKeys(territories map[string]interface{}) []string {
+	if territories == nil {
+		return nil
+	}
+	keys := make([]string, 0, len(territories))
+	for k := range territories {
+		keys = append(keys, k)
+	}
+	return keys
 }

@@ -2055,46 +2055,48 @@ func (s *GameplayScene) drawAttackConfirmation(screen *ebiten.Image) {
 	// Target info
 	DrawTextCentered(screen, "Attack: "+targetName, ScreenWidth/2, panelY+45, ColorText)
 
+	// Two-column layout: Attack on left, Defense on right
+	leftColX := panelX + 20
+	rightColX := panelX + panelW/2 + 10
 	y := panelY + 75
 
-	// Attack side breakdown
-	DrawText(screen, "ATTACK FORCES:", panelX+20, y, ColorSuccess)
-	y += 22
+	// Attack side breakdown (left column)
+	DrawText(screen, "ATTACK FORCES:", leftColX, y, ColorSuccess)
+	attackY := y + 22
 
 	totalAttack := s.attackPlanResolved.BaseAttackStrength + s.attackPlanResolved.AttackerAllyStrength
-	DrawText(screen, fmt.Sprintf("  Your forces: %d", s.attackPlanResolved.BaseAttackStrength), panelX+20, y, ColorText)
-	y += 20
+	DrawText(screen, fmt.Sprintf("  Your forces: %d", s.attackPlanResolved.BaseAttackStrength), leftColX, attackY, ColorText)
+	attackY += 20
 
 	if s.attackPlanResolved.AttackerAllyStrength > 0 {
 		allyNames := strings.Join(s.attackPlanResolved.AttackerAllyNames, ", ")
-		DrawText(screen, fmt.Sprintf("  Allies: +%d (%s)", s.attackPlanResolved.AttackerAllyStrength, allyNames), panelX+20, y, ColorText)
-		y += 20
+		DrawText(screen, fmt.Sprintf("  Allies: +%d (%s)", s.attackPlanResolved.AttackerAllyStrength, allyNames), leftColX, attackY, ColorText)
+		attackY += 20
 	} else {
-		DrawText(screen, "  Allies: none", panelX+20, y, ColorTextMuted)
-		y += 20
+		DrawText(screen, "  Allies: none", leftColX, attackY, ColorTextMuted)
+		attackY += 20
 	}
 
-	DrawText(screen, fmt.Sprintf("  Total: %d", totalAttack), panelX+20, y, ColorSuccess)
-	y += 30
+	DrawText(screen, fmt.Sprintf("  Total: %d", totalAttack), leftColX, attackY, ColorSuccess)
 
-	// Defense side breakdown
-	DrawText(screen, "DEFENSE FORCES:", panelX+20, y, ColorDanger)
-	y += 22
+	// Defense side breakdown (right column)
+	DrawText(screen, "DEFENSE FORCES:", rightColX, y, ColorDanger)
+	defenseY := y + 22
 
 	totalDefense := s.attackPlanResolved.BaseDefenseStrength + s.attackPlanResolved.DefenderAllyStrength
-	DrawText(screen, fmt.Sprintf("  Base defense: %d", s.attackPlanResolved.BaseDefenseStrength), panelX+20, y, ColorText)
-	y += 20
+	DrawText(screen, fmt.Sprintf("  Base defense: %d", s.attackPlanResolved.BaseDefenseStrength), rightColX, defenseY, ColorText)
+	defenseY += 20
 
 	if s.attackPlanResolved.DefenderAllyStrength > 0 {
 		allyNames := strings.Join(s.attackPlanResolved.DefenderAllyNames, ", ")
-		DrawText(screen, fmt.Sprintf("  Allies: +%d (%s)", s.attackPlanResolved.DefenderAllyStrength, allyNames), panelX+20, y, ColorText)
-		y += 20
+		DrawText(screen, fmt.Sprintf("  Allies: +%d (%s)", s.attackPlanResolved.DefenderAllyStrength, allyNames), rightColX, defenseY, ColorText)
+		defenseY += 20
 	} else {
-		DrawText(screen, "  Allies: none", panelX+20, y, ColorTextMuted)
-		y += 20
+		DrawText(screen, "  Allies: none", rightColX, defenseY, ColorTextMuted)
+		defenseY += 20
 	}
 
-	DrawText(screen, fmt.Sprintf("  Total: %d", totalDefense), panelX+20, y, ColorDanger)
+	DrawText(screen, fmt.Sprintf("  Total: %d", totalDefense), rightColX, defenseY, ColorDanger)
 
 	// Buttons at bottom
 	btnY := panelY + panelH - 55

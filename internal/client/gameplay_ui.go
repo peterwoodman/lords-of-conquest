@@ -937,11 +937,22 @@ func (s *GameplayScene) drawDevelopmentControls(screen *ebiten.Image, startX, ba
 	}
 	DrawText(screen, statusText, startX, barY+40, ColorTextMuted)
 
-	// Build option buttons
+	// Build option buttons with costs to the right
 	btnW := 80
 	btnH := 30
 	btnY := barY + 58
 	btnX := startX
+	costGap := 8 // Gap between button and cost text
+	btnSpacing := 90 // Extra space between button+cost groups
+
+	// Cost text colors based on Use Gold toggle
+	normalColor := ColorTextMuted
+	goldColor := ColorTextDim
+	if s.buildUseGold {
+		normalColor = ColorTextDim
+		goldColor = ColorTextMuted
+	}
+	costY := btnY + 8 // Vertically center cost text with button
 
 	// City button
 	s.devCityBtn.X = btnX
@@ -950,10 +961,12 @@ func (s *GameplayScene) drawDevelopmentControls(screen *ebiten.Image, startX, ba
 	s.devCityBtn.H = btnH
 	s.devCityBtn.Primary = s.selectedBuildType == "city"
 	s.devCityBtn.Disabled = !canAffordCity
-	s.devCityBtn.Tooltip = "" // Costs shown below instead
+	s.devCityBtn.Tooltip = ""
 	s.devCityBtn.Draw(screen)
-	cityBtnX := btnX
-	btnX += btnW + 10
+	// City cost: 1 of each resource OR 4 gold
+	DrawText(screen, "1 each", btnX+btnW+costGap, costY, normalColor)
+	DrawText(screen, "/4G", btnX+btnW+costGap+36, costY, goldColor)
+	btnX += btnW + costGap + 60 + btnSpacing
 
 	// Weapon button
 	s.devWeaponBtn.X = btnX
@@ -962,10 +975,12 @@ func (s *GameplayScene) drawDevelopmentControls(screen *ebiten.Image, startX, ba
 	s.devWeaponBtn.H = btnH
 	s.devWeaponBtn.Primary = s.selectedBuildType == "weapon"
 	s.devWeaponBtn.Disabled = !canAffordWeapon
-	s.devWeaponBtn.Tooltip = "" // Costs shown below instead
+	s.devWeaponBtn.Tooltip = ""
 	s.devWeaponBtn.Draw(screen)
-	weaponBtnX := btnX
-	btnX += btnW + 10
+	// Weapon cost: 1 Coal + 1 Iron OR 2 gold
+	DrawText(screen, "1C+1I", btnX+btnW+costGap, costY, normalColor)
+	DrawText(screen, "/2G", btnX+btnW+costGap+30, costY, goldColor)
+	btnX += btnW + costGap + 50 + btnSpacing
 
 	// Boat button
 	s.devBoatBtn.X = btnX
@@ -974,32 +989,12 @@ func (s *GameplayScene) drawDevelopmentControls(screen *ebiten.Image, startX, ba
 	s.devBoatBtn.H = btnH
 	s.devBoatBtn.Primary = s.selectedBuildType == "boat"
 	s.devBoatBtn.Disabled = !canAffordBoat
-	s.devBoatBtn.Tooltip = "" // Costs shown below instead
+	s.devBoatBtn.Tooltip = ""
 	s.devBoatBtn.Draw(screen)
-	boatBtnX := btnX
-	btnX += btnW + 20
-
-	// Cost labels below buttons - show both normal and gold costs
-	// Highlight active cost based on Use Gold toggle
-	costY := btnY + btnH + 3
-	normalColor := ColorTextMuted
-	goldColor := ColorTextDim
-	if s.buildUseGold {
-		normalColor = ColorTextDim
-		goldColor = ColorTextMuted
-	}
-
-	// City: 1 of each resource OR 4 gold
-	DrawText(screen, "1 each", cityBtnX+14, costY, normalColor)
-	DrawText(screen, "/4G", cityBtnX+14+36, costY, goldColor)
-
-	// Weapon: 1 Coal + 1 Iron OR 2 gold
-	DrawText(screen, "1C+1I", weaponBtnX+15, costY, normalColor)
-	DrawText(screen, "/2G", weaponBtnX+15+30, costY, goldColor)
-
-	// Boat: 3 Timber OR 3 gold
-	DrawText(screen, "3T", boatBtnX+24, costY, normalColor)
-	DrawText(screen, "/3G", boatBtnX+24+12, costY, goldColor)
+	// Boat cost: 3 Timber OR 3 gold
+	DrawText(screen, "3T", btnX+btnW+costGap, costY, normalColor)
+	DrawText(screen, "/3G", btnX+btnW+costGap+14, costY, goldColor)
+	btnX += btnW + costGap + 35 + 30
 
 	// Use Gold toggle
 	if s.buildUseGold {

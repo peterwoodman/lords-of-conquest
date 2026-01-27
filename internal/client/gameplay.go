@@ -30,14 +30,15 @@ type GameplayScene struct {
 	game *Game
 
 	// Game state data
-	gameState    map[string]interface{}
-	mapData      map[string]interface{}
-	territories  map[string]interface{}
-	players      map[string]interface{}
-	playerOrder  []interface{}
-	currentPhase string
-	currentTurn  string
-	round        int
+	gameState          map[string]interface{}
+	mapData            map[string]interface{}
+	territories        map[string]interface{}
+	missingTerritories map[string]bool // Tracks territories referenced in grid but not in territories map (for debugging)
+	players            map[string]interface{}
+	playerOrder        []interface{}
+	currentPhase       string
+	currentTurn        string
+	round              int
 
 	// Game history
 	history            []HistoryEntry

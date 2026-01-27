@@ -274,6 +274,128 @@ func createTerritories(m *Map, raw *RawMap) {
 			Cells:    cells,
 		}
 	}
+
+	// Renumber territories to ensure consecutive IDs (1, 2, 3, ...)
+	// This fixes issues where merging leaves gaps in territory IDs
+	renumberTerritories(m)
+}
+
+// renumberTerritories reassigns territory IDs to be consecutive starting from 1.
+// This ensures no gaps in territory numbering after merging operations.
+// It also handles orphaned grid cells that reference IDs not in the territories map
+// by merging them into adjacent territories.
+func renumberTerritories(m *Map) {
+	if len(m.Territories) == 0 {
+		return
+	}
+
+	// First pass: find ALL unique territory IDs in the grid (not just in m.Territories)
+	// This catches orphaned cells that fillLakes might have assigned to deleted territory IDs
+	gridIDs := make(map[int]bool)
+	for y := 0; y < m.Height; y++ {
+		for x := 0; x < m.Width; x++ {
+			tid := m.Grid[y][x]
+			if tid > 0 {
+				gridIDs[tid] = true
+			}
+		}
+	}
+
+	// Find orphaned IDs (in grid but not in territories)
+	orphanedIDs := make(map[int]bool)
+	for id := range gridIDs {
+		if _, exists := m.Territories[id]; !exists {
+			orphanedIDs[id] = true
+		}
+	}
+
+	// Fix orphaned cells by merging them into adjacent territories
+	if len(orphanedIDs) > 0 {
+		for y := 0; y < m.Height; y++ {
+			for x := 0; x < m.Width; x++ {
+				tid := m.Grid[y][x]
+				if !orphanedIDs[tid] {
+					continue
+				}
+
+				// Find an adjacent valid territory to merge into
+				dirs := [][2]int{{0, -1}, {0, 1}, {-1, 0}, {1, 0}}
+				newID := 0
+				for _, d := range dirs {
+					nx, ny := x+d[0], y+d[1]
+					if nx >= 0 && nx < m.Width && ny >= 0 && ny < m.Height {
+						neighborID := m.Grid[ny][nx]
+						if neighborID > 0 && !orphanedIDs[neighborID] {
+							newID = neighborID
+							break
+						}
+					}
+				}
+
+				if newID > 0 {
+					m.Grid[y][x] = newID
+					// Add cell to the territory's cell list
+					if terr, ok := m.Territories[newID]; ok {
+						terr.Cells = append(terr.Cells, [2]int{x, y})
+					}
+				} else {
+					// No valid neighbor found, convert to water
+					m.Grid[y][x] = 0
+				}
+			}
+		}
+	}
+
+	// Now collect existing IDs in sorted order (only from m.Territories)
+	oldIDs := make([]int, 0, len(m.Territories))
+	for id := range m.Territories {
+		oldIDs = append(oldIDs, id)
+	}
+	// Sort IDs to ensure consistent renumbering
+	for i := 0; i < len(oldIDs)-1; i++ {
+		for j := i + 1; j < len(oldIDs); j++ {
+			if oldIDs[j] < oldIDs[i] {
+				oldIDs[i], oldIDs[j] = oldIDs[j], oldIDs[i]
+			}
+		}
+	}
+
+	// Check if renumbering is needed (are IDs already consecutive from 1?)
+	needsRenumber := false
+	for i, id := range oldIDs {
+		if id != i+1 {
+			needsRenumber = true
+			break
+		}
+	}
+	if !needsRenumber {
+		return
+	}
+
+	// Create mapping from old ID to new ID
+	oldToNew := make(map[int]int)
+	for i, oldID := range oldIDs {
+		oldToNew[oldID] = i + 1
+	}
+
+	// Update grid with new IDs
+	for y := 0; y < m.Height; y++ {
+		for x := 0; x < m.Width; x++ {
+			oldID := m.Grid[y][x]
+			if newID, ok := oldToNew[oldID]; ok {
+				m.Grid[y][x] = newID
+			}
+		}
+	}
+
+	// Rebuild territories map with new IDs
+	newTerritories := make(map[int]*Territory)
+	for oldID, terr := range m.Territories {
+		newID := oldToNew[oldID]
+		terr.ID = newID
+		newTerritories[newID] = terr
+	}
+	m.Territories = newTerritories
 }
 
 // parseResource converts a resource string to ResourceType.
