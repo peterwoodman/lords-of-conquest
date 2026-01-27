@@ -882,22 +882,15 @@ func (s *GameplayScene) drawDevelopmentControls(screen *ebiten.Image, startX, ba
 
 	// Calculate affordability based on gold toggle
 	var canAffordCity, canAffordWeapon, canAffordBoat bool
-	var cityTooltip, weaponTooltip, boatTooltip string
 
 	if s.buildUseGold {
 		canAffordCity = gold >= 4
 		canAffordWeapon = gold >= 2
 		canAffordBoat = gold >= 3
-		cityTooltip = fmt.Sprintf("4 Gold (have %d)", gold)
-		weaponTooltip = fmt.Sprintf("2 Gold (have %d)", gold)
-		boatTooltip = fmt.Sprintf("3 Gold (have %d)", gold)
 	} else {
 		canAffordCity = coal >= 1 && gold >= 1 && iron >= 1 && timber >= 1
 		canAffordWeapon = coal >= 1 && iron >= 1
 		canAffordBoat = timber >= 3
-		cityTooltip = fmt.Sprintf("1 each: C/G/I/T (have %d/%d/%d/%d)", coal, gold, iron, timber)
-		weaponTooltip = fmt.Sprintf("1 Coal + 1 Iron (have %d/%d)", coal, iron)
-		boatTooltip = fmt.Sprintf("3 Timber (have %d)", timber)
 	}
 
 	// Turn indicator with color block
@@ -933,8 +926,9 @@ func (s *GameplayScene) drawDevelopmentControls(screen *ebiten.Image, startX, ba
 	s.devCityBtn.H = btnH
 	s.devCityBtn.Primary = s.selectedBuildType == "city"
 	s.devCityBtn.Disabled = !canAffordCity
-	s.devCityBtn.Tooltip = cityTooltip
+	s.devCityBtn.Tooltip = "" // Costs shown below instead
 	s.devCityBtn.Draw(screen)
+	cityBtnX := btnX
 	btnX += btnW + 10
 
 	// Weapon button
@@ -944,8 +938,9 @@ func (s *GameplayScene) drawDevelopmentControls(screen *ebiten.Image, startX, ba
 	s.devWeaponBtn.H = btnH
 	s.devWeaponBtn.Primary = s.selectedBuildType == "weapon"
 	s.devWeaponBtn.Disabled = !canAffordWeapon
-	s.devWeaponBtn.Tooltip = weaponTooltip
+	s.devWeaponBtn.Tooltip = "" // Costs shown below instead
 	s.devWeaponBtn.Draw(screen)
+	weaponBtnX := btnX
 	btnX += btnW + 10
 
 	// Boat button
@@ -955,9 +950,32 @@ func (s *GameplayScene) drawDevelopmentControls(screen *ebiten.Image, startX, ba
 	s.devBoatBtn.H = btnH
 	s.devBoatBtn.Primary = s.selectedBuildType == "boat"
 	s.devBoatBtn.Disabled = !canAffordBoat
-	s.devBoatBtn.Tooltip = boatTooltip
+	s.devBoatBtn.Tooltip = "" // Costs shown below instead
 	s.devBoatBtn.Draw(screen)
+	boatBtnX := btnX
 	btnX += btnW + 20
+
+	// Cost labels below buttons - show both normal and gold costs
+	// Highlight active cost based on Use Gold toggle
+	costY := btnY + btnH + 3
+	normalColor := ColorTextMuted
+	goldColor := ColorTextDim
+	if s.buildUseGold {
+		normalColor = ColorTextDim
+		goldColor = ColorTextMuted
+	}
+
+	// City: 1 of each resource OR 4 gold
+	DrawText(screen, "1 each", cityBtnX+14, costY, normalColor)
+	DrawText(screen, "/4G", cityBtnX+14+36, costY, goldColor)
+
+	// Weapon: 1 Coal + 1 Iron OR 2 gold
+	DrawText(screen, "1C+1I", weaponBtnX+15, costY, normalColor)
+	DrawText(screen, "/2G", weaponBtnX+15+30, costY, goldColor)
+
+	// Boat: 3 Timber OR 3 gold
+	DrawText(screen, "3T", boatBtnX+24, costY, normalColor)
+	DrawText(screen, "/3G", boatBtnX+24+12, costY, goldColor)
 
 	// Use Gold toggle
 	if s.buildUseGold {

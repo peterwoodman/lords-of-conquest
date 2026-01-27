@@ -341,5 +341,32 @@
       "internal/client/ui.go - ResourcesSlider initialization at line 847-850"
     ],
     "completed_at": "2026-01-27T15:45:59Z"
+  },
+  {
+    "category": "frontend",
+    "description": "Show build costs permanently instead of in tooltips for city/weapon/boat buttons",
+    "status": "completed",
+    "priority": "low",
+    "passes": 1,
+    "steps": [
+      "In `drawDevelopmentPhaseStatus()` in gameplay_ui.go, remove the tooltip assignments for devCityBtn, devWeaponBtn, devBoatBtn",
+      "Add text labels below each button showing both cost types: normal resources AND gold-only cost",
+      "City: '1 C/G/I/T or 4G', Weapon: '1C+1I or 2G', Boat: '3T or 3G' (or similar compact format)",
+      "Position the cost text directly below each button (around btnY + btnH + 2)",
+      "Use smaller/muted text color (ColorTextMuted) for the cost labels",
+      "Verify the layout fits within the status bar without overlapping the Use Gold toggle or End Turn button",
+      "Test with both 'Use Gold' toggle states to ensure display remains clear"
+    ],
+    "dependencies": [],
+    "notes": [
+      "Current buttons are 80px wide with 10px gaps, starting at startX",
+      "Status bar has space below buttons before the bar ends",
+      "Consider highlighting which cost applies based on Use Gold toggle state"
+    ],
+    "references": [
+      "internal/client/gameplay_ui.go - drawDevelopmentPhaseStatus() around line 870-979",
+      "internal/client/ui.go - Button tooltip implementation for reference"
+    ],
+    "completed_at": "2026-01-27T15:50:11Z"
   }
 ]

@@ -422,3 +422,39 @@
 
 ### 2026-01-27
 **Session 10 ended** - ✅ Task complete
+
+### 2026-01-27 12:16:02
+**Session 10 ended** - ✅ Task complete
+
+### 2026-01-27 12:16:04
+**Session 11 started** (model: opus-4.5-thinking)
+
+### 2026-01-27 - Session 11 Progress
+**Task completed:** Show build costs permanently instead of in tooltips for city/weapon/boat buttons
+
+**Changes made:**
+1. Updated `drawDevelopmentControls()` in `internal/client/gameplay_ui.go`:
+   - Removed tooltip assignments from city, weapon, and boat buttons (set to empty string)
+   - Removed unused tooltip string variables (`cityTooltip`, `weaponTooltip`, `boatTooltip`)
+   - Added cost labels below each button showing both normal and gold costs
+   - City: "1 each/4G" (1 of each resource or 4 gold)
+   - Weapon: "1C+1I/2G" (1 coal + 1 iron or 2 gold)
+   - Boat: "3T/3G" (3 timber or 3 gold)
+
+2. Implemented cost highlighting based on Use Gold toggle:
+   - When Use Gold is OFF: normal cost uses `ColorTextMuted`, gold cost uses `ColorTextDim`
+   - When Use Gold is ON: normal cost uses `ColorTextDim`, gold cost uses `ColorTextMuted`
+   - This subtly highlights which cost type is currently active
+
+**User benefit:**
+- Build costs are now always visible below the buttons without requiring hover
+- Both cost options (normal resources and gold-only) are shown simultaneously
+- Active cost type is subtly highlighted based on the Use Gold toggle state
+
+**Verification:**
+- All 12 game unit tests pass
+- Go syntax validated with gofmt (no formatting issues)
+- Server-side packages build successfully
+
+### 2026-01-27
+**Session 11 ended** - ✅ Task complete
