@@ -125,3 +125,27 @@
 **Verification:**
 - Server package builds successfully
 - All 12 game unit tests pass
+
+### 2026-01-27 11:55:29
+**Session 1 ended** - ✅ Task complete
+
+### 2026-01-27 11:55:31
+**Session 2 started** (model: opus-4.5-thinking)
+
+### 2026-01-27 - Session 2 Progress
+**Task completed:** Fix trade dialog player buttons jumping around and sometimes missing players
+
+**Changes made:**
+1. Added `sort` import to `internal/client/gameplay_handlers.go`
+2. Added `sort.Strings(players)` call before returning from `getOnlinePlayers()` function
+
+**Root cause:**
+- Go map iteration order is random, so iterating over `s.players` returned different orders each call
+- `getOnlinePlayers()` is called separately in Draw (rendering buttons) and Update (handling clicks)
+- Different orders caused button positions to mismatch between rendering and click detection
+- Adding `sort.Strings()` ensures alphabetical ordering by player ID, making the order deterministic
+
+**Verification:**
+- All 12 game unit tests pass
+- Server-side packages build successfully
+- Go syntax validated with gofmt

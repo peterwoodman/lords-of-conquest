@@ -92,5 +92,31 @@
       "internal/database/games.go - GetGameMapJSON() at line 473"
     ],
     "completed_at": "2026-01-27T15:25:27Z"
+  },
+  {
+    "category": "frontend",
+    "description": "Fix trade dialog player buttons jumping around and sometimes missing players",
+    "status": "completed",
+    "priority": "medium",
+    "passes": 1,
+    "steps": [
+      "In `getOnlinePlayers()` in gameplay_handlers.go, sort the returned player IDs before returning",
+      "Use `sort.Strings(players)` to ensure consistent alphabetical ordering by player ID",
+      "This ensures Draw and Update get the same player order every frame",
+      "Test with 3+ human players to verify buttons stay in consistent positions",
+      "Verify clicking a player button selects the correct player"
+    ],
+    "dependencies": [],
+    "notes": [
+      "Root cause: Go map iteration order is random, so s.players returns different orders each call",
+      "getOnlinePlayers() is called separately in Draw (gameplay_dialogs.go:1146) and Update (gameplay.go:732)",
+      "Different orders cause button positions to mismatch between rendering and click detection"
+    ],
+    "references": [
+      "internal/client/gameplay_handlers.go - getOnlinePlayers() at line 692",
+      "internal/client/gameplay_dialogs.go - drawTradePropose() at line 1140",
+      "internal/client/gameplay.go - trade dialog click handling at line 730"
+    ],
+    "completed_at": "2026-01-27T15:27:08Z"
   }
 ]

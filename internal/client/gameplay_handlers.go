@@ -3,6 +3,7 @@ package client
 import (
 	"fmt"
 	"log"
+	"sort"
 
 	"lords-of-conquest/internal/protocol"
 )
@@ -706,6 +707,7 @@ func (s *GameplayScene) getOnlinePlayers() []string {
 		}
 		players = append(players, id)
 	}
+	sort.Strings(players) // Ensure consistent order for UI rendering
 	return players
 }
 
