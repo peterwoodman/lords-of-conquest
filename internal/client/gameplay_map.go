@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"image/color"
 
+	"lords-of-conquest/internal/game"
+
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/vector"
 )
@@ -117,13 +119,13 @@ func (s *GameplayScene) drawMap(screen *ebiten.Image) {
 			vector.DrawFilledRect(screen, cellX, cellY, cellW, cellH, cellColor, false)
 
 			// Draw player drawing pixels on this cell
-			if territoryID != 0 && s.cellSize >= 8 {
+			if territoryID != 0 && s.cellSize >= game.DrawingSubPixels {
 				if terr, ok := s.territories[tid].(map[string]interface{}); ok {
 					if drawing, ok := terr["drawing"].(map[string]interface{}); ok && len(drawing) > 0 {
-						subSize := float32(s.cellSize) / 8.0
-						for subY := 0; subY < 8; subY++ {
-							for subX := 0; subX < 8; subX++ {
-								key := fmt.Sprintf("%d,%d", x*8+subX, y*8+subY)
+						subSize := float32(s.cellSize) / float32(game.DrawingSubPixels)
+						for subY := 0; subY < game.DrawingSubPixels; subY++ {
+							for subX := 0; subX < game.DrawingSubPixels; subX++ {
+								key := fmt.Sprintf("%d,%d", x*game.DrawingSubPixels+subX, y*game.DrawingSubPixels+subY)
 								if colorVal, ok := drawing[key]; ok {
 									colorIdx := 0
 									switch v := colorVal.(type) {

@@ -201,6 +201,7 @@ type GameplayScene struct {
 	editTerritoryDrawing   map[string]int // Working copy of drawing pixels
 	editTerritoryTool      string         // "pencil" or "eraser"
 	editTerritoryColor     int            // Current color index (1-10)
+	editTerritoryBrushSize int            // Brush size: 1, 2, 3, or 4 pixels
 	editTerritoryDrawing0  map[string]int // Original drawing (to detect changes)
 	editTerritoryIsDrawing bool           // Mouse is currently held down for drawing
 

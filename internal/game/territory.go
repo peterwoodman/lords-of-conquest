@@ -1,8 +1,8 @@
 package game
 
 // DrawingSubPixels is the number of drawable sub-pixels per grid cell in each dimension.
-// Each grid cell has an 8x8 sub-pixel grid for player drawing.
-const DrawingSubPixels = 8
+// Each grid cell has a DrawingSubPixels x DrawingSubPixels sub-pixel grid for player drawing.
+const DrawingSubPixels = 16
 
 // MaxDrawingColorIndex is the highest valid drawing color index (1-based).
 const MaxDrawingColorIndex = 10

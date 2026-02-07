@@ -7,6 +7,7 @@ import (
 	"math/rand"
 	"strings"
 
+	"lords-of-conquest/internal/game"
 	"lords-of-conquest/internal/protocol"
 
 	"github.com/hajimehoshi/ebiten/v2"
@@ -2201,8 +2202,16 @@ func (s *GameplayScene) openEditTerritoryDialog(territoryID string) {
 			}
 		}
 	}
-	s.editTerritoryTool = "pencil"
-	s.editTerritoryColor = 1 // Default to red
+	// Only set defaults on first open; preserve selections across dialog opens
+	if s.editTerritoryTool == "" {
+		s.editTerritoryTool = "pencil"
+	}
+	if s.editTerritoryColor == 0 {
+		s.editTerritoryColor = 1
+	}
+	if s.editTerritoryBrushSize == 0 {
+		s.editTerritoryBrushSize = 1
+	}
 	s.editTerritoryIsDrawing = false
 
 	s.editTerritorySaveBtn = &Button{
@@ -2311,8 +2320,8 @@ func (s *GameplayScene) editTerritoryCanvasBounds(panelX, panelY, panelW, panelH
 	}
 
 	// Calculate pixel size to fit the bounding box in the canvas
-	drawW := (boundMaxX - boundMinX + 1) * 8 // Drawing pixels wide
-	drawH := (boundMaxY - boundMinY + 1) * 8 // Drawing pixels tall
+	drawW := (boundMaxX - boundMinX + 1) * game.DrawingSubPixels // Drawing pixels wide
+	drawH := (boundMaxY - boundMinY + 1) * game.DrawingSubPixels // Drawing pixels tall
 
 	if drawW > 0 && drawH > 0 {
 		pxW := float32(canvasW) / float32(drawW)
@@ -2357,8 +2366,9 @@ func (s *GameplayScene) updateEditTerritory() {
 		s.editTerritoryCanvasBounds(panelX, panelY, panelW, panelH)
 
 	// Calculate actual rendered size and center it (must match drawEditTerritory exactly)
-	drawPixelsW := (boundMaxX - boundMinX + 1) * 8
-	drawPixelsH := (boundMaxY - boundMinY + 1) * 8
+	sp := game.DrawingSubPixels
+	drawPixelsW := (boundMaxX - boundMinX + 1) * sp
+	drawPixelsH := (boundMaxY - boundMinY + 1) * sp
 	actualCanvasW := int(float32(drawPixelsW) * pixelSize)
 	actualCanvasH := int(float32(drawPixelsH) * pixelSize)
 	offsetX := canvasX + (canvasW-actualCanvasW)/2
@@ -2375,19 +2385,28 @@ func (s *GameplayScene) updateEditTerritory() {
 		// Convert screen position to drawing pixel coordinates
 		relX := float32(mx-offsetX) / pixelSize
 		relY := float32(my-offsetY) / pixelSize
-		drawX := int(relX) + boundMinX*8
-		drawY := int(relY) + boundMinY*8
+		centerX := int(relX) + boundMinX*sp
+		centerY := int(relY) + boundMinY*sp
 
-		// Check if this pixel is within a territory cell
-		gridX := drawX / 8
-		gridY := drawY / 8
-		cellKey := fmt.Sprintf("%d,%d", gridX, gridY)
-		if territoryCellSet[cellKey] {
-			pixelKey := fmt.Sprintf("%d,%d", drawX, drawY)
-			if s.editTerritoryTool == "pencil" {
-				s.editTerritoryDrawing[pixelKey] = s.editTerritoryColor
-			} else if s.editTerritoryTool == "eraser" {
-				delete(s.editTerritoryDrawing, pixelKey)
+		// Apply brush to all pixels in the brush area
+		brushRadius := s.editTerritoryBrushSize - 1 // size 1 = single pixel, size 2 = 3x3 area centered, etc.
+		for dy := -brushRadius; dy <= brushRadius; dy++ {
+			for dx := -brushRadius; dx <= brushRadius; dx++ {
+				drawX := centerX + dx
+				drawY := centerY + dy
+
+				// Check if this pixel is within a territory cell
+				gridX := drawX / sp
+				gridY := drawY / sp
+				cellKey := fmt.Sprintf("%d,%d", gridX, gridY)
+				if territoryCellSet[cellKey] {
+					pixelKey := fmt.Sprintf("%d,%d", drawX, drawY)
+					if s.editTerritoryTool == "pencil" {
+						s.editTerritoryDrawing[pixelKey] = s.editTerritoryColor
+					} else if s.editTerritoryTool == "eraser" {
+						delete(s.editTerritoryDrawing, pixelKey)
+					}
+				}
 			}
 		}
 		s.editTerritoryIsDrawing = true
@@ -2409,8 +2428,17 @@ func (s *GameplayScene) updateEditTerritory() {
 			s.editTerritoryTool = "eraser"
 		}
 
+		// Brush size buttons - 4 sizes in a row
+		sizeY := toolbarY + 75
+		for i := 0; i < 4; i++ {
+			sx := toolbarX + i*25
+			if mx >= sx && mx < sx+22 && my >= sizeY && my < sizeY+22 {
+				s.editTerritoryBrushSize = i + 1
+			}
+		}
+
 		// Color palette - 2 columns of 5
-		colorStartY := toolbarY + 90
+		colorStartY := toolbarY + 115
 		for i, colorIdx := range DrawingColorOrder {
 			col := i % 2
 			row := i / 2
@@ -2443,8 +2471,9 @@ func (s *GameplayScene) drawEditTerritory(screen *ebiten.Image) {
 		s.editTerritoryCanvasBounds(panelX, panelY, panelW, panelH)
 
 	// Calculate actual rendered size and center it
-	drawPixelsW := (boundMaxX - boundMinX + 1) * 8
-	drawPixelsH := (boundMaxY - boundMinY + 1) * 8
+	sp := game.DrawingSubPixels
+	drawPixelsW := (boundMaxX - boundMinX + 1) * sp
+	drawPixelsH := (boundMaxY - boundMinY + 1) * sp
 	actualCanvasW := float32(drawPixelsW) * pixelSize
 	actualCanvasH := float32(drawPixelsH) * pixelSize
 	offsetX := float32(canvasX) + (float32(canvasW)-actualCanvasW)/2
@@ -2473,9 +2502,9 @@ func (s *GameplayScene) drawEditTerritory(screen *ebiten.Image) {
 			cellKey := fmt.Sprintf("%d,%d", gx, gy)
 			isTerrCell := territoryCellSet[cellKey]
 
-			cellScreenX := offsetX + float32((gx-boundMinX)*8)*pixelSize
-			cellScreenY := offsetY + float32((gy-boundMinY)*8)*pixelSize
-			cellScreenSize := pixelSize * 8
+			cellScreenX := offsetX + float32((gx-boundMinX)*sp)*pixelSize
+			cellScreenY := offsetY + float32((gy-boundMinY)*sp)*pixelSize
+			cellScreenSize := pixelSize * float32(sp)
 
 			// Determine base cell color
 			var cellColor color.RGBA
@@ -2515,9 +2544,9 @@ func (s *GameplayScene) drawEditTerritory(screen *ebiten.Image) {
 
 			// Draw existing drawing pixels for this cell
 			if isTerrCell {
-				for subY := 0; subY < 8; subY++ {
-					for subX := 0; subX < 8; subX++ {
-						drawKey := fmt.Sprintf("%d,%d", gx*8+subX, gy*8+subY)
+				for subY := 0; subY < sp; subY++ {
+					for subX := 0; subX < sp; subX++ {
+						drawKey := fmt.Sprintf("%d,%d", gx*sp+subX, gy*sp+subY)
 						if colorIdx, ok := s.editTerritoryDrawing[drawKey]; ok {
 							if dc, ok := DrawingColors[colorIdx]; ok {
 								px := cellScreenX + float32(subX)*pixelSize
@@ -2526,20 +2555,6 @@ func (s *GameplayScene) drawEditTerritory(screen *ebiten.Image) {
 							}
 						}
 					}
-				}
-			}
-
-			// Draw sub-pixel grid lines (subtle) for territory cells
-			if isTerrCell && pixelSize >= 3 {
-				gridLineColor := color.RGBA{255, 255, 255, 20}
-				for i := 1; i < 8; i++ {
-					linePos := float32(i) * pixelSize
-					// Vertical
-					vector.StrokeLine(screen, cellScreenX+linePos, cellScreenY,
-						cellScreenX+linePos, cellScreenY+cellScreenSize, 1, gridLineColor, false)
-					// Horizontal
-					vector.StrokeLine(screen, cellScreenX, cellScreenY+linePos,
-						cellScreenX+cellScreenSize, cellScreenY+linePos, 1, gridLineColor, false)
 				}
 			}
 
@@ -2586,11 +2601,28 @@ func (s *GameplayScene) drawEditTerritory(screen *ebiten.Image) {
 	vector.StrokeRect(screen, float32(toolbarX), float32(toolbarY+35), 100, 30, 1, ColorBorder, false)
 	DrawText(screen, "Eraser", toolbarX+25, toolbarY+43, ColorText)
 
-	// Color palette label
-	DrawText(screen, "Colors:", toolbarX, toolbarY+75, ColorTextMuted)
+	// Brush size selector - 4 sizes in a row
+	sizeY := toolbarY + 75
+	for i := 0; i < 4; i++ {
+		sx := float32(toolbarX + i*25)
+		sy := float32(sizeY)
+		sizeBg := color.RGBA{30, 30, 60, 255}
+		if s.editTerritoryBrushSize == i+1 {
+			sizeBg = color.RGBA{60, 60, 120, 255}
+		}
+		vector.DrawFilledRect(screen, sx, sy, 22, 22, sizeBg, false)
+		vector.StrokeRect(screen, sx, sy, 22, 22, 1, ColorBorder, false)
+
+		// Draw a dot that represents the brush size
+		dotSize := float32(2 + i*2)
+		dotX := sx + (22-dotSize)/2
+		dotY := sy + (22-dotSize)/2
+		vector.DrawFilledRect(screen, dotX, dotY, dotSize, dotSize, ColorText, false)
+	}
+
 
 	// Color palette - 2 columns of 5
-	colorStartY := toolbarY + 90
+	colorStartY := toolbarY + 115
 	for i, colorIdx := range DrawingColorOrder {
 		col := i % 2
 		row := i / 2

@@ -93,17 +93,18 @@ var PlayerColorOrder = []string{
 
 // DrawingColors maps color indices (1-10) to RGBA values for territory drawing.
 // Index 0 means no drawing (transparent). Black is excluded since it's used for borders/icons.
+// These shades are intentionally distinct from PlayerColors to avoid confusion.
 var DrawingColors = map[int]color.RGBA{
-	1:  {220, 50, 50, 255},   // Red
-	2:  {50, 100, 220, 255},  // Blue
-	3:  {50, 180, 50, 255},   // Green
-	4:  {240, 220, 50, 255},  // Yellow
+	1:  {170, 25, 25, 255},   // Dark Red (player red is 200,50,50)
+	2:  {25, 40, 160, 255},   // Navy Blue (player blue is 80,100,200)
+	3:  {20, 110, 20, 255},   // Forest Green (player green is 50,180,50)
+	4:  {255, 255, 100, 255}, // Lemon Yellow (player yellow is 220,200,50)
 	5:  {255, 255, 255, 255}, // White
-	6:  {240, 140, 40, 255},  // Orange
-	7:  {150, 50, 180, 255},  // Purple
-	8:  {140, 90, 45, 255},   // Brown
-	9:  {240, 120, 180, 255}, // Pink
-	10: {50, 200, 210, 255},  // Cyan
+	6:  {200, 100, 20, 255},  // Rust Orange (player orange is 255,140,0)
+	7:  {100, 20, 140, 255},  // Deep Violet (player purple is 160,80,200)
+	8:  {140, 90, 45, 255},   // Brown (no player overlap)
+	9:  {255, 50, 150, 255},  // Hot Magenta (player pink is 255,120,180)
+	10: {100, 255, 255, 255}, // Light Aqua (player cyan is 0,200,200)
 }
 
 // DrawingColorOrder defines display order for the drawing color picker
