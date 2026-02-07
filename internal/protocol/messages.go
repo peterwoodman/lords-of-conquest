@@ -94,6 +94,7 @@ const (
 	TypeBuild              MessageType = "build"
 	TypeSurrender          MessageType = "surrender"
 	TypeSurrenderResult    MessageType = "surrender_result"
+	TypeRenameTerritory    MessageType = "rename_territory"
 )
 
 // Synchronization message types

@@ -792,7 +792,7 @@ func (s *GameplayScene) drawDiplomacyMenu(screen *ebiten.Image) {
 	menuW := colWidth*2 + colGap + 60 // Two columns + gap + margins
 
 	// Calculate height based on player count (players shown in columns)
-	topSectionH := 45 + 90 // Header/current + mode buttons (2 rows)
+	topSectionH := 45 + 90                     // Header/current + mode buttons (2 rows)
 	playerSectionH := 25 + otherPlayerCount*40 // Label + player buttons
 	cancelSectionH := 55
 
@@ -2168,4 +2168,102 @@ func (s *GameplayScene) cancelAttackConfirmation() {
 	s.selectedReinforcement = nil
 	s.loadHorseCheckbox = false
 	s.loadWeaponCheckbox = false
+}
+
+// openEditTerritoryDialog opens the edit territory dialog for the given territory.
+func (s *GameplayScene) openEditTerritoryDialog(territoryID string) {
+	// Get current territory name
+	currentName := ""
+	if terr, ok := s.territories[territoryID].(map[string]interface{}); ok {
+		currentName, _ = terr["name"].(string)
+	}
+
+	s.editTerritoryID = territoryID
+	s.editTerritoryInput = &TextInput{
+		X: 0, Y: 0, W: 280, H: 30,
+		Placeholder: "Territory name",
+		Text:        currentName,
+		MaxLength:   30,
+	}
+	// Focus the text input immediately
+	s.editTerritoryInput.focused = true
+
+	s.editTerritorySaveBtn = &Button{
+		W: 120, H: 35,
+		Text:    "Save",
+		Primary: true,
+		OnClick: func() {
+			name := strings.TrimSpace(s.editTerritoryInput.Text)
+			if name == "" {
+				return // Don't save empty names
+			}
+			s.game.RenameTerritory(s.editTerritoryID, name)
+			s.showEditTerritory = false
+		},
+	}
+
+	s.editTerritoryCancelBtn = &Button{
+		W: 120, H: 35,
+		Text: "Cancel",
+		OnClick: func() {
+			s.showEditTerritory = false
+		},
+	}
+
+	s.showEditTerritory = true
+}
+
+// updateEditTerritory handles input for the edit territory dialog.
+func (s *GameplayScene) updateEditTerritory() {
+	s.editTerritoryInput.Update()
+	s.editTerritorySaveBtn.Update()
+	s.editTerritoryCancelBtn.Update()
+
+	// Enter to save
+	if inpututil.IsKeyJustPressed(ebiten.KeyEnter) {
+		name := strings.TrimSpace(s.editTerritoryInput.Text)
+		if name != "" {
+			s.game.RenameTerritory(s.editTerritoryID, name)
+			s.showEditTerritory = false
+		}
+	}
+
+	// ESC to cancel
+	if inpututil.IsKeyJustPressed(ebiten.KeyEscape) {
+		s.showEditTerritory = false
+	}
+}
+
+// drawEditTerritory draws the edit territory dialog overlay.
+func (s *GameplayScene) drawEditTerritory(screen *ebiten.Image) {
+	// Semi-transparent overlay
+	vector.DrawFilledRect(screen, 0, 0, float32(ScreenWidth), float32(ScreenHeight),
+		color.RGBA{0, 0, 0, 200}, false)
+
+	// Dialog panel
+	panelW := 340
+	panelH := 180
+	panelX := ScreenWidth/2 - panelW/2
+	panelY := ScreenHeight/2 - panelH/2
+
+	DrawFancyPanel(screen, panelX, panelY, panelW, panelH, "Edit Territory")
+
+	// Territory name input
+	s.editTerritoryInput.X = panelX + 30
+	s.editTerritoryInput.Y = panelY + 60
+	s.editTerritoryInput.W = panelW - 60
+	s.editTerritoryInput.Draw(screen)
+
+	// Label
+	DrawText(screen, "Name:", panelX+30, panelY+45, ColorTextMuted)
+
+	// Buttons
+	btnY := panelY + panelH - 55
+	s.editTerritorySaveBtn.X = panelX + panelW/2 - 130
+	s.editTerritorySaveBtn.Y = btnY
+	s.editTerritorySaveBtn.Draw(screen)
+
+	s.editTerritoryCancelBtn.X = panelX + panelW/2 + 10
+	s.editTerritoryCancelBtn.Y = btnY
+	s.editTerritoryCancelBtn.Draw(screen)
 }

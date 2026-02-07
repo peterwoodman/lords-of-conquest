@@ -3,6 +3,7 @@ package client
 import (
 	"image"
 	"image/color"
+	"time"
 
 	"lords-of-conquest/internal/protocol"
 
@@ -145,12 +146,12 @@ type GameplayScene struct {
 	myAllianceSetting string // Current alliance setting
 
 	// Surrender UI
-	showSurrenderConfirm  bool
-	surrenderTargetID     string
-	surrenderTargetName   string
-	confirmSurrenderBtn   *Button
-	cancelSurrenderBtn    *Button
-	surrenderPlayerBtns   []*Button // Buttons for surrendering to specific players
+	showSurrenderConfirm bool
+	surrenderTargetID    string
+	surrenderTargetName  string
+	confirmSurrenderBtn  *Button
+	cancelSurrenderBtn   *Button
+	surrenderPlayerBtns  []*Button // Buttons for surrendering to specific players
 
 	// Alliance request popup (when asked to join a battle)
 	showAllyRequest      bool
@@ -188,6 +189,17 @@ type GameplayScene struct {
 	moveBoatBtn           *Button
 	cancelShipmentBtn     *Button
 	shipmentConfirmBtn    *Button
+
+	// Edit territory dialog
+	showEditTerritory      bool
+	editTerritoryID        string
+	editTerritoryInput     *TextInput
+	editTerritorySaveBtn   *Button
+	editTerritoryCancelBtn *Button
+
+	// Double-click detection
+	lastClickTime int64  // Unix millis of last left-click on a territory
+	lastClickTerr string // Territory ID of last click
 
 	// Color picker UI
 	showColorPicker bool
@@ -778,6 +790,12 @@ func (s *GameplayScene) Update() error {
 		return nil
 	}
 
+	// Handle edit territory dialog
+	if s.showEditTerritory {
+		s.updateEditTerritory()
+		return nil // Block other input while editing
+	}
+
 	// Handle color picker popup
 	if s.showColorPicker {
 		s.cancelColorBtn.Update()
@@ -1020,6 +1038,23 @@ func (s *GameplayScene) Update() error {
 		if s.isClickInBounds(mx, my, s.myColorBlockBounds) {
 			s.openColorPicker()
 		} else if s.hoveredCell[0] >= 0 {
+			// Double-click detection for edit territory dialog
+			now := time.Now().UnixMilli()
+			terrID := s.getTerritoryAt(s.hoveredCell[0], s.hoveredCell[1])
+			if terrID != "" && terrID == s.lastClickTerr && now-s.lastClickTime < 400 {
+				// Double-click detected - check if player owns territory
+				if terr, ok := s.territories[terrID].(map[string]interface{}); ok {
+					if owner, _ := terr["owner"].(string); owner == s.game.config.PlayerID {
+						s.openEditTerritoryDialog(terrID)
+						s.lastClickTerr = ""
+						s.lastClickTime = 0
+					}
+				}
+			} else {
+				s.lastClickTerr = terrID
+				s.lastClickTime = now
+			}
+
 			s.handleCellClick(s.hoveredCell[0], s.hoveredCell[1])
 		}
 	}
@@ -1068,6 +1103,7 @@ func (s *GameplayScene) isDialogOrAnimationShowing() bool {
 		s.showTradeResult ||
 		s.waitingForTrade ||
 		s.showColorPicker ||
+		s.showEditTerritory ||
 		s.pendingHorseSelection != ""
 }
 
@@ -1155,6 +1191,10 @@ func (s *GameplayScene) Draw(screen *ebiten.Image) {
 	}
 	if s.waitingForTrade {
 		s.drawTradeWaiting(screen)
+	}
+	// Draw edit territory dialog
+	if s.showEditTerritory {
+		s.drawEditTerritory(screen)
 	}
 	// Draw color picker popup
 	if s.showColorPicker {

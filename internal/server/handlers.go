@@ -87,6 +87,8 @@ func (h *Handlers) Handle(client *Client, msg *protocol.Message) {
 		err = h.handleClientReady(client, msg)
 	case protocol.TypeSurrender:
 		err = h.handleSurrender(client, msg)
+	case protocol.TypeRenameTerritory:
+		err = h.handleRenameTerritory(client, msg)
 	default:
 		err = errors.New("unknown message type")
 	}
@@ -3133,85 +3135,85 @@ func (h *Handlers) handleExecuteAttack(client *Client, msg *protocol.Message) er
 		if len(askPlayers) > 0 {
 			log.Printf("Waiting for %d alliance votes from: %v", len(askPlayers), askPlayers)
 
-		// Create a pending battle
-		battleID := fmt.Sprintf("battle-%s-%d", client.GameID, time.Now().UnixNano())
-		battle := &PendingBattle{
-			ID:           battleID,
-			GameID:       client.GameID,
-			AttackerID:   client.PlayerID,
-			DefenderID:   defenderID,
-			TerritoryID:  payload.TargetTerritory,
-			ThirdParties: askPlayers,
-			Votes:        make(map[string]string),
-			VoteChan:     make(chan string, len(askPlayers)),
-			ExpiresAt:    time.Now().Add(60 * time.Second),
-		}
-
-		h.hub.mu.Lock()
-		h.hub.pendingBattles[battleID] = battle
-		h.hub.mu.Unlock()
-
-		// Send alliance requests to all "ask" players
-		for _, askID := range askPlayers {
-			askPlayer := state.Players[askID]
-			askStrength := state.CalculatePlayerStrengthAtTerritory(askID, target)
-
-			attackerName := client.Name
-			defenderName := "Unclaimed"
-			if defender := state.Players[defenderID]; defender != nil {
-				defenderName = defender.Name
+			// Create a pending battle
+			battleID := fmt.Sprintf("battle-%s-%d", client.GameID, time.Now().UnixNano())
+			battle := &PendingBattle{
+				ID:           battleID,
+				GameID:       client.GameID,
+				AttackerID:   client.PlayerID,
+				DefenderID:   defenderID,
+				TerritoryID:  payload.TargetTerritory,
+				ThirdParties: askPlayers,
+				Votes:        make(map[string]string),
+				VoteChan:     make(chan string, len(askPlayers)),
+				ExpiresAt:    time.Now().Add(60 * time.Second),
 			}
 
-			request := protocol.AllianceRequestPayload{
-				BattleID:      battleID,
-				AttackerID:    client.PlayerID,
-				AttackerName:  attackerName,
-				DefenderID:    defenderID,
-				DefenderName:  defenderName,
-				TerritoryID:   payload.TargetTerritory,
-				TerritoryName: terrName,
-				YourStrength:  askStrength,
-				TimeLimit:     60,
-				ExpiresAt:     battle.ExpiresAt.Unix(),
+			h.hub.mu.Lock()
+			h.hub.pendingBattles[battleID] = battle
+			h.hub.mu.Unlock()
+
+			// Send alliance requests to all "ask" players
+			for _, askID := range askPlayers {
+				askPlayer := state.Players[askID]
+				askStrength := state.CalculatePlayerStrengthAtTerritory(askID, target)
+
+				attackerName := client.Name
+				defenderName := "Unclaimed"
+				if defender := state.Players[defenderID]; defender != nil {
+					defenderName = defender.Name
+				}
+
+				request := protocol.AllianceRequestPayload{
+					BattleID:      battleID,
+					AttackerID:    client.PlayerID,
+					AttackerName:  attackerName,
+					DefenderID:    defenderID,
+					DefenderName:  defenderName,
+					TerritoryID:   payload.TargetTerritory,
+					TerritoryName: terrName,
+					YourStrength:  askStrength,
+					TimeLimit:     60,
+					ExpiresAt:     battle.ExpiresAt.Unix(),
+				}
+
+				log.Printf("Sending alliance request to %s (%s)", askID, askPlayer.Name)
+				h.hub.sendToPlayer(askID, protocol.TypeAllianceRequest, request)
 			}
 
-			log.Printf("Sending alliance request to %s (%s)", askID, askPlayer.Name)
-			h.hub.sendToPlayer(askID, protocol.TypeAllianceRequest, request)
-		}
+			// Wait for votes or timeout
+			votesReceived := 0
+			timeout := time.After(60 * time.Second)
 
-		// Wait for votes or timeout
-		votesReceived := 0
-		timeout := time.After(60 * time.Second)
-
-	voteLoop:
-		for votesReceived < len(askPlayers) {
-			select {
-			case <-battle.VoteChan:
-				votesReceived++
-				log.Printf("Received vote %d/%d", votesReceived, len(askPlayers))
-			case <-timeout:
-				log.Printf("Alliance vote timeout, proceeding with %d/%d votes", votesReceived, len(askPlayers))
-				break voteLoop
+		voteLoop:
+			for votesReceived < len(askPlayers) {
+				select {
+				case <-battle.VoteChan:
+					votesReceived++
+					log.Printf("Received vote %d/%d", votesReceived, len(askPlayers))
+				case <-timeout:
+					log.Printf("Alliance vote timeout, proceeding with %d/%d votes", votesReceived, len(askPlayers))
+					break voteLoop
+				}
 			}
-		}
 
-		// Collect the votes
-		h.hub.mu.Lock()
-		for playerID, side := range battle.Votes {
-			switch side {
-			case "attacker":
-				attackerAllies = append(attackerAllies, playerID)
-				log.Printf("  %s voted for attacker", playerID)
-			case "defender":
-				defenderAllies = append(defenderAllies, playerID)
-				log.Printf("  %s voted for defender", playerID)
-			default:
-				log.Printf("  %s voted neutral", playerID)
+			// Collect the votes
+			h.hub.mu.Lock()
+			for playerID, side := range battle.Votes {
+				switch side {
+				case "attacker":
+					attackerAllies = append(attackerAllies, playerID)
+					log.Printf("  %s voted for attacker", playerID)
+				case "defender":
+					defenderAllies = append(defenderAllies, playerID)
+					log.Printf("  %s voted for defender", playerID)
+				default:
+					log.Printf("  %s voted neutral", playerID)
+				}
 			}
-		}
-		// Clean up the pending battle
-		delete(h.hub.pendingBattles, battleID)
-		h.hub.mu.Unlock()
+			// Clean up the pending battle
+			delete(h.hub.pendingBattles, battleID)
+			h.hub.mu.Unlock()
 		}
 
 		log.Printf("Battle at %s: Final allies - Attacker: %v, Defender: %v", terrName, attackerAllies, defenderAllies)
@@ -3860,4 +3862,60 @@ func (h *Handlers) completeProductionPhase(gameID string) {
 	if !h.broadcastGameState(gameID) {
 		go h.checkAndTriggerAI(gameID)
 	}
+}
+
+// handleRenameTerritory handles renaming a territory the player owns.
+func (h *Handlers) handleRenameTerritory(client *Client, msg *protocol.Message) error {
+	if client.GameID == "" {
+		return errors.New("not in a game")
+	}
+
+	var payload protocol.RenameTerritoryPayload
+	if err := msg.ParsePayload(&payload); err != nil {
+		return err
+	}
+
+	// Load game state
+	stateJSON, err := h.hub.server.db.GetGameState(client.GameID)
+	if err != nil {
+		return err
+	}
+
+	var state game.GameState
+	if err := json.Unmarshal([]byte(stateJSON), &state); err != nil {
+		return err
+	}
+
+	// Get old name for history
+	oldName := payload.TerritoryID
+	if terr, ok := state.Territories[payload.TerritoryID]; ok {
+		oldName = terr.Name
+	}
+
+	// Execute rename
+	if err := state.RenameTerritory(client.PlayerID, payload.TerritoryID, payload.Name); err != nil {
+		return err
+	}
+
+	// Log history event
+	h.logHistory(client.GameID, state.Round, state.Phase.String(), client.PlayerID, client.Name,
+		database.EventTerritoryRenamed, fmt.Sprintf("Renamed %s to %s", oldName, payload.Name))
+
+	// Save updated state
+	stateJSON2, err := json.Marshal(state)
+	if err != nil {
+		return err
+	}
+
+	if err := h.hub.server.db.SaveGameState(client.GameID, string(stateJSON2),
+		state.CurrentPlayerID, state.Round, state.Phase.String()); err != nil {
+		return err
+	}
+
+	log.Printf("Player %s renamed territory %s to %s", client.Name, payload.TerritoryID, payload.Name)
+
+	// Broadcast updated state to all players
+	h.broadcastGameState(client.GameID)
+
+	return nil
 }

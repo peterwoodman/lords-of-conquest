@@ -2,20 +2,25 @@
 // This package is shared between client and server.
 package game
 
+import (
+	"errors"
+	"strings"
+)
+
 // GameState represents the complete state of a game.
 type GameState struct {
-	ID                         string                 `json:"id"`
-	Settings                   Settings               `json:"settings"`
-	Round                      int                    `json:"round"`
-	Phase                      Phase                  `json:"phase"`
-	CurrentPlayerID            string                 `json:"currentPlayerId"`
-	PlayerOrder                []string               `json:"playerOrder"`
-	Players                    map[string]*Player     `json:"players"`
-	Territories                map[string]*Territory  `json:"territories"`
-	WaterBodies                map[string]*WaterBody  `json:"waterBodies"`
-	SkippedPhases              []PhaseSkipInfo        `json:"skippedPhases,omitempty"`              // Phases skipped in last transition
-	ProductionPending          bool                   `json:"productionPending,omitempty"`          // True when production animation should play
-	StockpilePlacementPending  bool                   `json:"stockpilePlacementPending,omitempty"`  // True when players need to place stockpiles
+	ID                        string                `json:"id"`
+	Settings                  Settings              `json:"settings"`
+	Round                     int                   `json:"round"`
+	Phase                     Phase                 `json:"phase"`
+	CurrentPlayerID           string                `json:"currentPlayerId"`
+	PlayerOrder               []string              `json:"playerOrder"`
+	Players                   map[string]*Player    `json:"players"`
+	Territories               map[string]*Territory `json:"territories"`
+	WaterBodies               map[string]*WaterBody `json:"waterBodies"`
+	SkippedPhases             []PhaseSkipInfo       `json:"skippedPhases,omitempty"`             // Phases skipped in last transition
+	ProductionPending         bool                  `json:"productionPending,omitempty"`         // True when production animation should play
+	StockpilePlacementPending bool                  `json:"stockpilePlacementPending,omitempty"` // True when players need to place stockpiles
 }
 
 // Settings contains the configurable game parameters.
@@ -40,7 +45,7 @@ type Phase int
 
 const (
 	PhaseTerritorySelection Phase = iota
-	PhaseDevelopment // First in year (but skipped in Year 1)
+	PhaseDevelopment              // First in year (but skipped in Year 1)
 	PhaseProduction
 	PhaseTrade
 	PhaseShipment
@@ -221,3 +226,28 @@ func (g *GameState) Surrender(surrenderPlayerID, targetPlayerID string) int {
 	return territoriesTransferred
 }
 
+// MaxTerritoryNameLength is the maximum allowed length for a territory name.
+const MaxTerritoryNameLength = 30
+
+// RenameTerritory renames a territory owned by the given player.
+func (g *GameState) RenameTerritory(playerID, territoryID, newName string) error {
+	territory, ok := g.Territories[territoryID]
+	if !ok {
+		return errors.New("territory not found")
+	}
+
+	if territory.Owner != playerID {
+		return errors.New("you do not own this territory")
+	}
+
+	trimmed := strings.TrimSpace(newName)
+	if trimmed == "" {
+		return errors.New("territory name cannot be empty")
+	}
+	if len(trimmed) > MaxTerritoryNameLength {
+		return errors.New("territory name is too long")
+	}
+
+	territory.Name = trimmed
+	return nil
+}

@@ -28,6 +28,7 @@ const (
 	EventRoundStart        = "round_start"
 	EventPlayerEliminated  = "player_eliminated"
 	EventGameEnd           = "game_end"
+	EventTerritoryRenamed  = "territory_renamed"
 )
 
 // AddHistoryEvent adds a new event to the game history.

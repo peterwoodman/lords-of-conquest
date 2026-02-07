@@ -504,6 +504,15 @@ func (g *Game) BuildBoatInWater(territoryID, waterBodyID string, useGold bool) e
 	return g.network.SendPayload(protocol.TypeBuild, payload)
 }
 
+// RenameTerritory sends a territory rename request to the server.
+func (g *Game) RenameTerritory(territoryID, name string) error {
+	payload := protocol.RenameTerritoryPayload{
+		TerritoryID: territoryID,
+		Name:        name,
+	}
+	return g.network.SendPayload(protocol.TypeRenameTerritory, payload)
+}
+
 // SendClientReady tells the server we're ready to proceed after an event.
 func (g *Game) SendClientReady(eventID, eventType string) error {
 	if eventID == "" {

@@ -29,11 +29,11 @@ type CreateGamePayload struct {
 
 // MapData contains the full map information for generated maps.
 type MapData struct {
-	ID          string              `json:"id"`
-	Name        string              `json:"name"`
-	Width       int                 `json:"width"`
-	Height      int                 `json:"height"`
-	Grid        [][]int             `json:"grid"`
+	ID          string                   `json:"id"`
+	Name        string                   `json:"name"`
+	Width       int                      `json:"width"`
+	Height      int                      `json:"height"`
+	Grid        [][]int                  `json:"grid"`
 	Territories map[string]TerritoryInfo `json:"territories"`
 }
 
@@ -263,6 +263,12 @@ type PlaceStockpilePayload struct {
 	TerritoryID string `json:"territory_id"`
 }
 
+// RenameTerritoryPayload renames a territory the player owns.
+type RenameTerritoryPayload struct {
+	TerritoryID string `json:"territory_id"`
+	Name        string `json:"name"`
+}
+
 // ProposeTradePayload proposes a trade.
 type ProposeTradePayload struct {
 	TargetPlayer          string   `json:"target_player"`
@@ -271,30 +277,30 @@ type ProposeTradePayload struct {
 	OfferIron             int      `json:"offer_iron"`
 	OfferTimber           int      `json:"offer_timber"`
 	OfferHorses           int      `json:"offer_horses"`
-	OfferHorseTerrs       []string `json:"offer_horse_territories"`        // Which territories horses come from (proposer's)
+	OfferHorseTerrs       []string `json:"offer_horse_territories"` // Which territories horses come from (proposer's)
 	RequestCoal           int      `json:"request_coal"`
 	RequestGold           int      `json:"request_gold"`
 	RequestIron           int      `json:"request_iron"`
 	RequestTimber         int      `json:"request_timber"`
 	RequestHorses         int      `json:"request_horses"`
-	RequestHorseDestTerrs []string `json:"request_horse_destinations"`     // Where proposer wants received horses placed
+	RequestHorseDestTerrs []string `json:"request_horse_destinations"` // Where proposer wants received horses placed
 }
 
 // TradeProposalPayload is sent to the target player showing a trade offer.
 type TradeProposalPayload struct {
-	TradeID            string `json:"trade_id"`
-	FromPlayerID       string `json:"from_player_id"`
-	FromPlayerName     string `json:"from_player_name"`
-	OfferCoal          int    `json:"offer_coal"`
-	OfferGold          int    `json:"offer_gold"`
-	OfferIron          int    `json:"offer_iron"`
-	OfferTimber        int    `json:"offer_timber"`
-	OfferHorses        int    `json:"offer_horses"`
-	RequestCoal        int    `json:"request_coal"`
-	RequestGold        int    `json:"request_gold"`
-	RequestIron        int    `json:"request_iron"`
-	RequestTimber      int    `json:"request_timber"`
-	RequestHorses      int    `json:"request_horses"`
+	TradeID        string `json:"trade_id"`
+	FromPlayerID   string `json:"from_player_id"`
+	FromPlayerName string `json:"from_player_name"`
+	OfferCoal      int    `json:"offer_coal"`
+	OfferGold      int    `json:"offer_gold"`
+	OfferIron      int    `json:"offer_iron"`
+	OfferTimber    int    `json:"offer_timber"`
+	OfferHorses    int    `json:"offer_horses"`
+	RequestCoal    int    `json:"request_coal"`
+	RequestGold    int    `json:"request_gold"`
+	RequestIron    int    `json:"request_iron"`
+	RequestTimber  int    `json:"request_timber"`
+	RequestHorses  int    `json:"request_horses"`
 }
 
 // RespondTradePayload responds to a trade offer.
@@ -319,12 +325,12 @@ type MoveStockpilePayload struct {
 
 // MoveUnitPayload moves a unit.
 type MoveUnitPayload struct {
-	UnitType     string `json:"unit_type"`
-	From         string `json:"from"`
-	To           string `json:"to"`
-	WaterBodyID  string `json:"water_body_id,omitempty"` // For boats: which water body
-	CarryHorse   bool   `json:"carry_horse,omitempty"`   // For boats: load horse
-	CarryWeapon  bool   `json:"carry_weapon,omitempty"`  // For boats/horses: load weapon
+	UnitType    string `json:"unit_type"`
+	From        string `json:"from"`
+	To          string `json:"to"`
+	WaterBodyID string `json:"water_body_id,omitempty"` // For boats: which water body
+	CarryHorse  bool   `json:"carry_horse,omitempty"`   // For boats: load horse
+	CarryWeapon bool   `json:"carry_weapon,omitempty"`  // For boats/horses: load weapon
 }
 
 // PlanAttackPayload begins attack planning.
@@ -337,24 +343,24 @@ type AttackPreviewPayload struct {
 	TargetTerritory         string                `json:"target_territory"`
 	AttackStrength          int                   `json:"attack_strength"`
 	DefenseStrength         int                   `json:"defense_strength"`
-	AttackerAllyStrength    int                   `json:"attacker_ally_strength"`  // Strength from allies
-	DefenderAllyStrength    int                   `json:"defender_ally_strength"`  // Strength from allies
+	AttackerAllyStrength    int                   `json:"attacker_ally_strength"` // Strength from allies
+	DefenderAllyStrength    int                   `json:"defender_ally_strength"` // Strength from allies
 	CanAttack               bool                  `json:"can_attack"`
 	AvailableReinforcements []ReinforcementOption `json:"available_reinforcements"`
 }
 
 // ReinforcementOption is a possible unit to bring.
 type ReinforcementOption struct {
-	UnitType           string `json:"unit_type"`
-	From               string `json:"from"`
-	WaterBodyID        string `json:"water_body_id,omitempty"` // For boats
-	StrengthBonus      int    `json:"strength_bonus"`
-	CanCarryWeapon     bool   `json:"can_carry_weapon,omitempty"`
-	WeaponAvailableAt  string `json:"weapon_available_at,omitempty"`
-	WeaponStrengthBonus int   `json:"weapon_strength_bonus,omitempty"` // Strength added if weapon is loaded (0 if already in range)
-	CanCarryHorse      bool   `json:"can_carry_horse,omitempty"`
-	HorseAvailableAt   string `json:"horse_available_at,omitempty"`
-	HorseStrengthBonus int    `json:"horse_strength_bonus,omitempty"` // Strength added if horse is loaded (0 if already in range)
+	UnitType            string `json:"unit_type"`
+	From                string `json:"from"`
+	WaterBodyID         string `json:"water_body_id,omitempty"` // For boats
+	StrengthBonus       int    `json:"strength_bonus"`
+	CanCarryWeapon      bool   `json:"can_carry_weapon,omitempty"`
+	WeaponAvailableAt   string `json:"weapon_available_at,omitempty"`
+	WeaponStrengthBonus int    `json:"weapon_strength_bonus,omitempty"` // Strength added if weapon is loaded (0 if already in range)
+	CanCarryHorse       bool   `json:"can_carry_horse,omitempty"`
+	HorseAvailableAt    string `json:"horse_available_at,omitempty"`
+	HorseStrengthBonus  int    `json:"horse_strength_bonus,omitempty"` // Strength added if horse is loaded (0 if already in range)
 }
 
 // BringForcesPayload adds reinforcement to attack.
@@ -372,16 +378,16 @@ type SetAlliancePayload struct {
 
 // AllianceRequestPayload notifies of alliance opportunity during combat.
 type AllianceRequestPayload struct {
-	BattleID       string `json:"battle_id"`
-	AttackerID     string `json:"attacker_id"`
-	AttackerName   string `json:"attacker_name"`
-	DefenderID     string `json:"defender_id"`
-	DefenderName   string `json:"defender_name"`
-	TerritoryID    string `json:"territory_id"`
-	TerritoryName  string `json:"territory_name"`
-	YourStrength   int    `json:"your_strength"`
-	TimeLimit      int    `json:"time_limit"` // seconds
-	ExpiresAt      int64  `json:"expires_at"` // unix timestamp
+	BattleID      string `json:"battle_id"`
+	AttackerID    string `json:"attacker_id"`
+	AttackerName  string `json:"attacker_name"`
+	DefenderID    string `json:"defender_id"`
+	DefenderName  string `json:"defender_name"`
+	TerritoryID   string `json:"territory_id"`
+	TerritoryName string `json:"territory_name"`
+	YourStrength  int    `json:"your_strength"`
+	TimeLimit     int    `json:"time_limit"` // seconds
+	ExpiresAt     int64  `json:"expires_at"` // unix timestamp
 }
 
 // AllianceVotePayload is a player's alliance choice.
@@ -407,14 +413,14 @@ type BuildPayload struct {
 // ExecuteAttackPayload executes a planned attack.
 type ExecuteAttackPayload struct {
 	TargetTerritory string `json:"target_territory"`
-	BringUnit       string `json:"bring_unit,omitempty"`     // "horse", "weapon", or "boat"
-	BringFrom       string `json:"bring_from,omitempty"`     // Territory ID
-	WaterBodyID     string `json:"water_body_id,omitempty"`  // For boats: which water body
-	CarryWeapon     bool   `json:"carry_weapon,omitempty"`   // For horse/boat
-	WeaponFrom      string `json:"weapon_from,omitempty"`    // Territory ID
-	CarryHorse      bool   `json:"carry_horse,omitempty"`    // For boat
-	HorseFrom       string `json:"horse_from,omitempty"`     // Territory ID
-	PlanID          string `json:"plan_id,omitempty"`        // Use cached plan from RequestAttackPlan
+	BringUnit       string `json:"bring_unit,omitempty"`    // "horse", "weapon", or "boat"
+	BringFrom       string `json:"bring_from,omitempty"`    // Territory ID
+	WaterBodyID     string `json:"water_body_id,omitempty"` // For boats: which water body
+	CarryWeapon     bool   `json:"carry_weapon,omitempty"`  // For horse/boat
+	WeaponFrom      string `json:"weapon_from,omitempty"`   // Territory ID
+	CarryHorse      bool   `json:"carry_horse,omitempty"`   // For boat
+	HorseFrom       string `json:"horse_from,omitempty"`    // Territory ID
+	PlanID          string `json:"plan_id,omitempty"`       // Use cached plan from RequestAttackPlan
 }
 
 // RequestAttackPlanPayload requests alliance resolution before committing to attack.
@@ -431,7 +437,7 @@ type RequestAttackPlanPayload struct {
 
 // AttackPlanResolvedPayload is sent back with resolved alliance totals.
 type AttackPlanResolvedPayload struct {
-	PlanID               string   `json:"plan_id"`                // ID to reference this plan when confirming
+	PlanID               string   `json:"plan_id"` // ID to reference this plan when confirming
 	TargetTerritory      string   `json:"target_territory"`
 	BaseAttackStrength   int      `json:"base_attack_strength"`   // Player's base attack
 	BaseDefenseStrength  int      `json:"base_defense_strength"`  // Defender's base defense
@@ -480,11 +486,11 @@ type CombatResultPayload struct {
 
 // Event types for synchronization
 const (
-	EventCombat     = "combat"      // Combat animation/result
-	EventPhaseSkip  = "phase_skip"  // Phase was skipped notification
+	EventCombat      = "combat"       // Combat animation/result
+	EventPhaseSkip   = "phase_skip"   // Phase was skipped notification
 	EventPhaseChange = "phase_change" // Phase transition
-	EventTurnChange = "turn_change"   // Turn changed to new player
-	EventProduction = "production"    // Production animation
+	EventTurnChange  = "turn_change"  // Turn changed to new player
+	EventProduction  = "production"   // Production animation
 )
 
 // ==================== Production Payloads ====================
@@ -502,11 +508,11 @@ type TerritoryProduction struct {
 
 // ProductionResultsPayload reports production results for animation.
 type ProductionResultsPayload struct {
-	EventID             string                `json:"event_id"`
-	PlayerID            string                `json:"player_id"`
-	Productions         []TerritoryProduction `json:"productions"`
-	StockpileTerritoryID string               `json:"stockpile_territory_id"`
-	StockpileTerritoryName string             `json:"stockpile_territory_name"`
+	EventID                string                `json:"event_id"`
+	PlayerID               string                `json:"player_id"`
+	Productions            []TerritoryProduction `json:"productions"`
+	StockpileTerritoryID   string                `json:"stockpile_territory_id"`
+	StockpileTerritoryName string                `json:"stockpile_territory_name"`
 }
 
 // ClientReadyPayload is sent by client to acknowledge an event.
