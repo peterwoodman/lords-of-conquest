@@ -79,6 +79,94 @@ type terrData struct {
 	cells [][2]int
 }
 
+// --- Territory name pools ---
+
+// namesTimber contains names evocative of forests and woodlands.
+var namesTimber = []string{
+	"Pinewood", "Timberland", "Elmhurst", "Groves", "Ashwood",
+	"Birchfield", "Cedarholme", "Oakmere", "Willowdale", "Fernwood",
+	"Briarwood", "Mapleton", "Yewford", "Hazelwood", "Aldergrove",
+	"Thornwood", "Sherwood", "Larchfield", "Coppice", "Woodhaven",
+	"Lindenbrook", "Hollythorn", "Timbervale", "Ivywood", "Beechcroft",
+}
+
+// namesIron contains names evocative of mountains and industry.
+var namesIron = []string{
+	"Ironhills", "Stonecrag", "Quarryfield", "Anvil Ridge", "Hammerfall",
+	"Copperstone", "Forge Valley", "Granite Peak", "Slate Hollow", "Ore Haven",
+	"Steelmark", "Pickton", "Ironmere", "Blackrock", "Slag Point",
+	"Cragmoor", "Deepmine", "Irongate", "Rustfield", "Boulderford",
+	"Stonewall", "Ridgehammer", "Ironvale", "Hearthstone", "Cliffton",
+}
+
+// namesGold contains names evocative of wealth and prosperity.
+var namesGold = []string{
+	"Goldhaven", "Prospect", "El Dorado", "Richfield", "Goldcrest",
+	"Treasure Point", "Crown Hill", "Gilded Vale", "Bonanza", "Nugget Creek",
+	"Fortune", "Sovereign", "Kings Bounty", "Aurelia", "Goldendale",
+	"Jewel Ridge", "Glintford", "Amber Hills", "Goldrush", "Scepter Point",
+	"Midas Reach", "Bullion Bluff", "Lustre", "Golden Meadows", "Mintfield",
+}
+
+// namesCoal contains names evocative of dark earth and fuel.
+var namesCoal = []string{
+	"Ashford", "Coaldale", "Cinderfall", "Blackhollow", "Smolder",
+	"Ember Ridge", "Sootfield", "Char Point", "Darkmine", "Pitsville",
+	"Coalgate", "Scorchdale", "Ashwick", "Burncross", "Colliery",
+	"Grimesby", "Dustpan", "Carbon Hill", "Clinker", "Lampblack",
+	"Brimstone", "Furnaceford", "Hearthdale", "Flintwick", "Smokemoor",
+}
+
+// namesGrassland contains names evocative of pastures and farming.
+var namesGrassland = []string{
+	"Green Meadows", "Pastures", "Hayfield", "Cloverdale", "Farmington",
+	"Millfield", "Harvest Hill", "Cornbury", "Wheatshire", "Grange",
+	"Barley Cross", "Grassholme", "Greendale", "Stableford", "Tillbury",
+	"Windmill Rise", "Shepherds Rest", "Ploughton", "Grazeland", "Rye Vale",
+	"Furrowfield", "Barnside", "Hayward", "Meadowbrook", "Lambton",
+}
+
+// namesNoResource contains names for barren or resource-less territories.
+var namesNoResource = []string{
+	"Barrens", "Dusthollow", "Bleakmoor", "Dryreach", "Wasteland",
+	"Scourge Flats", "Hollow End", "Ashen Fields", "Forsaken", "Dead Marsh",
+	"Blightwood", "Saltwaste", "Parched Dale", "Windswept", "Bleak Point",
+	"Desolation", "Grey Moor", "Withered Vale", "Scraglands", "Hardscrabble",
+	"Boneyard", "Dustmere", "Sallow Fields", "Gaunt Ridge", "Starveling",
+}
+
+// namesCoastal contains names for territories bordering water.
+var namesCoastal = []string{
+	"Port Royal", "Harborview", "Bayshore", "Cape Haven", "Cove End",
+	"Tidecrest", "Seacliff", "Anchorage", "Saltmarsh", "Lighthouse Point",
+	"Driftwood", "Shoalwater", "Marina Bay", "Wharf Town", "Breakwater",
+	"Sandgate", "Shellcove", "Coral Point", "Riptide", "Fisherton",
+	"Shingle Beach", "Storm Haven", "Seaside", "Harbour Cross", "Surfton",
+}
+
+// namesGeneric contains historical-sounding names with no terrain implication.
+var namesGeneric = []string{
+	"Westmorland", "Thornbury", "Dunmore", "Kingsbridge", "Fairhaven",
+	"Aldermere", "Rochford", "Whitmore", "Chelbury", "Langton",
+	"Pembury", "Stratfield", "Ravenswood", "Blackwell", "Hartfield",
+	"Crowborough", "Ashdown", "Lindfield", "Wakehurst", "Groombridge",
+	"Brampton", "Dalkeith", "Morpeth", "Hexham", "Carlisle",
+	"Penrith", "Appleby", "Kendal", "Kirkby", "Whitehaven",
+	"Drummond", "Montrose", "Inverness", "Falkirk", "Stirling",
+	"Dunbar", "Melrose", "Kelso", "Selkirk", "Peebles",
+	"Ashwick", "Hollingbourne", "Westerham", "Edenbridge", "Tonbridge",
+	"Sevenoaks", "Cranbrook", "Tenterden", "Hawkhurst", "Goudhurst",
+}
+
+// resourceNamePools maps resource strings to their themed name pools.
+var resourceNamePools = map[string][]string{
+	"timber":    namesTimber,
+	"iron":      namesIron,
+	"gold":      namesGold,
+	"coal":      namesCoal,
+	"grassland": namesGrassland,
+}
+
 // NewGenerator creates a new map generator.
 func NewGenerator(opts GeneratorOptions) *Generator {
 	g := &Generator{
@@ -786,9 +874,10 @@ func (g *Generator) assignResources(raw *RawMap) {
 		guaranteed = append(guaranteed, "timber", "gold") // Some extra
 	}
 
-	// Assign resources
+	// Assign resources and names
 	resources := []string{"coal", "gold", "iron", "timber", "grassland"}
-	
+	usedNames := make(map[string]bool)
+
 	for i, tid := range ids {
 		res := ""
 		if i < numWithRes {
@@ -801,26 +890,166 @@ func (g *Generator) assignResources(raw *RawMap) {
 			}
 		}
 		raw.Territories[fmt.Sprintf("%d", tid)] = RawTerritory{
-			Name:     g.genName(tid),
+			Name:     g.genName(tid, res, usedNames),
 			Resource: res,
 		}
 	}
 }
 
-func (g *Generator) genName(id int) string {
-	prefixes := []string{"North", "South", "East", "West", "New", "Old", "Upper", "Lower"}
-	names := []string{"Plains", "Valley", "Hills", "Forest", "Woods", "Fields", "Meadows", "Ridge",
-		"Haven", "Landing", "Point", "Glen", "Dale", "Hollow", "Brook", "Springs"}
-	suffixes := []string{"", "land", "ton", "ville", "burg", "ford", "shire"}
+// isCoastalTerritory checks whether any cell of the given territory borders
+// water (a 0-cell) in g.grid.  This runs before Process() so we inspect the
+// raw grid directly using orthogonal neighbors.
+func (g *Generator) isCoastalTerritory(tid int) bool {
+	terr, ok := g.territories[tid]
+	if !ok {
+		return false
+	}
+	dirs := [4][2]int{{0, -1}, {0, 1}, {-1, 0}, {1, 0}}
+	for _, cell := range terr.cells {
+		x, y := cell[0], cell[1]
+		for _, d := range dirs {
+			nx, ny := x+d[0], y+d[1]
+			if nx < 0 || nx >= g.width || ny < 0 || ny >= g.height {
+				continue // out of bounds counts as water-adjacent
+			}
+			if g.grid[ny][nx] == 0 {
+				return true
+			}
+		}
+	}
+	return false
+}
 
-	r := rand.New(rand.NewSource(int64(id * 7919)))
-	switch r.Intn(3) {
-	case 0:
-		return prefixes[r.Intn(len(prefixes))] + " " + names[r.Intn(len(names))]
-	case 1:
-		return names[r.Intn(len(names))] + suffixes[r.Intn(len(suffixes))]
+// territoryCentroid returns the normalised (0-1) centre position of a
+// territory relative to the map dimensions.
+func (g *Generator) territoryCentroid(tid int) (float64, float64) {
+	terr, ok := g.territories[tid]
+	if !ok || len(terr.cells) == 0 {
+		return 0.5, 0.5
+	}
+	sumX, sumY := 0.0, 0.0
+	for _, c := range terr.cells {
+		sumX += float64(c[0])
+		sumY += float64(c[1])
+	}
+	n := float64(len(terr.cells))
+	return sumX / n / float64(g.width), sumY / n / float64(g.height)
+}
+
+// spatialPrefix returns an optional directional prefix based on where the
+// territory sits on the map. It returns "" when the territory is in the
+// centre region or when the RNG decides to skip the prefix.
+func (g *Generator) spatialPrefix(nx, ny float64, coastal bool, rng *rand.Rand) string {
+	// 80% chance to skip prefix entirely — keeps names varied.
+	if rng.Float64() < 0.80 {
+		return ""
+	}
+
+	// Coastal territories occasionally get a nautical prefix instead.
+	if coastal && rng.Float64() < 0.30 {
+		nautical := []string{"Port", "Cape", "Bay"}
+		return nautical[rng.Intn(len(nautical))]
+	}
+
+	vertical := ""
+	horizontal := ""
+
+	if ny < 0.33 {
+		vertical = "North"
+	} else if ny > 0.66 {
+		vertical = "South"
+	}
+
+	if nx < 0.33 {
+		horizontal = "West"
+	} else if nx > 0.66 {
+		horizontal = "East"
+	}
+
+	// Both vertical and horizontal — pick one or combine.
+	if vertical != "" && horizontal != "" {
+		if rng.Float64() < 0.35 {
+			return vertical + horizontal // e.g. "Northwest"
+		}
+		// pick one
+		if rng.Float64() < 0.5 {
+			return vertical
+		}
+		return horizontal
+	}
+	if vertical != "" {
+		return vertical
+	}
+	if horizontal != "" {
+		return horizontal
+	}
+
+	// Centre region — sometimes use a non-directional prefix.
+	centreOptions := []string{"", "", "Central", "Inner", "Old", "Greater"}
+	return centreOptions[rng.Intn(len(centreOptions))]
+}
+
+// genName produces a context-aware territory name.
+// It considers the territory's resource, coastal status, and map position,
+// while mixing in generic historical-sounding names for variety.
+// The used set enforces uniqueness across the map.
+func (g *Generator) genName(tid int, resource string, used map[string]bool) string {
+	rng := rand.New(rand.NewSource(int64(tid * 7919)))
+
+	coastal := g.isCoastalTerritory(tid)
+	nx, ny := g.territoryCentroid(tid)
+
+	// Try up to 20 times to produce a unique name.
+	for attempt := 0; attempt < 20; attempt++ {
+		baseName := g.pickBaseName(resource, coastal, rng)
+		prefix := g.spatialPrefix(nx, ny, coastal, rng)
+
+		name := baseName
+		if prefix != "" {
+			name = prefix + " " + baseName
+		}
+
+		if !used[name] {
+			used[name] = true
+			return name
+		}
+		// Collision — loop will try again with a different RNG state.
+	}
+
+	// Fallback: append territory ID to guarantee uniqueness.
+	fallback := fmt.Sprintf("Territory %d", tid)
+	used[fallback] = true
+	return fallback
+}
+
+// pickBaseName selects a base name from the appropriate pool.
+//
+// Weighting (approximate):
+//
+//	40% — resource-themed pool (or no-resource pool)
+//	25% — coastal pool (if coastal) or generic pool (if inland)
+//	35% — generic / historical pool
+func (g *Generator) pickBaseName(resource string, coastal bool, rng *rand.Rand) string {
+	roll := rng.Float64()
+
+	switch {
+	case roll < 0.40:
+		// Resource-themed (or no-resource).
+		if pool, ok := resourceNamePools[resource]; ok {
+			return pool[rng.Intn(len(pool))]
+		}
+		return namesNoResource[rng.Intn(len(namesNoResource))]
+
+	case roll < 0.65:
+		// Context pool: coastal or generic.
+		if coastal {
+			return namesCoastal[rng.Intn(len(namesCoastal))]
+		}
+		return namesGeneric[rng.Intn(len(namesGeneric))]
+
 	default:
-		return names[r.Intn(len(names))]
+		// Generic / historical.
+		return namesGeneric[rng.Intn(len(namesGeneric))]
 	}
 }
 
