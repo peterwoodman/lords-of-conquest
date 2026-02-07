@@ -41,9 +41,9 @@ const (
 type IslandAmount int
 
 const (
-	IslandAmountLow IslandAmount = iota    // One big landmass
-	IslandAmountMedium                      // A few landmasses
-	IslandAmountHigh                        // Many small islands
+	IslandAmountLow    IslandAmount = iota // One big landmass
+	IslandAmountMedium                     // A few landmasses
+	IslandAmountHigh                       // Many small islands
 )
 
 // ResourceAmount represents resource density (legacy).
@@ -216,7 +216,7 @@ func (g *Generator) Generate() (*Map, []GeneratorStep) {
 	// Grow each territory one at a time
 	for i, seed := range seeds {
 		terrID := i + 1
-		
+
 		// Target size: 5-15 cells
 		minSize, maxSize := g.getTerritorySizeRange()
 		targetSize := minSize + g.rng.Intn(maxSize-minSize+1)
@@ -233,7 +233,7 @@ func (g *Generator) Generate() (*Map, []GeneratorStep) {
 
 	// Fix any diagonal-only connections (split disconnected parts)
 	g.fixDiagonalConnections()
-	
+
 	// Merge tiny territories (< 5 cells) into neighbors
 	g.mergeTinyTerritories(5)
 
@@ -251,14 +251,14 @@ func (g *Generator) fixDiagonalConnections() {
 		if len(terr.cells) == 0 {
 			continue
 		}
-		
+
 		// Find all orthogonally connected components
 		components := g.findConnectedComponents(terr.cells, terrID)
-		
+
 		if len(components) <= 1 {
 			continue // All cells are connected
 		}
-		
+
 		// Keep the largest component, reassign others
 		largestIdx := 0
 		largestSize := 0
@@ -268,16 +268,16 @@ func (g *Generator) fixDiagonalConnections() {
 				largestIdx = i
 			}
 		}
-		
+
 		// Update territory to only have the largest component
 		g.territories[terrID].cells = components[largestIdx]
-		
+
 		// Reassign other components to neighbors or water
 		for i, comp := range components {
 			if i == largestIdx {
 				continue
 			}
-			
+
 			for _, cell := range comp {
 				x, y := cell[0], cell[1]
 				// Find best orthogonal neighbor
@@ -301,26 +301,26 @@ func (g *Generator) findConnectedComponents(cells [][2]int, terrID int) [][][2]i
 	for _, c := range cells {
 		cellSet[c] = true
 	}
-	
+
 	visited := make(map[[2]int]bool)
 	var components [][][2]int
 	dirs := [][2]int{{0, -1}, {0, 1}, {-1, 0}, {1, 0}}
-	
+
 	for _, startCell := range cells {
 		if visited[startCell] {
 			continue
 		}
-		
+
 		// BFS to find all connected cells
 		component := make([][2]int, 0)
 		queue := [][2]int{startCell}
 		visited[startCell] = true
-		
+
 		for len(queue) > 0 {
 			cell := queue[0]
 			queue = queue[1:]
 			component = append(component, cell)
-			
+
 			x, y := cell[0], cell[1]
 			for _, d := range dirs {
 				neighbor := [2]int{x + d[0], y + d[1]}
@@ -330,10 +330,10 @@ func (g *Generator) findConnectedComponents(cells [][2]int, terrID int) [][][2]i
 				}
 			}
 		}
-		
+
 		components = append(components, component)
 	}
-	
+
 	return components
 }
 
@@ -341,7 +341,7 @@ func (g *Generator) findConnectedComponents(cells [][2]int, terrID int) [][][2]i
 func (g *Generator) findOrthogonalNeighborTerritory(x, y, excludeID int) int {
 	dirs := [][2]int{{0, -1}, {0, 1}, {-1, 0}, {1, 0}}
 	counts := make(map[int]int)
-	
+
 	for _, d := range dirs {
 		nx, ny := x+d[0], y+d[1]
 		if nx >= 0 && nx < g.width && ny >= 0 && ny < g.height {
@@ -351,7 +351,7 @@ func (g *Generator) findOrthogonalNeighborTerritory(x, y, excludeID int) int {
 			}
 		}
 	}
-	
+
 	bestID := 0
 	bestCount := 0
 	for tid, count := range counts {
@@ -368,17 +368,17 @@ func (g *Generator) mergeTinyTerritories(minSize int) {
 	changed := true
 	for changed {
 		changed = false
-		
+
 		// Find territories that are too small
 		for terrID, terr := range g.territories {
 			if len(terr.cells) >= minSize {
 				continue
 			}
-			
+
 			// Find the best neighbor to merge into
 			neighborCounts := make(map[int]int)
 			dirs := [][2]int{{0, -1}, {0, 1}, {-1, 0}, {1, 0}}
-			
+
 			for _, cell := range terr.cells {
 				x, y := cell[0], cell[1]
 				for _, d := range dirs {
@@ -391,7 +391,7 @@ func (g *Generator) mergeTinyTerritories(minSize int) {
 					}
 				}
 			}
-			
+
 			// Find neighbor with most shared edges
 			bestNeighbor := 0
 			bestCount := 0
@@ -401,7 +401,7 @@ func (g *Generator) mergeTinyTerritories(minSize int) {
 					bestNeighbor = nid
 				}
 			}
-			
+
 			if bestNeighbor == 0 {
 				// No land neighbor found, convert to water
 				for _, cell := range terr.cells {
@@ -411,7 +411,7 @@ func (g *Generator) mergeTinyTerritories(minSize int) {
 				changed = true
 				break
 			}
-			
+
 			// Merge into best neighbor
 			for _, cell := range terr.cells {
 				g.grid[cell[1]][cell[0]] = bestNeighbor
@@ -692,7 +692,7 @@ func (g *Generator) growTerritory(terrID, startX, startY, targetSize int) [][2]i
 		// Pick cell with some randomness for organic shapes
 		idx := g.pickGrowthCell(frontier, terrID)
 		cell := frontier[idx]
-		
+
 		// Remove from frontier
 		frontier[idx] = frontier[len(frontier)-1]
 		frontier = frontier[:len(frontier)-1]
@@ -732,7 +732,7 @@ func (g *Generator) isValidLandCell(x, y int) bool {
 func (g *Generator) addValidNeighbors(x, y int, frontier *[][2]int, inFrontier map[[2]int]bool) {
 	// Only cardinal directions - diagonals don't count as neighbors
 	dirs := [][2]int{{0, -1}, {0, 1}, {-1, 0}, {1, 0}}
-	
+
 	for _, d := range dirs {
 		nx, ny := x+d[0], y+d[1]
 		cell := [2]int{nx, ny}
@@ -764,7 +764,7 @@ func (g *Generator) pickGrowthCell(frontier [][2]int, terrID int) int {
 
 func (g *Generator) pickLowConnectivity(frontier [][2]int, terrID int) int {
 	dirs := [][2]int{{0, -1}, {0, 1}, {-1, 0}, {1, 0}}
-	
+
 	// Find cells with exactly 1 neighbor (creates branches)
 	lowCells := make([]int, 0)
 	for i, cell := range frontier {
@@ -782,7 +782,7 @@ func (g *Generator) pickLowConnectivity(frontier [][2]int, terrID int) int {
 			lowCells = append(lowCells, i)
 		}
 	}
-	
+
 	if len(lowCells) > 0 {
 		return lowCells[g.rng.Intn(len(lowCells))]
 	}
@@ -791,7 +791,7 @@ func (g *Generator) pickLowConnectivity(frontier [][2]int, terrID int) int {
 
 func (g *Generator) pickModerateCell(frontier [][2]int, terrID int) int {
 	dirs := [][2]int{{0, -1}, {0, 1}, {-1, 0}, {1, 0}}
-	
+
 	// Group cells by score
 	byScore := make(map[int][]int)
 	for i, cell := range frontier {
@@ -807,7 +807,7 @@ func (g *Generator) pickModerateCell(frontier [][2]int, terrID int) int {
 		}
 		byScore[score] = append(byScore[score], i)
 	}
-	
+
 	// Weighted random: prefer score 1-2 over 3-4 for more organic shapes
 	weights := map[int]int{1: 5, 2: 4, 3: 2, 4: 1}
 	choices := make([]int, 0)
@@ -822,7 +822,7 @@ func (g *Generator) pickModerateCell(frontier [][2]int, terrID int) int {
 			}
 		}
 	}
-	
+
 	if len(choices) > 0 {
 		return choices[g.rng.Intn(len(choices))]
 	}
@@ -865,7 +865,7 @@ func (g *Generator) assignResources(raw *RawMap) {
 	// Build guaranteed resources list
 	// Always include at least one of each critical resource
 	guaranteed := []string{"coal", "gold", "iron", "timber", "grassland"}
-	
+
 	// On island maps (level 4-5), add extra timber and gold for boat building
 	islandLevel := clamp(g.options.Islands, 1, 5)
 	if islandLevel >= 4 {
@@ -897,8 +897,6 @@ func (g *Generator) assignResources(raw *RawMap) {
 }
 
 // isCoastalTerritory checks whether any cell of the given territory borders
-// water (a 0-cell) in g.grid.  This runs before Process() so we inspect the
-// raw grid directly using orthogonal neighbors.
 func (g *Generator) isCoastalTerritory(tid int) bool {
 	terr, ok := g.territories[tid]
 	if !ok {
@@ -910,14 +908,49 @@ func (g *Generator) isCoastalTerritory(tid int) bool {
 		for _, d := range dirs {
 			nx, ny := x+d[0], y+d[1]
 			if nx < 0 || nx >= g.width || ny < 0 || ny >= g.height {
-				continue // out of bounds counts as water-adjacent
+				continue
 			}
-			if g.grid[ny][nx] == 0 {
+			if g.grid[ny][nx] == 0 && g.waterBodySize(nx, ny) > 10 {
 				return true
 			}
 		}
 	}
 	return false
+}
+
+// waterBodySize returns the number of connected water cells (flood fill)
+// starting from (sx, sy).  It caps the count at 11 since we only need to
+// distinguish tiny lakes (<=10) from oceans (>=11).
+func (g *Generator) waterBodySize(sx, sy int) int {
+	if sx < 0 || sx >= g.width || sy < 0 || sy >= g.height {
+		return 0
+	}
+	if g.grid[sy][sx] != 0 {
+		return 0
+	}
+
+	visited := make(map[[2]int]bool)
+	queue := [][2]int{{sx, sy}}
+	visited[[2]int{sx, sy}] = true
+	count := 0
+	dirs := [4][2]int{{0, -1}, {0, 1}, {-1, 0}, {1, 0}}
+
+	for len(queue) > 0 && count < 11 {
+		cell := queue[0]
+		queue = queue[1:]
+		count++
+
+		for _, d := range dirs {
+			nx, ny := cell[0]+d[0], cell[1]+d[1]
+			nb := [2]int{nx, ny}
+			if nx >= 0 && nx < g.width && ny >= 0 && ny < g.height &&
+				g.grid[ny][nx] == 0 && !visited[nb] {
+				visited[nb] = true
+				queue = append(queue, nb)
+			}
+		}
+	}
+	return count
 }
 
 // territoryCentroid returns the normalised (0-1) centre position of a
@@ -1056,10 +1089,10 @@ func (g *Generator) pickBaseName(resource string, coastal bool, rng *rand.Rand) 
 // DefaultOptions returns default generator options.
 func DefaultOptions() GeneratorOptions {
 	return GeneratorOptions{
-		Width:       30,  // Medium width
-		Territories: 40,  // Moderate territory count
+		Width:       30, // Medium width
+		Territories: 40, // Moderate territory count
 		WaterBorder: true,
-		Islands:     3,   // Medium islands (1-5 scale)
-		Resources:   45,  // 45% resource coverage
+		Islands:     3,  // Medium islands (1-5 scale)
+		Resources:   45, // 45% resource coverage
 	}
 }
