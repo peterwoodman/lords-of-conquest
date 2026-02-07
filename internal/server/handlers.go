@@ -89,6 +89,8 @@ func (h *Handlers) Handle(client *Client, msg *protocol.Message) {
 		err = h.handleSurrender(client, msg)
 	case protocol.TypeRenameTerritory:
 		err = h.handleRenameTerritory(client, msg)
+	case protocol.TypeDrawTerritory:
+		err = h.handleDrawTerritory(client, msg)
 	default:
 		err = errors.New("unknown message type")
 	}
@@ -1111,7 +1113,7 @@ func createStatePayload(state *game.GameState, mapData *maps.Map) map[string]int
 	// Convert territories
 	territories := make(map[string]interface{})
 	for id, t := range state.Territories {
-		territories[id] = map[string]interface{}{
+		terrData := map[string]interface{}{
 			"id":           id,
 			"name":         t.Name,
 			"owner":        t.Owner,
@@ -1125,6 +1127,10 @@ func createStatePayload(state *game.GameState, mapData *maps.Map) map[string]int
 			"waterBodies":  t.WaterBodies,
 			"adjacent":     t.Adjacent, // Adjacent territory IDs for city influence check
 		}
+		if len(t.Drawing) > 0 {
+			terrData["drawing"] = t.Drawing
+		}
+		territories[id] = terrData
 	}
 
 	// Convert players
@@ -3862,6 +3868,85 @@ func (h *Handlers) completeProductionPhase(gameID string) {
 	if !h.broadcastGameState(gameID) {
 		go h.checkAndTriggerAI(gameID)
 	}
+}
+
+// handleDrawTerritory handles drawing pixel art on a territory the player owns.
+func (h *Handlers) handleDrawTerritory(client *Client, msg *protocol.Message) error {
+	if client.GameID == "" {
+		return errors.New("not in a game")
+	}
+
+	var payload protocol.DrawTerritoryPayload
+	if err := msg.ParsePayload(&payload); err != nil {
+		return err
+	}
+
+	// Load game state
+	stateJSON, err := h.hub.server.db.GetGameState(client.GameID)
+	if err != nil {
+		return err
+	}
+
+	var state game.GameState
+	if err := json.Unmarshal([]byte(stateJSON), &state); err != nil {
+		return err
+	}
+
+	// Validate territory exists and player owns it
+	terr, ok := state.Territories[payload.TerritoryID]
+	if !ok {
+		return errors.New("territory not found")
+	}
+	if terr.Owner != client.PlayerID {
+		return errors.New("you don't own this territory")
+	}
+
+	// Validate and sanitize drawing data: strip invalid color indices, limit pixel count
+	const maxDrawingPixels = 10000 // Safety limit
+	sanitized := make(map[string]int)
+	for key, colorIdx := range payload.Drawing {
+		if colorIdx < 1 || colorIdx > game.MaxDrawingColorIndex {
+			continue // Skip invalid colors
+		}
+		if len(sanitized) >= maxDrawingPixels {
+			break // Limit total pixels
+		}
+		sanitized[key] = colorIdx
+	}
+
+	// Update territory drawing
+	if len(sanitized) == 0 {
+		terr.Drawing = nil
+	} else {
+		terr.Drawing = sanitized
+	}
+
+	// Also handle rename if a name was provided (atomic save of both)
+	nameChanged := false
+	if payload.Name != "" {
+		oldName := terr.Name
+		if err := state.RenameTerritory(client.PlayerID, payload.TerritoryID, payload.Name); err == nil {
+			nameChanged = terr.Name != oldName
+		}
+	}
+
+	// Save updated state
+	stateJSON2, err := json.Marshal(state)
+	if err != nil {
+		return err
+	}
+
+	if err := h.hub.server.db.SaveGameState(client.GameID, string(stateJSON2),
+		state.CurrentPlayerID, state.Round, state.Phase.String()); err != nil {
+		return err
+	}
+
+	log.Printf("Player %s drew on territory %s (%d pixels, renamed=%v)", client.Name, payload.TerritoryID, len(sanitized), nameChanged)
+
+	// Broadcast full game state so all clients get both drawing and name changes
+	h.broadcastGameState(client.GameID)
+
+	return nil
 }
 
 // handleRenameTerritory handles renaming a territory the player owns.

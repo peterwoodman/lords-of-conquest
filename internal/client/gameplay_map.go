@@ -116,6 +116,34 @@ func (s *GameplayScene) drawMap(screen *ebiten.Image) {
 
 			vector.DrawFilledRect(screen, cellX, cellY, cellW, cellH, cellColor, false)
 
+			// Draw player drawing pixels on this cell
+			if territoryID != 0 && s.cellSize >= 8 {
+				if terr, ok := s.territories[tid].(map[string]interface{}); ok {
+					if drawing, ok := terr["drawing"].(map[string]interface{}); ok && len(drawing) > 0 {
+						subSize := float32(s.cellSize) / 8.0
+						for subY := 0; subY < 8; subY++ {
+							for subX := 0; subX < 8; subX++ {
+								key := fmt.Sprintf("%d,%d", x*8+subX, y*8+subY)
+								if colorVal, ok := drawing[key]; ok {
+									colorIdx := 0
+									switch v := colorVal.(type) {
+									case float64:
+										colorIdx = int(v)
+									case int:
+										colorIdx = v
+									}
+									if dc, ok := DrawingColors[colorIdx]; ok {
+										px := float32(sx) + float32(subX)*subSize
+										py := float32(sy) + float32(subY)*subSize
+										vector.DrawFilledRect(screen, px, py, subSize, subSize, dc, false)
+									}
+								}
+							}
+						}
+					}
+				}
+			}
+
 			// Draw diagonal shading for cities
 			if territoryID != 0 {
 				if terr, ok := s.territories[tid].(map[string]interface{}); ok {

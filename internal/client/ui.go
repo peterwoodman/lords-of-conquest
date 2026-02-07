@@ -91,6 +91,27 @@ var PlayerColorOrder = []string{
 	"purple", "pink", "coral", "red",
 }
 
+// DrawingColors maps color indices (1-10) to RGBA values for territory drawing.
+// Index 0 means no drawing (transparent). Black is excluded since it's used for borders/icons.
+var DrawingColors = map[int]color.RGBA{
+	1:  {220, 50, 50, 255},   // Red
+	2:  {50, 100, 220, 255},  // Blue
+	3:  {50, 180, 50, 255},   // Green
+	4:  {240, 220, 50, 255},  // Yellow
+	5:  {255, 255, 255, 255}, // White
+	6:  {240, 140, 40, 255},  // Orange
+	7:  {150, 50, 180, 255},  // Purple
+	8:  {140, 90, 45, 255},   // Brown
+	9:  {240, 120, 180, 255}, // Pink
+	10: {50, 200, 210, 255},  // Cyan
+}
+
+// DrawingColorOrder defines display order for the drawing color picker
+var DrawingColorOrder = []int{1, 2, 3, 4, 5, 6, 7, 8, 9, 10}
+
+// MaxDrawingColorIndex is the highest valid drawing color index.
+const MaxDrawingColorIndex = 10
+
 // Button represents a clickable button.
 type Button struct {
 	X, Y, W, H int

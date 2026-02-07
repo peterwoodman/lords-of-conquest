@@ -1,5 +1,12 @@
 package game
 
+// DrawingSubPixels is the number of drawable sub-pixels per grid cell in each dimension.
+// Each grid cell has an 8x8 sub-pixel grid for player drawing.
+const DrawingSubPixels = 8
+
+// MaxDrawingColorIndex is the highest valid drawing color index (1-based).
+const MaxDrawingColorIndex = 10
+
 // Territory represents a single territory on the map.
 type Territory struct {
 	ID           string            `json:"id"`
@@ -13,6 +20,7 @@ type Territory struct {
 	Adjacent     []string          `json:"adjacent"`    // IDs of adjacent territories
 	CoastalTiles int               `json:"coastalTiles"` // Number of coastal tiles (limits boats)
 	WaterBodies  []string          `json:"waterBodies"`  // IDs of connected water bodies
+	Drawing      map[string]int    `json:"drawing,omitempty"` // "x,y" -> colorIndex (1-10), drawing pixel coords
 }
 
 // WaterBody represents a connected body of water.

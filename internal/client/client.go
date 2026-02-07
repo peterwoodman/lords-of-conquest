@@ -513,6 +513,17 @@ func (g *Game) RenameTerritory(territoryID, name string) error {
 	return g.network.SendPayload(protocol.TypeRenameTerritory, payload)
 }
 
+// DrawTerritory sends territory drawing data (and optionally a name change) to the server.
+// Both are saved atomically to avoid race conditions.
+func (g *Game) DrawTerritory(territoryID string, drawing map[string]int, name string) error {
+	payload := protocol.DrawTerritoryPayload{
+		TerritoryID: territoryID,
+		Drawing:     drawing,
+		Name:        name,
+	}
+	return g.network.SendPayload(protocol.TypeDrawTerritory, payload)
+}
+
 // SendClientReady tells the server we're ready to proceed after an event.
 func (g *Game) SendClientReady(eventID, eventType string) error {
 	if eventID == "" {
@@ -933,6 +944,16 @@ func (g *Game) handleMessage(msg *protocol.Message) {
 		log.Printf("Surrender: %s surrendered to %s (%d territories)",
 			payload.SurrenderedPlayerName, payload.TargetPlayerName, payload.TerritoriesGained)
 		// The game state update will handle showing the changes
+
+	case protocol.TypeTerritoryDrawing:
+		var payload protocol.DrawTerritoryPayload
+		if err := msg.ParsePayload(&payload); err != nil {
+			log.Printf("Failed to parse territory drawing: %v", err)
+			return
+		}
+		// Update local territory drawing data
+		g.gameplayScene.UpdateTerritoryDrawing(payload.TerritoryID, payload.Drawing)
+		log.Printf("Territory drawing update for %s (%d pixels)", payload.TerritoryID, len(payload.Drawing))
 
 	case protocol.TypeError:
 		var payload protocol.ErrorPayload

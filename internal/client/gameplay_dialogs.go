@@ -2172,7 +2172,7 @@ func (s *GameplayScene) cancelAttackConfirmation() {
 
 // openEditTerritoryDialog opens the edit territory dialog for the given territory.
 func (s *GameplayScene) openEditTerritoryDialog(territoryID string) {
-	// Get current territory name
+	// Get current territory name and drawing
 	currentName := ""
 	if terr, ok := s.territories[territoryID].(map[string]interface{}); ok {
 		currentName, _ = terr["name"].(string)
@@ -2188,17 +2188,29 @@ func (s *GameplayScene) openEditTerritoryDialog(territoryID string) {
 	// Focus the text input immediately
 	s.editTerritoryInput.focused = true
 
+	// Initialize drawing state - copy existing drawing data
+	s.editTerritoryDrawing = make(map[string]int)
+	s.editTerritoryDrawing0 = make(map[string]int)
+	if terr, ok := s.territories[territoryID].(map[string]interface{}); ok {
+		if drawing, ok := terr["drawing"].(map[string]interface{}); ok {
+			for k, v := range drawing {
+				if colorIdx, ok := v.(float64); ok && int(colorIdx) >= 1 && int(colorIdx) <= MaxDrawingColorIndex {
+					s.editTerritoryDrawing[k] = int(colorIdx)
+					s.editTerritoryDrawing0[k] = int(colorIdx)
+				}
+			}
+		}
+	}
+	s.editTerritoryTool = "pencil"
+	s.editTerritoryColor = 1 // Default to red
+	s.editTerritoryIsDrawing = false
+
 	s.editTerritorySaveBtn = &Button{
 		W: 120, H: 35,
 		Text:    "Save",
 		Primary: true,
 		OnClick: func() {
-			name := strings.TrimSpace(s.editTerritoryInput.Text)
-			if name == "" {
-				return // Don't save empty names
-			}
-			s.game.RenameTerritory(s.editTerritoryID, name)
-			s.showEditTerritory = false
+			s.saveEditTerritory()
 		},
 	}
 
@@ -2213,24 +2225,202 @@ func (s *GameplayScene) openEditTerritoryDialog(territoryID string) {
 	s.showEditTerritory = true
 }
 
+// saveEditTerritory saves both name and drawing changes in a single atomic message.
+func (s *GameplayScene) saveEditTerritory() {
+	name := strings.TrimSpace(s.editTerritoryInput.Text)
+	if name == "" {
+		return // Don't save empty names
+	}
+
+	// Send a single combined message with both name and drawing to avoid race conditions.
+	// The server handles both atomically in one transaction.
+	s.game.DrawTerritory(s.editTerritoryID, s.editTerritoryDrawing, name)
+
+	s.showEditTerritory = false
+}
+
+// editTerritoryCanvasBounds computes the canvas area and zoom for the territory drawing dialog.
+// Returns: canvasX, canvasY, canvasW, canvasH (screen coords of the canvas area),
+// pixelSize (screen pixels per drawing pixel), boundMinX, boundMinY, boundMaxX, boundMaxY (grid cell bounds),
+// territoryCellSet (set of "gx,gy" strings for cells in this territory).
+func (s *GameplayScene) editTerritoryCanvasBounds(panelX, panelY, panelW, panelH int) (
+	canvasX, canvasY, canvasW, canvasH int,
+	pixelSize float32,
+	boundMinX, boundMinY, boundMaxX, boundMaxY int,
+	territoryCellSet map[string]bool,
+) {
+	// Available canvas area inside the panel
+	canvasMargin := 15
+	toolbarW := 110
+	canvasX = panelX + canvasMargin
+	canvasY = panelY + 38 // Below title bar
+	canvasW = panelW - canvasMargin*2 - toolbarW
+	canvasH = panelH - 38 - 90 // Leave room for name input + buttons at bottom
+
+	// Find all cells of this territory
+	grid := s.mapData["grid"].([]interface{})
+	territoryCellSet = make(map[string]bool)
+
+	var numID int
+	if len(s.editTerritoryID) > 1 && s.editTerritoryID[0] == 't' {
+		fmt.Sscanf(s.editTerritoryID[1:], "%d", &numID)
+	}
+
+	width := int(s.mapData["width"].(float64))
+	height := int(s.mapData["height"].(float64))
+
+	boundMinX = width
+	boundMinY = height
+	boundMaxX = 0
+	boundMaxY = 0
+
+	for y := 0; y < height; y++ {
+		row := grid[y].([]interface{})
+		for x := 0; x < width; x++ {
+			if int(row[x].(float64)) == numID {
+				key := fmt.Sprintf("%d,%d", x, y)
+				territoryCellSet[key] = true
+				if x < boundMinX {
+					boundMinX = x
+				}
+				if x > boundMaxX {
+					boundMaxX = x
+				}
+				if y < boundMinY {
+					boundMinY = y
+				}
+				if y > boundMaxY {
+					boundMaxY = y
+				}
+			}
+		}
+	}
+
+	// Add 1-cell padding around bounds
+	if boundMinX > 0 {
+		boundMinX--
+	}
+	if boundMinY > 0 {
+		boundMinY--
+	}
+	if boundMaxX < width-1 {
+		boundMaxX++
+	}
+	if boundMaxY < height-1 {
+		boundMaxY++
+	}
+
+	// Calculate pixel size to fit the bounding box in the canvas
+	drawW := (boundMaxX - boundMinX + 1) * 8 // Drawing pixels wide
+	drawH := (boundMaxY - boundMinY + 1) * 8 // Drawing pixels tall
+
+	if drawW > 0 && drawH > 0 {
+		pxW := float32(canvasW) / float32(drawW)
+		pxH := float32(canvasH) / float32(drawH)
+		pixelSize = pxW
+		if pxH < pxW {
+			pixelSize = pxH
+		}
+		// Clamp minimum and maximum pixel size
+		if pixelSize < 1 {
+			pixelSize = 1
+		}
+		if pixelSize > 10 {
+			pixelSize = 10
+		}
+	} else {
+		pixelSize = 4
+	}
+
+	return
+}
+
 // updateEditTerritory handles input for the edit territory dialog.
 func (s *GameplayScene) updateEditTerritory() {
 	s.editTerritoryInput.Update()
 	s.editTerritorySaveBtn.Update()
 	s.editTerritoryCancelBtn.Update()
 
-	// Enter to save
-	if inpututil.IsKeyJustPressed(ebiten.KeyEnter) {
-		name := strings.TrimSpace(s.editTerritoryInput.Text)
-		if name != "" {
-			s.game.RenameTerritory(s.editTerritoryID, name)
-			s.showEditTerritory = false
-		}
-	}
-
 	// ESC to cancel
 	if inpututil.IsKeyJustPressed(ebiten.KeyEscape) {
 		s.showEditTerritory = false
+		return
+	}
+
+	// Handle drawing interaction on canvas
+	panelW := 700
+	panelH := 550
+	panelX := ScreenWidth/2 - panelW/2
+	panelY := ScreenHeight/2 - panelH/2
+
+	canvasX, canvasY, canvasW, canvasH, pixelSize, boundMinX, boundMinY, boundMaxX, boundMaxY, territoryCellSet :=
+		s.editTerritoryCanvasBounds(panelX, panelY, panelW, panelH)
+
+	// Calculate actual rendered size and center it (must match drawEditTerritory exactly)
+	drawPixelsW := (boundMaxX - boundMinX + 1) * 8
+	drawPixelsH := (boundMaxY - boundMinY + 1) * 8
+	actualCanvasW := int(float32(drawPixelsW) * pixelSize)
+	actualCanvasH := int(float32(drawPixelsH) * pixelSize)
+	offsetX := canvasX + (canvasW-actualCanvasW)/2
+	offsetY := canvasY + (canvasH-actualCanvasH)/2
+
+	mx, my := ebiten.CursorPosition()
+
+	// Check if mouse is within canvas area
+	inCanvas := mx >= offsetX && mx < offsetX+actualCanvasW &&
+		my >= offsetY && my < offsetY+actualCanvasH
+
+	// Handle mouse button for drawing
+	if ebiten.IsMouseButtonPressed(ebiten.MouseButtonLeft) && inCanvas {
+		// Convert screen position to drawing pixel coordinates
+		relX := float32(mx-offsetX) / pixelSize
+		relY := float32(my-offsetY) / pixelSize
+		drawX := int(relX) + boundMinX*8
+		drawY := int(relY) + boundMinY*8
+
+		// Check if this pixel is within a territory cell
+		gridX := drawX / 8
+		gridY := drawY / 8
+		cellKey := fmt.Sprintf("%d,%d", gridX, gridY)
+		if territoryCellSet[cellKey] {
+			pixelKey := fmt.Sprintf("%d,%d", drawX, drawY)
+			if s.editTerritoryTool == "pencil" {
+				s.editTerritoryDrawing[pixelKey] = s.editTerritoryColor
+			} else if s.editTerritoryTool == "eraser" {
+				delete(s.editTerritoryDrawing, pixelKey)
+			}
+		}
+		s.editTerritoryIsDrawing = true
+	} else {
+		s.editTerritoryIsDrawing = false
+	}
+
+	// Handle tool selection via toolbar clicks
+	toolbarX := panelX + panelW - 110 - 10
+	toolbarY := panelY + 42
+
+	if inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) {
+		// Pencil button
+		if mx >= toolbarX && mx < toolbarX+100 && my >= toolbarY && my < toolbarY+30 {
+			s.editTerritoryTool = "pencil"
+		}
+		// Eraser button
+		if mx >= toolbarX && mx < toolbarX+100 && my >= toolbarY+35 && my < toolbarY+65 {
+			s.editTerritoryTool = "eraser"
+		}
+
+		// Color palette - 2 columns of 5
+		colorStartY := toolbarY + 90
+		for i, colorIdx := range DrawingColorOrder {
+			col := i % 2
+			row := i / 2
+			cx := toolbarX + col*50
+			cy := colorStartY + row*30
+			if mx >= cx && mx < cx+44 && my >= cy && my < cy+24 {
+				s.editTerritoryColor = colorIdx
+				s.editTerritoryTool = "pencil" // Selecting a color switches to pencil
+			}
+		}
 	}
 }
 
@@ -2240,25 +2430,194 @@ func (s *GameplayScene) drawEditTerritory(screen *ebiten.Image) {
 	vector.DrawFilledRect(screen, 0, 0, float32(ScreenWidth), float32(ScreenHeight),
 		color.RGBA{0, 0, 0, 200}, false)
 
-	// Dialog panel
-	panelW := 340
-	panelH := 180
+	// Dialog panel - larger to accommodate drawing canvas
+	panelW := 700
+	panelH := 550
 	panelX := ScreenWidth/2 - panelW/2
 	panelY := ScreenHeight/2 - panelH/2
 
 	DrawFancyPanel(screen, panelX, panelY, panelW, panelH, "Edit Territory")
 
-	// Territory name input
-	s.editTerritoryInput.X = panelX + 30
-	s.editTerritoryInput.Y = panelY + 60
-	s.editTerritoryInput.W = panelW - 60
+	// Compute canvas bounds
+	canvasX, canvasY, canvasW, canvasH, pixelSize, boundMinX, boundMinY, boundMaxX, boundMaxY, territoryCellSet :=
+		s.editTerritoryCanvasBounds(panelX, panelY, panelW, panelH)
+
+	// Calculate actual rendered size and center it
+	drawPixelsW := (boundMaxX - boundMinX + 1) * 8
+	drawPixelsH := (boundMaxY - boundMinY + 1) * 8
+	actualCanvasW := float32(drawPixelsW) * pixelSize
+	actualCanvasH := float32(drawPixelsH) * pixelSize
+	offsetX := float32(canvasX) + (float32(canvasW)-actualCanvasW)/2
+	offsetY := float32(canvasY) + (float32(canvasH)-actualCanvasH)/2
+
+	// Draw canvas background
+	vector.DrawFilledRect(screen, float32(canvasX), float32(canvasY),
+		float32(canvasW), float32(canvasH), color.RGBA{10, 10, 30, 255}, false)
+	vector.StrokeRect(screen, float32(canvasX), float32(canvasY),
+		float32(canvasW), float32(canvasH), 1, ColorBorderDark, false)
+
+	// Draw the territory cells zoomed in
+	grid := s.mapData["grid"].([]interface{})
+	width := int(s.mapData["width"].(float64))
+	height := int(s.mapData["height"].(float64))
+
+	for gy := boundMinY; gy <= boundMaxY; gy++ {
+		if gy < 0 || gy >= height {
+			continue
+		}
+		row := grid[gy].([]interface{})
+		for gx := boundMinX; gx <= boundMaxX; gx++ {
+			if gx < 0 || gx >= width {
+				continue
+			}
+			cellKey := fmt.Sprintf("%d,%d", gx, gy)
+			isTerrCell := territoryCellSet[cellKey]
+
+			cellScreenX := offsetX + float32((gx-boundMinX)*8)*pixelSize
+			cellScreenY := offsetY + float32((gy-boundMinY)*8)*pixelSize
+			cellScreenSize := pixelSize * 8
+
+			// Determine base cell color
+			var cellColor color.RGBA
+			territoryID := int(row[gx].(float64))
+			if territoryID == 0 {
+				// Water
+				cellColor = color.RGBA{15, 45, 90, 255}
+			} else if isTerrCell {
+				// This territory - use owner color
+				tid := fmt.Sprintf("t%d", territoryID)
+				if terr, ok := s.territories[tid].(map[string]interface{}); ok {
+					owner, _ := terr["owner"].(string)
+					if owner != "" {
+						if player, ok := s.players[owner].(map[string]interface{}); ok {
+							playerColor := player["color"].(string)
+							if pc, ok := PlayerColors[playerColor]; ok {
+								cellColor = pc
+							} else {
+								cellColor = ColorPanelLight
+							}
+						} else {
+							cellColor = ColorPanelLight
+						}
+					} else {
+						cellColor = color.RGBA{100, 100, 100, 255}
+					}
+				} else {
+					cellColor = color.RGBA{100, 100, 100, 255}
+				}
+			} else {
+				// Neighboring territory or land - dimmed
+				cellColor = color.RGBA{40, 40, 50, 255}
+			}
+
+			// Draw the cell base color
+			vector.DrawFilledRect(screen, cellScreenX, cellScreenY, cellScreenSize, cellScreenSize, cellColor, false)
+
+			// Draw existing drawing pixels for this cell
+			if isTerrCell {
+				for subY := 0; subY < 8; subY++ {
+					for subX := 0; subX < 8; subX++ {
+						drawKey := fmt.Sprintf("%d,%d", gx*8+subX, gy*8+subY)
+						if colorIdx, ok := s.editTerritoryDrawing[drawKey]; ok {
+							if dc, ok := DrawingColors[colorIdx]; ok {
+								px := cellScreenX + float32(subX)*pixelSize
+								py := cellScreenY + float32(subY)*pixelSize
+								vector.DrawFilledRect(screen, px, py, pixelSize, pixelSize, dc, false)
+							}
+						}
+					}
+				}
+			}
+
+			// Draw sub-pixel grid lines (subtle) for territory cells
+			if isTerrCell && pixelSize >= 3 {
+				gridLineColor := color.RGBA{255, 255, 255, 20}
+				for i := 1; i < 8; i++ {
+					linePos := float32(i) * pixelSize
+					// Vertical
+					vector.StrokeLine(screen, cellScreenX+linePos, cellScreenY,
+						cellScreenX+linePos, cellScreenY+cellScreenSize, 1, gridLineColor, false)
+					// Horizontal
+					vector.StrokeLine(screen, cellScreenX, cellScreenY+linePos,
+						cellScreenX+cellScreenSize, cellScreenY+linePos, 1, gridLineColor, false)
+				}
+			}
+
+			// Draw cell border (thicker) between different territories
+			borderColor := color.RGBA{0, 0, 0, 200}
+			if gx+1 <= boundMaxX && gx+1 < width {
+				nextRow := grid[gy].([]interface{})
+				nextID := int(nextRow[gx+1].(float64))
+				if nextID != territoryID {
+					bx := cellScreenX + cellScreenSize
+					vector.StrokeLine(screen, bx, cellScreenY, bx, cellScreenY+cellScreenSize, 2, borderColor, false)
+				}
+			}
+			if gy+1 <= boundMaxY && gy+1 < height {
+				nextRow := grid[gy+1].([]interface{})
+				nextID := int(nextRow[gx].(float64))
+				if nextID != territoryID {
+					by := cellScreenY + cellScreenSize
+					vector.StrokeLine(screen, cellScreenX, by, cellScreenX+cellScreenSize, by, 2, borderColor, false)
+				}
+			}
+		}
+	}
+
+	// Draw toolbar area on the right
+	toolbarX := panelX + panelW - 110 - 10
+	toolbarY := panelY + 42
+
+	// Pencil tool button
+	pencilBg := color.RGBA{30, 30, 60, 255}
+	if s.editTerritoryTool == "pencil" {
+		pencilBg = color.RGBA{60, 60, 120, 255}
+	}
+	vector.DrawFilledRect(screen, float32(toolbarX), float32(toolbarY), 100, 30, pencilBg, false)
+	vector.StrokeRect(screen, float32(toolbarX), float32(toolbarY), 100, 30, 1, ColorBorder, false)
+	DrawText(screen, "Pencil", toolbarX+25, toolbarY+8, ColorText)
+
+	// Eraser tool button
+	eraserBg := color.RGBA{30, 30, 60, 255}
+	if s.editTerritoryTool == "eraser" {
+		eraserBg = color.RGBA{60, 60, 120, 255}
+	}
+	vector.DrawFilledRect(screen, float32(toolbarX), float32(toolbarY+35), 100, 30, eraserBg, false)
+	vector.StrokeRect(screen, float32(toolbarX), float32(toolbarY+35), 100, 30, 1, ColorBorder, false)
+	DrawText(screen, "Eraser", toolbarX+25, toolbarY+43, ColorText)
+
+	// Color palette label
+	DrawText(screen, "Colors:", toolbarX, toolbarY+75, ColorTextMuted)
+
+	// Color palette - 2 columns of 5
+	colorStartY := toolbarY + 90
+	for i, colorIdx := range DrawingColorOrder {
+		col := i % 2
+		row := i / 2
+		cx := float32(toolbarX + col*50)
+		cy := float32(colorStartY + row*30)
+
+		dc := DrawingColors[colorIdx]
+		vector.DrawFilledRect(screen, cx, cy, 44, 24, dc, false)
+
+		// Highlight selected color
+		if s.editTerritoryColor == colorIdx && s.editTerritoryTool == "pencil" {
+			vector.StrokeRect(screen, cx-1, cy-1, 46, 26, 2, color.RGBA{255, 255, 255, 255}, false)
+		} else {
+			vector.StrokeRect(screen, cx, cy, 44, 24, 1, color.RGBA{0, 0, 0, 200}, false)
+		}
+	}
+
+	// Name input area
+	nameY := panelY + panelH - 85
+	DrawText(screen, "Name:", panelX+20, nameY, ColorTextMuted)
+	s.editTerritoryInput.X = panelX + 70
+	s.editTerritoryInput.Y = nameY - 3
+	s.editTerritoryInput.W = panelW - 100
 	s.editTerritoryInput.Draw(screen)
 
-	// Label
-	DrawText(screen, "Name:", panelX+30, panelY+45, ColorTextMuted)
-
 	// Buttons
-	btnY := panelY + panelH - 55
+	btnY := panelY + panelH - 50
 	s.editTerritorySaveBtn.X = panelX + panelW/2 - 130
 	s.editTerritorySaveBtn.Y = btnY
 	s.editTerritorySaveBtn.Draw(screen)

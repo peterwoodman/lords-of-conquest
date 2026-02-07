@@ -269,6 +269,14 @@ type RenameTerritoryPayload struct {
 	Name        string `json:"name"`
 }
 
+// DrawTerritoryPayload sends drawing data for a territory the player owns.
+// Can also include a name change to handle both atomically.
+type DrawTerritoryPayload struct {
+	TerritoryID string         `json:"territory_id"`
+	Drawing     map[string]int `json:"drawing"`        // "x,y" -> colorIndex (1-10)
+	Name        string         `json:"name,omitempty"` // If non-empty, also rename the territory
+}
+
 // ProposeTradePayload proposes a trade.
 type ProposeTradePayload struct {
 	TargetPlayer          string   `json:"target_player"`

@@ -197,6 +197,13 @@ type GameplayScene struct {
 	editTerritorySaveBtn   *Button
 	editTerritoryCancelBtn *Button
 
+	// Territory drawing state (within edit dialog)
+	editTerritoryDrawing   map[string]int // Working copy of drawing pixels
+	editTerritoryTool      string         // "pencil" or "eraser"
+	editTerritoryColor     int            // Current color index (1-10)
+	editTerritoryDrawing0  map[string]int // Original drawing (to detect changes)
+	editTerritoryIsDrawing bool           // Mouse is currently held down for drawing
+
 	// Double-click detection
 	lastClickTime int64  // Unix millis of last left-click on a territory
 	lastClickTerr string // Territory ID of last click

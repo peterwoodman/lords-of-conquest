@@ -154,3 +154,22 @@ func min(a, b uint8) uint8 {
 	}
 	return b
 }
+
+// UpdateTerritoryDrawing updates the drawing data for a specific territory from a server broadcast.
+func (s *GameplayScene) UpdateTerritoryDrawing(territoryID string, drawing map[string]int) {
+	if s.territories == nil {
+		return
+	}
+	if terr, ok := s.territories[territoryID].(map[string]interface{}); ok {
+		if len(drawing) == 0 {
+			delete(terr, "drawing")
+		} else {
+			// Convert map[string]int to map[string]interface{} for the JSON-parsed territory data
+			drawingIface := make(map[string]interface{})
+			for k, v := range drawing {
+				drawingIface[k] = float64(v)
+			}
+			terr["drawing"] = drawingIface
+		}
+	}
+}
