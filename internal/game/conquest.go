@@ -244,7 +244,7 @@ func (g *GameState) AttackWithAllies(attackerID, targetID string, brought *Broug
 
 	// If no attacks remaining, advance to next player
 	if attacker.AttacksRemaining <= 0 {
-		g.advanceConquestTurn()
+		g.AdvanceConquestTurn()
 	}
 
 	return result, nil
@@ -265,12 +265,12 @@ func (g *GameState) EndConquest(playerID string) error {
 		player.AttacksRemaining = 0
 	}
 
-	g.advanceConquestTurn()
+	g.AdvanceConquestTurn()
 	return nil
 }
 
-// advanceConquestTurn moves to the next player or next phase.
-func (g *GameState) advanceConquestTurn() {
+// AdvanceConquestTurn moves to the next player or next phase.
+func (g *GameState) AdvanceConquestTurn() {
 	currentIdx := -1
 	for i, pid := range g.PlayerOrder {
 		if pid == g.CurrentPlayerID {

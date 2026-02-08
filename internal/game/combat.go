@@ -372,6 +372,120 @@ func (g *GameState) ExecuteAttackWithAllies(attackerID string, plan *AttackPlan,
 	return result
 }
 
+// ExecuteCardAttackWithAllies performs an attack using card combat resolution.
+// attackCards and defenseCards are the cards each player committed (already removed from hands).
+func (g *GameState) ExecuteCardAttackWithAllies(attackerID string, plan *AttackPlan, attackerAllies, defenderAllies []string, attackCards, defenseCards []CombatCard) (*CombatResult, *CardResolutionResult) {
+	target := g.Territories[plan.TargetTerritory]
+	defenderID := target.Owner
+
+	// Calculate base strength with allies (same as classic)
+	baseAttack := g.CalculateAttackWithAllies(attackerID, target, plan.BroughtUnit, attackerAllies)
+	baseDefense := g.CalculateDefenseWithAllies(target, defenderAllies)
+
+	// Resolve cards
+	cardResult := g.ResolveCards(attackerID, target, baseAttack, baseDefense, attackCards, defenseCards, plan.BroughtUnit)
+
+	result := &CombatResult{
+		AttackStrength:  cardResult.FinalAttack,
+		DefenseStrength: cardResult.FinalDefense,
+		AttackerWins:    cardResult.AttackerWins,
+		UnitsDestroyed:  []UnitInfo{},
+		UnitsCaptured:   []UnitInfo{},
+	}
+
+	if cardResult.AttackerWins {
+		// Transfer territory
+		target.Owner = attackerID
+
+		// Capture units (same as classic)
+		if plan.BroughtUnit == nil || plan.BroughtUnit.UnitType != UnitHorse {
+			if target.HasHorse {
+				result.UnitsCaptured = append(result.UnitsCaptured, UnitInfo{UnitHorse, target.ID})
+			}
+		}
+		if plan.BroughtUnit == nil || plan.BroughtUnit.UnitType != UnitWeapon {
+			if target.HasWeapon {
+				result.UnitsCaptured = append(result.UnitsCaptured, UnitInfo{UnitWeapon, target.ID})
+			}
+		}
+
+		// Move brought unit into territory
+		if plan.BroughtUnit != nil {
+			g.moveBroughtUnit(plan.BroughtUnit, target)
+		}
+
+		// Check for stockpile capture
+		defender := g.Players[defenderID]
+		if defender != nil && defender.StockpileTerritory == target.ID {
+			result.StockpileCaptured = defender.Stockpile.Clone()
+			attacker := g.Players[attackerID]
+			attacker.Stockpile.Coal += defender.Stockpile.Coal
+			attacker.Stockpile.Gold += defender.Stockpile.Gold
+			attacker.Stockpile.Iron += defender.Stockpile.Iron
+			attacker.Stockpile.Timber += defender.Stockpile.Timber
+			defender.Stockpile = NewStockpile()
+			defender.StockpileTerritory = ""
+		}
+
+		// Blitz: return attack cards to attacker's hand
+		attacker := g.Players[attackerID]
+		if attacker != nil && len(cardResult.BlitzReturn) > 0 {
+			attacker.ReturnCardsToHand(cardResult.BlitzReturn)
+		}
+
+		// Check if defender is eliminated
+		g.checkElimination(defenderID)
+
+	} else {
+		// Attack failed
+		if plan.BroughtUnit != nil {
+			if cardResult.SafeRetreat {
+				// Safe Retreat: brought unit is NOT destroyed, stays in origin territory
+				// (no action needed - unit is still where it was)
+			} else {
+				// Destroy brought units (same as classic)
+				result.UnitsDestroyed = append(result.UnitsDestroyed,
+					UnitInfo{plan.BroughtUnit.UnitType, plan.BroughtUnit.FromTerritory})
+
+				from := g.Territories[plan.BroughtUnit.FromTerritory]
+				switch plan.BroughtUnit.UnitType {
+				case UnitHorse:
+					from.HasHorse = false
+				case UnitWeapon:
+					from.HasWeapon = false
+				case UnitBoat:
+					from.RemoveBoat(plan.BroughtUnit.WaterBodyID)
+				}
+
+				if plan.BroughtUnit.CarryingWeapon {
+					weaponFrom := g.Territories[plan.BroughtUnit.WeaponFromTerritory]
+					weaponFrom.HasWeapon = false
+					result.UnitsDestroyed = append(result.UnitsDestroyed,
+						UnitInfo{UnitWeapon, plan.BroughtUnit.WeaponFromTerritory})
+				}
+				if plan.BroughtUnit.CarryingHorse {
+					horseFrom := g.Territories[plan.BroughtUnit.HorseFromTerritory]
+					horseFrom.HasHorse = false
+					result.UnitsDestroyed = append(result.UnitsDestroyed,
+						UnitInfo{UnitHorse, plan.BroughtUnit.HorseFromTerritory})
+				}
+			}
+		}
+
+		// Counter-Attack: defender captures a random attacker adjacent territory
+		if cardResult.CounterAttackTerr != "" {
+			counterTerr := g.Territories[cardResult.CounterAttackTerr]
+			if counterTerr != nil && counterTerr.Owner == attackerID {
+				counterTerr.Owner = defenderID
+				// Check if attacker is now eliminated
+				g.checkElimination(attackerID)
+			}
+		}
+	}
+
+	return result, cardResult
+}
+
 // IsAdjacent checks if two territories are adjacent.
 func (g *GameState) IsAdjacent(id1, id2 string) bool {
 	t1 := g.Territories[id1]

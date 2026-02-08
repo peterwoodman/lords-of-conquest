@@ -29,6 +29,7 @@ type Settings struct {
 	VictoryCities int         `json:"victoryCities"`
 	MapID         string      `json:"mapId"`
 	MaxPlayers    int         `json:"maxPlayers"`
+	CombatMode    CombatMode  `json:"combatMode"`
 }
 
 // ChanceLevel determines randomness in combat.

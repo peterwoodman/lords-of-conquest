@@ -49,6 +49,7 @@ type GameSettings struct {
 	ChanceLevel   string `json:"chance_level"`
 	VictoryCities int    `json:"victory_cities"`
 	MapID         string `json:"map_id"`
+	CombatMode    string `json:"combat_mode"`
 }
 
 // GamePlayer represents a player in a game.
@@ -190,6 +191,10 @@ func (db *DB) UpdateGameSetting(gameID, key, value string) error {
 		fmt.Sscanf(value, "%d", &maxPlayers)
 		if maxPlayers >= protocol.MinPlayers && maxPlayers <= protocol.MaxPlayers {
 			game.Settings.MaxPlayers = maxPlayers
+		}
+	case "combat_mode":
+		if value == "classic" || value == "cards" {
+			game.Settings.CombatMode = value
 		}
 	default:
 		return errors.New("unknown setting: " + key)

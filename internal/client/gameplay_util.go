@@ -28,15 +28,6 @@ func (s *GameplayScene) screenToGrid(screenX, screenY int) [2]int {
 
 // SetGameState updates the game state from the server.
 func (s *GameplayScene) SetGameState(state map[string]interface{}) {
-	// If combat animation is in progress OR there are queued combat results,
-	// queue this state update for later. This prevents the territory from 
-	// changing color before the animation ends.
-	if s.showCombatAnimation || s.showCombatResult || len(s.combatResultQueue) > 0 {
-		log.Println("GameplayScene.SetGameState: Combat in progress, queuing state update")
-		s.combatPendingState = state
-		return
-	}
-	
 	s.applyGameState(state)
 }
 
@@ -127,15 +118,64 @@ func (s *GameplayScene) applyGameState(state map[string]interface{}) {
 		log.Printf("Round: %d", s.round)
 	}
 
-	// Update our alliance setting from player data
+	// Update our alliance setting and card hand from player data
 	if s.players != nil {
 		if myPlayer, ok := s.players[s.game.config.PlayerID]; ok {
 			player := myPlayer.(map[string]interface{})
 			if alliance, ok := player["alliance"].(string); ok {
 				s.myAllianceSetting = alliance
 			}
+			// Parse card hands
+			s.myAttackCards = parseCardList(player, "attackCards")
+			s.myDefenseCards = parseCardList(player, "defenseCards")
 		}
 	}
+
+	// Parse combat mode from settings
+	if settings, ok := state["settings"].(map[string]interface{}); ok {
+		if cm, ok := settings["combatMode"].(float64); ok {
+			if int(cm) == 1 {
+				s.combatMode = "cards"
+			} else {
+				s.combatMode = "classic"
+			}
+		}
+	}
+}
+
+// parseCardList extracts cards from player data.
+func parseCardList(player map[string]interface{}, key string) []CardDisplayInfo {
+	cards := make([]CardDisplayInfo, 0)
+	if cardList, ok := player[key].([]interface{}); ok {
+		for _, c := range cardList {
+			if cardMap, ok := c.(map[string]interface{}); ok {
+				card := CardDisplayInfo{}
+				if v, ok := cardMap["id"].(string); ok {
+					card.ID = v
+				}
+				if v, ok := cardMap["name"].(string); ok {
+					card.Name = v
+				}
+				if v, ok := cardMap["description"].(string); ok {
+					card.Description = v
+				}
+				if v, ok := cardMap["cardType"].(string); ok {
+					card.CardType = v
+				}
+				if v, ok := cardMap["rarity"].(string); ok {
+					card.Rarity = v
+				}
+				if v, ok := cardMap["effect"].(string); ok {
+					card.Effect = v
+				}
+				if v, ok := cardMap["value"].(float64); ok {
+					card.Value = int(v)
+				}
+				cards = append(cards, card)
+			}
+		}
+	}
+	return cards
 }
 
 // getKeys returns the keys of a map

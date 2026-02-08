@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"lords-of-conquest/internal/database"
+	game "lords-of-conquest/internal/game"
 	"lords-of-conquest/internal/protocol"
 
 	"github.com/coder/websocket"
@@ -164,6 +165,20 @@ type PendingEvent struct {
 	completed    bool                    // Prevent double-completion
 }
 
+// PendingCardBattle tracks a card combat waiting for the defender's card selection.
+type PendingCardBattle struct {
+	ID               string
+	GameID           string
+	AttackerID       string
+	DefenderID       string
+	TargetTerritory  string
+	BroughtUnit      *game.BroughtUnit
+	AttackerAllies   []string
+	DefenderAllies   []string
+	AttackCards      []game.CombatCard  // Cards the attacker committed
+	DefenseCardsChan chan []string       // Channel to receive defender's card IDs
+}
+
 // PendingAttackPlan stores a resolved attack plan waiting for confirmation.
 type PendingAttackPlan struct {
 	ID               string
@@ -207,6 +222,9 @@ type Hub struct {
 	// Pending attack plans waiting for confirmation
 	pendingAttackPlans map[string]*PendingAttackPlan
 
+	// Pending card battles waiting for defender's card selection
+	pendingCardBattles map[string]*PendingCardBattle
+
 	// Register requests
 	register chan *Client
 
@@ -235,6 +253,7 @@ func NewHub(server *Server) *Hub {
 		pendingBattles:     make(map[string]*PendingBattle),
 		pendingEvents:      make(map[string]*PendingEvent),
 		pendingAttackPlans: make(map[string]*PendingAttackPlan),
+		pendingCardBattles: make(map[string]*PendingCardBattle),
 		register:           make(chan *Client, 100),
 		unregister:         make(chan *Client, 100),
 		broadcast:          make(chan *ClientMessage, 256),

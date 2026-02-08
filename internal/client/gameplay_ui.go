@@ -1043,6 +1043,80 @@ func (s *GameplayScene) drawDevelopmentControls(screen *ebiten.Image, startX, ba
 	s.devUseGoldBtn.Primary = s.buildUseGold
 	s.devUseGoldBtn.Draw(screen)
 
+	// Card combat: buy card buttons (shown when combat mode is "cards")
+	// Positioned on the header row, to the right of "YOUR TURN - BUILD"
+	if s.combatMode == "cards" {
+		cardBtnY := barY + 10
+		cardBtnX := startX + 230
+
+		// Resource selector for card purchase
+		resLabel := "Pay 2: "
+		DrawText(screen, resLabel, cardBtnX, cardBtnY+8, ColorTextMuted)
+		cardBtnX += 40
+
+		resources := []string{"coal", "gold", "iron", "timber"}
+		resourceLabels := []string{"C", "G", "I", "T"}
+		for i, res := range resources {
+			rBtnX := cardBtnX + i*28
+			selected := s.cardBuyResource == res
+			col := color.RGBA{60, 60, 70, 255}
+			if selected {
+				col = color.RGBA{80, 100, 80, 255}
+			}
+			vector.DrawFilledRect(screen, float32(rBtnX), float32(cardBtnY), 24, 24, col, false)
+			vector.StrokeRect(screen, float32(rBtnX), float32(cardBtnY), 24, 24, 1, ColorBorder, false)
+			DrawText(screen, resourceLabels[i], rBtnX+8, cardBtnY+6, ColorText)
+
+			// Click detection (handled in Update)
+			mx, my := ebiten.CursorPosition()
+			if mx >= rBtnX && mx <= rBtnX+24 && my >= cardBtnY && my <= cardBtnY+24 {
+				if ebiten.IsMouseButtonPressed(ebiten.MouseButtonLeft) {
+					s.cardBuyResource = res
+				}
+			}
+		}
+		cardBtnX += 4*28 + 10
+
+		// Can afford check
+		canAffordCard := false
+		if s.cardBuyResource != "" {
+			switch s.cardBuyResource {
+			case "coal":
+				canAffordCard = coal >= 2
+			case "gold":
+				canAffordCard = gold >= 2
+			case "iron":
+				canAffordCard = iron >= 2
+			case "timber":
+				canAffordCard = timber >= 2
+			}
+		}
+
+		atkHandFull := len(s.myAttackCards) >= 5
+		defHandFull := len(s.myDefenseCards) >= 5
+
+		s.devBuyAttackCardBtn.X = cardBtnX
+		s.devBuyAttackCardBtn.Y = cardBtnY
+		s.devBuyAttackCardBtn.W = 90
+		s.devBuyAttackCardBtn.H = 24
+		s.devBuyAttackCardBtn.Disabled = !canAffordCard || atkHandFull
+		if atkHandFull {
+			s.devBuyAttackCardBtn.Tooltip = "Hand full (5/5)"
+		}
+		s.devBuyAttackCardBtn.Draw(screen)
+		cardBtnX += 100
+
+		s.devBuyDefenseCardBtn.X = cardBtnX
+		s.devBuyDefenseCardBtn.Y = cardBtnY
+		s.devBuyDefenseCardBtn.W = 90
+		s.devBuyDefenseCardBtn.H = 24
+		s.devBuyDefenseCardBtn.Disabled = !canAffordCard || defHandFull
+		if defHandFull {
+			s.devBuyDefenseCardBtn.Tooltip = "Hand full (5/5)"
+		}
+		s.devBuyDefenseCardBtn.Draw(screen)
+	}
+
 	// End Turn button (right side)
 	s.endPhaseBtn.X = barX + barW - 170
 	s.endPhaseBtn.Y = barY + 30

@@ -616,6 +616,42 @@ func (g *Game) ExecuteAttack(targetTerritory string) error {
 	return g.network.SendPayload(protocol.TypeExecuteAttack, payload)
 }
 
+// BuyCard purchases a combat card during the Development phase.
+func (g *Game) BuyCard(cardType, resource string) error {
+	payload := protocol.BuyCardPayload{
+		CardType: cardType,
+		Resource: resource,
+	}
+	return g.network.SendPayload(protocol.TypeBuyCard, payload)
+}
+
+// SelectDefenseCards sends the defender's card selection for card combat.
+func (g *Game) SelectDefenseCards(cardIDs []string) error {
+	payload := protocol.SelectCardsPayload{
+		CardIDs: cardIDs,
+	}
+	return g.network.SendPayload(protocol.TypeSelectDefenseCards, payload)
+}
+
+// ExecuteAttackWithCards executes an attack with card combat card selection.
+func (g *Game) ExecuteAttackWithCards(targetTerritory string, reinforcement *ReinforcementInfo, planID string, attackCardIDs []string) error {
+	payload := protocol.ExecuteAttackPayload{
+		TargetTerritory: targetTerritory,
+		PlanID:          planID,
+		AttackCardIDs:   attackCardIDs,
+	}
+	if reinforcement != nil {
+		payload.BringUnit = reinforcement.UnitType
+		payload.BringFrom = reinforcement.FromTerritory
+		payload.WaterBodyID = reinforcement.WaterBodyID
+		payload.CarryWeapon = reinforcement.CarryWeapon
+		payload.WeaponFrom = reinforcement.WeaponFrom
+		payload.CarryHorse = reinforcement.CarryHorse
+		payload.HorseFrom = reinforcement.HorseFrom
+	}
+	return g.network.SendPayload(protocol.TypeExecuteAttack, payload)
+}
+
 // SetAlliance sets the player's alliance preference.
 func (g *Game) SetAlliance(setting string) error {
 	payload := protocol.SetAlliancePayload{
@@ -954,6 +990,33 @@ func (g *Game) handleMessage(msg *protocol.Message) {
 		// Update local territory drawing data
 		g.gameplayScene.UpdateTerritoryDrawing(payload.TerritoryID, payload.Drawing)
 		log.Printf("Territory drawing update for %s (%d pixels)", payload.TerritoryID, len(payload.Drawing))
+
+	case protocol.TypeCardDrawn:
+		var payload protocol.CardDrawnPayload
+		if err := msg.ParsePayload(&payload); err != nil {
+			log.Printf("Failed to parse card drawn: %v", err)
+			return
+		}
+		log.Printf("Drew card: %s (%s, %s)", payload.Card.Name, payload.Card.Rarity, payload.Card.CardType)
+		g.gameplayScene.ShowCardDrawn(payload.Card.Name, payload.Card.Description, payload.Card.Rarity, payload.Card.CardType)
+
+	case protocol.TypeDefenseCardRequest:
+		var payload protocol.DefenseCardRequestPayload
+		if err := msg.ParsePayload(&payload); err != nil {
+			log.Printf("Failed to parse defense card request: %v", err)
+			return
+		}
+		log.Printf("Defense card request: %s attacking %s with %d cards", payload.AttackerName, payload.TerritoryName, payload.AttackerCardCount)
+		g.gameplayScene.ShowDefenseCardRequest(payload.BattleID, payload.AttackerName, payload.TerritoryName, payload.AttackerCardCount, payload.BaseAttackStr, payload.BaseDefenseStr)
+
+	case protocol.TypeCardReveal:
+		var payload protocol.CardRevealPayload
+		if err := msg.ParsePayload(&payload); err != nil {
+			log.Printf("Failed to parse card reveal: %v", err)
+			return
+		}
+		log.Printf("Card reveal: Attack %d vs Defense %d, attacker wins: %v", payload.FinalAttackStr, payload.FinalDefenseStr, payload.AttackerWins)
+		g.gameplayScene.ShowCardReveal(&payload)
 
 	case protocol.TypeError:
 		var payload protocol.ErrorPayload

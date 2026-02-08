@@ -97,6 +97,14 @@ const (
 	TypeRenameTerritory    MessageType = "rename_territory"
 	TypeDrawTerritory      MessageType = "draw_territory"
 	TypeTerritoryDrawing   MessageType = "territory_drawing"
+
+	// Card combat actions
+	TypeBuyCard            MessageType = "buy_card"
+	TypeCardDrawn          MessageType = "card_drawn"
+	TypeSelectAttackCards  MessageType = "select_attack_cards"
+	TypeSelectDefenseCards MessageType = "select_defense_cards"
+	TypeDefenseCardRequest MessageType = "defense_card_request"
+	TypeCardReveal         MessageType = "card_reveal"
 )
 
 // Synchronization message types

@@ -79,6 +79,50 @@ type GameplayScene struct {
 	devBoatBtn        *Button
 	devUseGoldBtn     *Button
 
+	// Card combat - Development phase card purchasing
+	devBuyAttackCardBtn  *Button
+	devBuyDefenseCardBtn *Button
+	cardBuyResource      string // "coal", "gold", "iron", "timber" - selected resource for card purchase
+	showCardDrawn        bool   // Show the drawn card popup
+	drawnCardName        string
+	drawnCardDesc        string
+	drawnCardRarity      string
+	drawnCardType        string
+	dismissCardDrawnBtn  *Button
+
+	// Card combat - Hand display
+	myAttackCards  []CardDisplayInfo // Parsed from game state
+	myDefenseCards []CardDisplayInfo
+	hoveredCardIdx int  // Index of card being hovered (-1 = none)
+	hoveredCardIsAtk bool // true = attack card, false = defense card
+
+	// Card combat - Attack card selection (during conquest)
+	showAttackCardSelect   bool
+	selectedAttackCardIDs  map[string]bool // Card IDs selected for this attack
+	confirmAttackCardsBtn  *Button
+	skipAttackCardsBtn     *Button
+
+	// Card combat - Defense card selection (when defending)
+	showDefenseCardSelect   bool
+	defenseCardBattleID     string
+	defenseCardAttackerName string
+	defenseCardTerrName     string
+	defenseCardAtkCount     int
+	defenseCardAtkStr       int
+	defenseCardDefStr       int
+	selectedDefenseCardIDs  map[string]bool
+	confirmDefenseCardsBtn  *Button
+	skipDefenseCardsBtn     *Button
+
+	// Card combat - Card reveal
+	showCardReveal     bool
+	cardRevealData     *protocol.CardRevealPayload
+	cardRevealTimer    int
+	dismissCardRevealBtn *Button
+
+	// Combat mode setting
+	combatMode string // "classic" or "cards"
+
 	// Water body selection for boats (when territory touches multiple water bodies)
 	buildMenuTerritory string // Territory where we're building (for water body selection)
 
@@ -88,19 +132,17 @@ type GameplayScene struct {
 	waterBodySelectBtns []*Button
 
 	// Combat result display
-	showCombatResult  bool
-	combatResult      *CombatResultData
-	combatResultQueue []*CombatResultData // Queue of combat results to show
-	dismissResultBtn  *Button
+	showCombatResult bool
+	combatResult     *CombatResultData
+	dismissResultBtn *Button
 
 	// Combat animation
 	showCombatAnimation   bool
-	combatAnimTerritory   string                 // Territory being attacked
-	combatAnimExplosions  []CombatExplosion      // Active explosions
-	combatAnimTimer       int                    // Frames remaining
-	combatAnimMaxDuration int                    // Total animation duration
-	combatPendingResult   *CombatResultData      // Result to show after animation
-	combatPendingState    map[string]interface{} // Game state to apply after animation
+	combatAnimTerritory   string            // Territory being attacked
+	combatAnimExplosions  []CombatExplosion // Active explosions
+	combatAnimTimer       int               // Frames remaining
+	combatAnimMaxDuration int               // Total animation duration
+	combatPendingResult   *CombatResultData // Result to show after animation
 
 	// Production animation
 	showProductionAnim     bool
@@ -365,6 +407,17 @@ type ProductionItem struct {
 }
 
 // AttackPreviewData holds attack preview info from server
+// CardDisplayInfo holds card data for client-side display.
+type CardDisplayInfo struct {
+	ID          string
+	Name        string
+	Description string
+	CardType    string // "attack" or "defense"
+	Rarity      string // "common", "uncommon", "rare", "ultra_rare"
+	Effect      string
+	Value       int
+}
+
 type AttackPreviewData struct {
 	TargetTerritory      string
 	AttackStrength       int
@@ -455,6 +508,68 @@ func NewGameplayScene(game *Game) *GameplayScene {
 			s.buildUseGold = !s.buildUseGold
 		},
 	}
+
+	// Card combat - buy card buttons (shown in Development phase, card mode only)
+	s.devBuyAttackCardBtn = &Button{
+		Text: "Buy Atk Card",
+		OnClick: func() {
+			if s.cardBuyResource != "" {
+				s.game.BuyCard("attack", s.cardBuyResource)
+			}
+		},
+	}
+	s.devBuyDefenseCardBtn = &Button{
+		Text: "Buy Def Card",
+		OnClick: func() {
+			if s.cardBuyResource != "" {
+				s.game.BuyCard("defense", s.cardBuyResource)
+			}
+		},
+	}
+	s.dismissCardDrawnBtn = &Button{
+		X: 0, Y: 0, W: 100, H: 35,
+		Text:    "OK",
+		Primary: true,
+		OnClick: func() { s.showCardDrawn = false },
+	}
+	s.cardBuyResource = "gold" // Default resource for buying cards
+
+	// Card combat - attack card selection buttons
+	s.selectedAttackCardIDs = make(map[string]bool)
+	s.confirmAttackCardsBtn = &Button{
+		X: 0, Y: 0, W: 140, H: 40,
+		Text:    "Play Cards",
+		Primary: true,
+		OnClick: func() { s.commitAttackCards() },
+	}
+	s.skipAttackCardsBtn = &Button{
+		X: 0, Y: 0, W: 120, H: 40,
+		Text:    "No Cards",
+		OnClick: func() { s.commitAttackCards() },
+	}
+
+	// Card combat - defense card selection buttons
+	s.selectedDefenseCardIDs = make(map[string]bool)
+	s.confirmDefenseCardsBtn = &Button{
+		X: 0, Y: 0, W: 140, H: 40,
+		Text:    "Play Cards",
+		Primary: true,
+		OnClick: func() { s.commitDefenseCards() },
+	}
+	s.skipDefenseCardsBtn = &Button{
+		X: 0, Y: 0, W: 120, H: 40,
+		Text:    "No Cards",
+		OnClick: func() { s.commitDefenseCards() },
+	}
+
+	// Card combat - card reveal dismiss
+	s.dismissCardRevealBtn = &Button{
+		X: 0, Y: 0, W: 100, H: 35,
+		Text:    "OK",
+		Primary: true,
+		OnClick: func() { s.dismissCardReveal() },
+	}
+	s.hoveredCardIdx = -1
 
 	// Combat result dismiss button
 	s.dismissResultBtn = &Button{
@@ -734,6 +849,39 @@ func (s *GameplayScene) Update() error {
 		return nil // Block other input while showing result
 	}
 
+	// Handle card drawn popup
+	if s.showCardDrawn {
+		s.dismissCardDrawnBtn.Update()
+		if inpututil.IsKeyJustPressed(ebiten.KeyEscape) || inpututil.IsKeyJustPressed(ebiten.KeyEnter) {
+			s.showCardDrawn = false
+		}
+		return nil
+	}
+
+	// Handle card reveal dialog
+	if s.showCardReveal {
+		s.dismissCardRevealBtn.Update()
+		if inpututil.IsKeyJustPressed(ebiten.KeyEscape) || inpututil.IsKeyJustPressed(ebiten.KeyEnter) {
+			s.dismissCardReveal()
+		}
+		return nil
+	}
+
+	// Handle defense card selection
+	if s.showDefenseCardSelect {
+		s.confirmDefenseCardsBtn.Update()
+		s.skipDefenseCardsBtn.Update()
+		// Handle card clicking
+		if inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) {
+			s.handleCardSelectionClick(s.myDefenseCards, s.selectedDefenseCardIDs)
+		}
+		if inpututil.IsKeyJustPressed(ebiten.KeyEscape) {
+			// Escape = play no cards
+			s.commitDefenseCards()
+		}
+		return nil
+	}
+
 	// Handle phase skip popup
 	if s.showPhaseSkip {
 		s.dismissSkipBtn.Update()
@@ -903,6 +1051,11 @@ func (s *GameplayScene) Update() error {
 		s.devWeaponBtn.Update()
 		s.devBoatBtn.Update()
 		s.devUseGoldBtn.Update()
+		// Card combat: update buy card buttons
+		if s.combatMode == "cards" {
+			s.devBuyAttackCardBtn.Update()
+			s.devBuyDefenseCardBtn.Update()
+		}
 		if inpututil.IsKeyJustPressed(ebiten.KeyEscape) {
 			s.selectedBuildType = ""
 			s.buildUseGold = false
@@ -1112,7 +1265,10 @@ func (s *GameplayScene) isDialogOrAnimationShowing() bool {
 		s.waitingForTrade ||
 		s.showColorPicker ||
 		s.showEditTerritory ||
-		s.pendingHorseSelection != ""
+		s.pendingHorseSelection != "" ||
+		s.showDefenseCardSelect ||
+		s.showCardReveal ||
+		s.showCardDrawn
 }
 
 func (s *GameplayScene) Draw(screen *ebiten.Image) {
@@ -1159,6 +1315,9 @@ func (s *GameplayScene) Draw(screen *ebiten.Image) {
 	// Draw turn toast notification (on top of UI, below modals)
 	s.drawTurnToast(screen)
 
+	// Draw card hand (tucked behind bottom bar, before overlays)
+	s.drawCardHand(screen)
+
 	// Draw modal overlays (on top of everything)
 	if s.showWaterBodySelect {
 		s.drawWaterBodySelect(screen)
@@ -1171,6 +1330,16 @@ func (s *GameplayScene) Draw(screen *ebiten.Image) {
 	}
 	if s.showAttackConfirmation {
 		s.drawAttackConfirmation(screen)
+	}
+	// Card combat dialogs
+	if s.showDefenseCardSelect {
+		s.drawDefenseCardSelect(screen)
+	}
+	if s.showCardReveal {
+		s.drawCardRevealDialog(screen)
+	}
+	if s.showCardDrawn {
+		s.drawCardDrawnPopup(screen)
 	}
 	if s.showCombatResult {
 		s.drawCombatResult(screen)

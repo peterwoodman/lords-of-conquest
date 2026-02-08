@@ -47,8 +47,10 @@ type Player struct {
 	StockpileTerritory string          `json:"stockpileTerritory"` // Territory ID where stockpile is located
 	AttacksRemaining   int             `json:"attacksRemaining"`
 	Eliminated         bool            `json:"eliminated"`
-	Alliance           AllianceSetting `json:"alliance"`   // Alliance preference
-	IsOnline           bool            `json:"isOnline"`   // Connection status
+	Alliance           AllianceSetting `json:"alliance"`     // Alliance preference
+	IsOnline           bool            `json:"isOnline"`     // Connection status
+	AttackCards        []CombatCard    `json:"attackCards"`   // Combat cards (card mode only)
+	DefenseCards       []CombatCard    `json:"defenseCards"`  // Combat cards (card mode only)
 }
 
 // AIPersonality defines AI behavior type.
@@ -87,6 +89,8 @@ func NewPlayer(id, name string, color PlayerColor) *Player {
 		Eliminated:       false,
 		Alliance:         AllianceAsk, // Default to ask
 		IsOnline:         true,
+		AttackCards:      []CombatCard{},
+		DefenseCards:     []CombatCard{},
 	}
 }
 
@@ -103,6 +107,8 @@ func NewAIPlayer(id, name string, color PlayerColor, personality AIPersonality) 
 		Eliminated:       false,
 		Alliance:         AllianceNeutral, // AI is neutral by default
 		IsOnline:         true,            // AI is always "online"
+		AttackCards:      []CombatCard{},
+		DefenseCards:     []CombatCard{},
 	}
 }
 
