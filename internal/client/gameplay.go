@@ -93,8 +93,11 @@ type GameplayScene struct {
 	// Card combat - Hand display
 	myAttackCards  []CardDisplayInfo // Parsed from game state
 	myDefenseCards []CardDisplayInfo
-	hoveredCardIdx int  // Index of card being hovered (-1 = none)
-	hoveredCardIsAtk bool // true = attack card, false = defense card
+	hoveredCardIdx     int     // Index of card being hovered (-1 = none)
+	hoveredCardIsAtk   bool    // true = attack card, false = defense card
+	cardHoverProgress  float64 // 0.0 = tucked, 1.0 = fully raised
+	lastHoveredIdx     int     // Last hovered card index (for animate-down)
+	lastHoveredIsAtk   bool    // Last hovered card type
 
 	// Card combat - Attack card selection (during conquest)
 	showAttackCardSelect   bool
@@ -359,6 +362,9 @@ type CombatExplosion struct {
 type CombatResultData struct {
 	EventID         string // For sync acknowledgment
 	AttackerID      string
+	AttackerName    string
+	DefenderID      string
+	DefenderName    string
 	AttackerWins    bool
 	AttackStrength  int
 	DefenseStrength int
@@ -570,6 +576,7 @@ func NewGameplayScene(game *Game) *GameplayScene {
 		OnClick: func() { s.dismissCardReveal() },
 	}
 	s.hoveredCardIdx = -1
+	s.lastHoveredIdx = -1
 
 	// Combat result dismiss button
 	s.dismissResultBtn = &Button{
@@ -814,6 +821,9 @@ func (s *GameplayScene) Update() error {
 
 	// Always handle pan/zoom - even during animations
 	s.updatePanZoom()
+
+	// Update card hand hover animation (always runs)
+	s.updateCardHoverAnimation()
 
 	// Handle victory screen (takes priority over everything)
 	if s.showVictory {
@@ -1303,8 +1313,14 @@ func (s *GameplayScene) Draw(screen *ebiten.Image) {
 	// Left sidebar on top of map and animations
 	s.drawLeftSidebar(screen)
 
-	// Bottom info bar on top of map and animations
+	// Draw card hand BEFORE bottom bar so cards render behind it
+	s.drawCardHand(screen)
+
+	// Bottom info bar on top of map and cards
 	s.drawBottomBar(screen)
+
+	// Draw the hovered card ON TOP of the status bar (only the raised portion)
+	s.drawCardHandHovered(screen)
 
 	// Draw hover info (includes attack preview during conquest)
 	// Hide when dialogs or animations are showing
@@ -1314,9 +1330,6 @@ func (s *GameplayScene) Draw(screen *ebiten.Image) {
 
 	// Draw turn toast notification (on top of UI, below modals)
 	s.drawTurnToast(screen)
-
-	// Draw card hand (tucked behind bottom bar, before overlays)
-	s.drawCardHand(screen)
 
 	// Draw modal overlays (on top of everything)
 	if s.showWaterBodySelect {

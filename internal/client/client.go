@@ -826,6 +826,9 @@ func (g *Game) handleMessage(msg *protocol.Message) {
 			result := &CombatResultData{
 				EventID:               payload.EventID,
 				AttackerID:            payload.AttackerID,
+				AttackerName:          payload.AttackerName,
+				DefenderID:            payload.DefenderID,
+				DefenderName:          payload.DefenderName,
 				AttackerWins:          payload.AttackerWins,
 				AttackStrength:        payload.AttackStrength,
 				DefenseStrength:       payload.DefenseStrength,

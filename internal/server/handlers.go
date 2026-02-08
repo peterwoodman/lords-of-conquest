@@ -1919,6 +1919,16 @@ func (h *Handlers) aiConquest(gameID string, state *game.GameState) {
 			playerName = p.Name
 		}
 
+		// Look up defender before attack (owner may change)
+		aiDefenderID := ""
+		aiDefenderName := ""
+		if terr, ok := state.Territories[bestTarget]; ok {
+			aiDefenderID = terr.Owner
+			if dp, ok := state.Players[terr.Owner]; ok {
+				aiDefenderName = dp.Name
+			}
+		}
+
 		log.Printf("AI: Attacking %s (odds: %.2f)", bestTarget, bestOdds)
 
 		// Card combat mode: route through card combat flow
@@ -1968,6 +1978,9 @@ func (h *Handlers) aiConquest(gameID string, state *game.GameState) {
 				EventID:         eventID,
 				Success:         true,
 				AttackerID:      attackerID,
+				AttackerName:    playerName,
+				DefenderID:      aiDefenderID,
+				DefenderName:    aiDefenderName,
 				AttackerWins:    result.AttackerWins,
 				AttackStrength:  result.AttackStrength,
 				DefenseStrength: result.DefenseStrength,
@@ -2052,6 +2065,10 @@ func (h *Handlers) aiCardAttack(gameID string, state *game.GameState, attackerID
 		return
 	}
 	defenderID := target.Owner
+	defenderName := defenderID
+	if dp := state.Players[defenderID]; dp != nil {
+		defenderName = dp.Name
+	}
 
 	// Calculate base strengths
 	baseAttack := state.CalculateAttackWithAllies(attackerID, target, nil, nil)
@@ -2081,7 +2098,7 @@ func (h *Handlers) aiCardAttack(gameID string, state *game.GameState, attackerID
 		}
 
 		// Resolve immediately
-		err := h.resolveCardCombat(aiClient, state, payload, nil, nil, nil, attackCards, defenseCards, terrName)
+		err := h.resolveCardCombat(aiClient, state, payload, nil, nil, nil, attackCards, defenseCards, terrName, defenderID, defenderName)
 		if err != nil {
 			log.Printf("AI Card Combat: resolve error: %v", err)
 			state.EndConquest(attackerID)
@@ -2172,7 +2189,7 @@ func (h *Handlers) aiCardAttack(gameID string, state *game.GameState, attackerID
 	log.Printf("AI Card Combat: Defender %s selected %d defense cards", defenderID, len(defenseCards))
 
 	// Resolve using freshState
-	err = h.resolveCardCombat(aiClient, &freshState, payload, nil, nil, nil, attackCards, defenseCards, terrName)
+	err = h.resolveCardCombat(aiClient, &freshState, payload, nil, nil, nil, attackCards, defenseCards, terrName, defenderID, defenderName)
 	if err != nil {
 		log.Printf("AI Card Combat: resolve error: %v", err)
 		freshState.EndConquest(attackerID)
@@ -3325,6 +3342,10 @@ func (h *Handlers) handleExecuteAttack(client *Client, msg *protocol.Message) er
 	}
 	terrName := target.Name
 	defenderID := target.Owner
+	defenderName := defenderID
+	if dp := state.Players[defenderID]; dp != nil {
+		defenderName = dp.Name
+	}
 
 	// Collect allies based on alliance settings
 	// If we have a cached plan, use pre-resolved allies instead of re-asking
@@ -3494,7 +3515,7 @@ func (h *Handlers) handleExecuteAttack(client *Client, msg *protocol.Message) er
 	// Branch on combat mode: card combat or classic
 	if state.Settings.CombatMode == game.CombatModeCards && len(payload.AttackCardIDs) >= 0 {
 		// === CARD COMBAT MODE ===
-		return h.executeCardAttack(client, &state, &payload, brought, attackerAllies, defenderAllies, terrName, defenderID)
+		return h.executeCardAttack(client, &state, &payload, brought, attackerAllies, defenderAllies, terrName, defenderID, defenderName)
 	}
 
 	// === CLASSIC COMBAT MODE ===
@@ -3503,12 +3524,12 @@ func (h *Handlers) handleExecuteAttack(client *Client, msg *protocol.Message) er
 		return err
 	}
 
-	h.finishAttack(client, &state, result, &payload, terrName)
+	h.finishAttack(client, &state, result, &payload, terrName, defenderID, defenderName)
 	return nil
 }
 
 // finishAttack handles the common post-combat logic for both classic and card combat.
-func (h *Handlers) finishAttack(client *Client, state *game.GameState, result *game.CombatResult, payload *protocol.ExecuteAttackPayload, terrName string) {
+func (h *Handlers) finishAttack(client *Client, state *game.GameState, result *game.CombatResult, payload *protocol.ExecuteAttackPayload, terrName, defenderID, defenderName string) {
 	// Log history event
 	if result.AttackerWins {
 		h.logHistory(client.GameID, state.Round, state.Phase.String(), client.PlayerID, client.Name,
@@ -3541,19 +3562,23 @@ func (h *Handlers) finishAttack(client *Client, state *game.GameState, result *g
 		unitsCaptured = append(unitsCaptured, u.TerritoryID)
 	}
 
+	attackerName := client.Name
+
 	if result.AttackerWins {
 		log.Printf("Player %s conquered %s", client.Name, payload.TargetTerritory)
 	} else {
 		log.Printf("Player %s failed to conquer %s", client.Name, payload.TargetTerritory)
 	}
 
-	// Check for elimination victory
-	if state.IsEliminationVictory() {
-		eventID := fmt.Sprintf("combat-%s-%d", client.GameID, time.Now().UnixNano())
-		combatResult := protocol.CombatResultPayload{
+	// Build shared combat result payload
+	buildCombatResult := func(eventID string) protocol.CombatResultPayload {
+		cr := protocol.CombatResultPayload{
 			EventID:         eventID,
 			Success:         true,
 			AttackerID:      client.PlayerID,
+			AttackerName:    attackerName,
+			DefenderID:      defenderID,
+			DefenderName:    defenderName,
 			AttackerWins:    result.AttackerWins,
 			AttackStrength:  result.AttackStrength,
 			DefenseStrength: result.DefenseStrength,
@@ -3562,13 +3587,20 @@ func (h *Handlers) finishAttack(client *Client, state *game.GameState, result *g
 			UnitsCaptured:   unitsCaptured,
 		}
 		if result.StockpileCaptured != nil {
-			combatResult.StockpileCaptured = true
-			combatResult.CapturedCoal = result.StockpileCaptured.Coal
-			combatResult.CapturedGold = result.StockpileCaptured.Gold
-			combatResult.CapturedIron = result.StockpileCaptured.Iron
-			combatResult.CapturedTimber = result.StockpileCaptured.Timber
-			combatResult.CapturedFromTerritory = payload.TargetTerritory
+			cr.StockpileCaptured = true
+			cr.CapturedCoal = result.StockpileCaptured.Coal
+			cr.CapturedGold = result.StockpileCaptured.Gold
+			cr.CapturedIron = result.StockpileCaptured.Iron
+			cr.CapturedTimber = result.StockpileCaptured.Timber
+			cr.CapturedFromTerritory = payload.TargetTerritory
 		}
+		return cr
+	}
+
+	// Check for elimination victory
+	if state.IsEliminationVictory() {
+		eventID := fmt.Sprintf("combat-%s-%d", client.GameID, time.Now().UnixNano())
+		combatResult := buildCombatResult(eventID)
 		h.hub.notifyGamePlayers(client.GameID, protocol.TypeActionResult, combatResult)
 		h.handleGameOver(client.GameID, state)
 		return
@@ -3576,25 +3608,7 @@ func (h *Handlers) finishAttack(client *Client, state *game.GameState, result *g
 
 	// Broadcast combat result and wait for acknowledgment
 	eventID := fmt.Sprintf("combat-%s-%d", client.GameID, time.Now().UnixNano())
-	combatResult := protocol.CombatResultPayload{
-		EventID:         eventID,
-		Success:         true,
-		AttackerID:      client.PlayerID,
-		AttackerWins:    result.AttackerWins,
-		AttackStrength:  result.AttackStrength,
-		DefenseStrength: result.DefenseStrength,
-		TargetTerritory: payload.TargetTerritory,
-		UnitsDestroyed:  unitsDestroyed,
-		UnitsCaptured:   unitsCaptured,
-	}
-	if result.StockpileCaptured != nil {
-		combatResult.StockpileCaptured = true
-		combatResult.CapturedCoal = result.StockpileCaptured.Coal
-		combatResult.CapturedGold = result.StockpileCaptured.Gold
-		combatResult.CapturedIron = result.StockpileCaptured.Iron
-		combatResult.CapturedTimber = result.StockpileCaptured.Timber
-		combatResult.CapturedFromTerritory = payload.TargetTerritory
-	}
+	combatResult := buildCombatResult(eventID)
 
 	gameID := client.GameID
 	h.broadcastWithAck(gameID, eventID, protocol.EventCombat, protocol.TypeActionResult, combatResult, func() {
@@ -3612,7 +3626,7 @@ func (h *Handlers) executeCardAttack(
 	payload *protocol.ExecuteAttackPayload,
 	brought *game.BroughtUnit,
 	attackerAllies, defenderAllies []string,
-	terrName, defenderID string,
+	terrName, defenderID, defenderName string,
 ) error {
 	attacker := state.Players[client.PlayerID]
 	if attacker == nil {
@@ -3648,7 +3662,7 @@ func (h *Handlers) executeCardAttack(
 			defender.DefenseCards = []game.CombatCard{} // Remove all from hand
 		}
 
-		return h.resolveCardCombat(client, state, payload, brought, attackerAllies, defenderAllies, validAttackCards, defenseCards, terrName)
+		return h.resolveCardCombat(client, state, payload, brought, attackerAllies, defenderAllies, validAttackCards, defenseCards, terrName, defenderID, defenderName)
 	}
 
 	// Save state (attacker's cards have been removed from hand)
@@ -3727,7 +3741,7 @@ func (h *Handlers) executeCardAttack(
 
 	log.Printf("Card combat: Defender %s selected %d defense cards", defenderID, len(defenseCards))
 
-	return h.resolveCardCombat(client, &freshState, payload, brought, attackerAllies, defenderAllies, validAttackCards, defenseCards, terrName)
+	return h.resolveCardCombat(client, &freshState, payload, brought, attackerAllies, defenderAllies, validAttackCards, defenseCards, terrName, defenderID, defenderName)
 }
 
 // resolveCardCombat resolves a card combat and broadcasts the result.
@@ -3738,7 +3752,7 @@ func (h *Handlers) resolveCardCombat(
 	brought *game.BroughtUnit,
 	attackerAllies, defenderAllies []string,
 	attackCards, defenseCards []game.CombatCard,
-	terrName string,
+	terrName, defenderID, defenderName string,
 ) error {
 	// Validate attack (phase, turn, etc.) - the attack must still be valid
 	attacker := state.Players[client.PlayerID]
@@ -3796,7 +3810,7 @@ func (h *Handlers) resolveCardCombat(
 	}
 
 	// Now finish the attack with the standard flow (save state, broadcast combat result, etc.)
-	h.finishAttack(client, state, result, payload, terrName)
+	h.finishAttack(client, state, result, payload, terrName, defenderID, defenderName)
 
 	return nil
 }

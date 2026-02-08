@@ -477,6 +477,9 @@ type CombatResultPayload struct {
 	EventID         string   `json:"event_id"` // For sync acknowledgment
 	Success         bool     `json:"success"`
 	AttackerID      string   `json:"attacker_id"`
+	AttackerName    string   `json:"attacker_name"`
+	DefenderID      string   `json:"defender_id"`
+	DefenderName    string   `json:"defender_name"`
 	AttackerWins    bool     `json:"attacker_wins"`
 	AttackStrength  int      `json:"attack_strength"`
 	DefenseStrength int      `json:"defense_strength"`

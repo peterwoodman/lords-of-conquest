@@ -2,6 +2,7 @@ package client
 
 import (
 	"fmt"
+	"image"
 	"image/color"
 	"log"
 	"math/rand"
@@ -25,18 +26,37 @@ func (s *GameplayScene) drawCombatResult(screen *ebiten.Image) {
 	vector.DrawFilledRect(screen, 0, 0, float32(ScreenWidth), float32(ScreenHeight),
 		color.RGBA{0, 0, 0, 200}, false)
 
-	// Result panel - increased height to prevent overlap
-	panelW := 340
-	panelH := 200
+	// Result panel
+	panelW := 380
+	panelH := 240
 	panelX := ScreenWidth/2 - panelW/2
 	panelY := ScreenHeight/2 - panelH/2
 
-	// Panel color based on result
+	// Panel title based on result
 	if s.combatResult.AttackerWins {
 		DrawFancyPanel(screen, panelX, panelY, panelW, panelH, "VICTORY!")
 	} else {
 		DrawFancyPanel(screen, panelX, panelY, panelW, panelH, "DEFEAT")
 	}
+
+	// Attacker vs Defender line
+	attackerLabel := s.combatResult.AttackerName
+	if attackerLabel == "" {
+		attackerLabel = "Unknown"
+	}
+	defenderLabel := s.combatResult.DefenderName
+	if defenderLabel == "" {
+		defenderLabel = "Unclaimed"
+	}
+	vsText := fmt.Sprintf("%s  vs  %s", attackerLabel, defenderLabel)
+	DrawTextCentered(screen, vsText, ScreenWidth/2, panelY+48, ColorText)
+
+	// Territory name
+	DrawTextCentered(screen, s.combatResult.TargetName, ScreenWidth/2, panelY+68, ColorTextMuted)
+
+	// Strength comparison
+	strengthText := fmt.Sprintf("Attack %d  vs  Defense %d", s.combatResult.AttackStrength, s.combatResult.DefenseStrength)
+	DrawTextCentered(screen, strengthText, ScreenWidth/2, panelY+95, ColorText)
 
 	// Result text
 	var resultText string
@@ -45,24 +65,21 @@ func (s *GameplayScene) drawCombatResult(screen *ebiten.Image) {
 		resultText = "Attack Successful!"
 		resultColor = ColorSuccess
 	} else {
-		resultText = "Attack Failed!"
+		resultText = "Attack Repulsed!"
 		resultColor = ColorDanger
 	}
-	DrawLargeTextCentered(screen, resultText, ScreenWidth/2, panelY+60, resultColor)
-
-	// Territory name
-	DrawTextCentered(screen, s.combatResult.TargetName, ScreenWidth/2, panelY+90, ColorText)
+	DrawLargeTextCentered(screen, resultText, ScreenWidth/2, panelY+125, resultColor)
 
 	// Outcome description
 	var outcomeText string
 	if s.combatResult.AttackerWins {
-		outcomeText = "Territory captured!"
+		outcomeText = fmt.Sprintf("%s captured %s!", attackerLabel, s.combatResult.TargetName)
 	} else {
-		outcomeText = "Your forces were repelled."
+		outcomeText = fmt.Sprintf("%s defended %s.", defenderLabel, s.combatResult.TargetName)
 	}
-	DrawTextCentered(screen, outcomeText, ScreenWidth/2, panelY+115, ColorTextMuted)
+	DrawTextCentered(screen, outcomeText, ScreenWidth/2, panelY+150, ColorTextMuted)
 
-	// OK button - positioned with proper spacing
+	// OK button
 	s.dismissResultBtn.X = ScreenWidth/2 - 60
 	s.dismissResultBtn.Y = panelY + panelH - 55
 	s.dismissResultBtn.Draw(screen)
@@ -454,55 +471,58 @@ func (s *GameplayScene) updateAttackPlanInput() {
 	panelY := ScreenHeight/2 - panelH/2
 	yPos := panelY + 100
 
-	// Handle reinforcement selection clicks
-	if reinforceCount > 0 && inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) {
+	if inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) {
 		mx, my := ebiten.CursorPosition()
-		yPos += 25 // After header text
 
-		for i, reinf := range s.attackPreview.Reinforcements {
-			optY := yPos + i*60
-			if mx >= panelX+15 && mx <= panelX+leftW-15 &&
-				my >= optY && my <= optY+55 {
-				s.selectedReinforcement = &ReinforcementData{
-					UnitType:            reinf.UnitType,
-					FromTerritory:       reinf.FromTerritory,
-					WaterBodyID:         reinf.WaterBodyID,
-					StrengthBonus:       reinf.StrengthBonus,
-					CanCarryWeapon:      reinf.CanCarryWeapon,
-					WeaponStrengthBonus: reinf.WeaponStrengthBonus,
-					CanCarryHorse:       reinf.CanCarryHorse,
-					HorseStrengthBonus:  reinf.HorseStrengthBonus,
-				}
-				s.loadHorseCheckbox = false
-				s.loadWeaponCheckbox = false
-				break
-			}
-		}
+		// Handle reinforcement selection clicks
+		if reinforceCount > 0 {
+			reinfY := yPos + 25 // After header text
 
-		// Handle checkbox clicks
-		if s.selectedReinforcement != nil {
-			checkboxY := yPos + reinforceCount*60
-			checkboxX := panelX + 20
-			boxSize := 16
-
-			if s.selectedReinforcement.UnitType == "boat" {
-				if s.selectedReinforcement.CanCarryHorse {
-					if mx >= checkboxX && mx <= checkboxX+boxSize+150 &&
-						my >= checkboxY+10 && my <= checkboxY+10+boxSize {
-						s.loadHorseCheckbox = !s.loadHorseCheckbox
+			for i, reinf := range s.attackPreview.Reinforcements {
+				optY := reinfY + i*60
+				if mx >= panelX+15 && mx <= panelX+leftW-15 &&
+					my >= optY && my <= optY+55 {
+					s.selectedReinforcement = &ReinforcementData{
+						UnitType:            reinf.UnitType,
+						FromTerritory:       reinf.FromTerritory,
+						WaterBodyID:         reinf.WaterBodyID,
+						StrengthBonus:       reinf.StrengthBonus,
+						CanCarryWeapon:      reinf.CanCarryWeapon,
+						WeaponStrengthBonus: reinf.WeaponStrengthBonus,
+						CanCarryHorse:       reinf.CanCarryHorse,
+						HorseStrengthBonus:  reinf.HorseStrengthBonus,
 					}
-					checkboxY += 25
+					s.loadHorseCheckbox = false
+					s.loadWeaponCheckbox = false
+					break
 				}
-				if s.selectedReinforcement.CanCarryWeapon {
+			}
+
+			// Handle checkbox clicks
+			if s.selectedReinforcement != nil {
+				checkboxY := reinfY + reinforceCount*60
+				checkboxX := panelX + 20
+				boxSize := 16
+
+				if s.selectedReinforcement.UnitType == "boat" {
+					if s.selectedReinforcement.CanCarryHorse {
+						if mx >= checkboxX && mx <= checkboxX+boxSize+150 &&
+							my >= checkboxY+10 && my <= checkboxY+10+boxSize {
+							s.loadHorseCheckbox = !s.loadHorseCheckbox
+						}
+						checkboxY += 25
+					}
+					if s.selectedReinforcement.CanCarryWeapon {
+						if mx >= checkboxX && mx <= checkboxX+boxSize+150 &&
+							my >= checkboxY+10 && my <= checkboxY+10+boxSize {
+							s.loadWeaponCheckbox = !s.loadWeaponCheckbox
+						}
+					}
+				} else if s.selectedReinforcement.UnitType == "horse" && s.selectedReinforcement.CanCarryWeapon {
 					if mx >= checkboxX && mx <= checkboxX+boxSize+150 &&
 						my >= checkboxY+10 && my <= checkboxY+10+boxSize {
 						s.loadWeaponCheckbox = !s.loadWeaponCheckbox
 					}
-				}
-			} else if s.selectedReinforcement.UnitType == "horse" && s.selectedReinforcement.CanCarryWeapon {
-				if mx >= checkboxX && mx <= checkboxX+boxSize+150 &&
-					my >= checkboxY+10 && my <= checkboxY+10+boxSize {
-					s.loadWeaponCheckbox = !s.loadWeaponCheckbox
 				}
 			}
 		}
@@ -3141,142 +3161,280 @@ func (s *GameplayScene) handleCardSelectionClick(cards []CardDisplayInfo, select
 	}
 }
 
-// drawCardHand draws the persistent card hand display tucked behind the bottom bar.
-// Cards are physically present, with their tops peeking above the status bar.
-// On hover, the card rises up to reveal its full content.
+// cardHandLayout returns shared layout constants for the card hand display.
+// cardStep is the horizontal distance between card origins (overlapping by 25%).
+func cardHandLayout() (barY, cardW, cardH, cardStep, sidebarEnd int) {
+	w := 110
+	return ScreenHeight - 110, w, 110, w * 3 / 4, 255
+}
+
+// cardHandPos returns the x position for a card at index i (attack or defense).
+func cardHandPos(i int, isAttack bool) int {
+	_, cardW, _, cardStep, sidebarEnd := cardHandLayout()
+	if isAttack {
+		return sidebarEnd + i*cardStep
+	}
+	// Defense cards: rightmost card at index 0 is flush right, each subsequent overlaps to the left
+	return ScreenWidth - 15 - cardW - i*cardStep
+}
+
+// drawCardContent draws a single card's full content at the given position.
+func (s *GameplayScene) drawCardContent(screen *ebiten.Image, cx, cy, cardW, cardH int, card CardDisplayInfo, isAttack bool) {
+	rarityCol := getRarityColor(card.Rarity)
+
+	// Card background
+	bgColor := color.RGBA{35, 25, 30, 245}
+	if !isAttack {
+		bgColor = color.RGBA{25, 25, 40, 245}
+	}
+	vector.DrawFilledRect(screen, float32(cx), float32(cy), float32(cardW), float32(cardH), bgColor, false)
+
+	// Border - matching game panel style: outer bright + inner dark
+	vector.StrokeRect(screen, float32(cx), float32(cy), float32(cardW), float32(cardH), 2, rarityCol, false)
+	vector.StrokeRect(screen, float32(cx+2), float32(cy+2), float32(cardW-4), float32(cardH-4), 1, ColorBorderDark, false)
+
+	// Title (bold = draw twice offset by 1px)
+	DrawText(screen, card.Name, cx+6, cy+6, rarityCol)
+	DrawText(screen, card.Name, cx+7, cy+6, rarityCol)
+
+	// Separator line under title
+	vector.StrokeLine(screen, float32(cx+5), float32(cy+20), float32(cx+cardW-5), float32(cy+20), 1, ColorBorderDark, false)
+
+	// Word-wrap description
+	desc := card.Description
+	lineY := cy + 25
+	maxChars := (cardW - 14) / 6
+	for len(desc) > 0 && lineY < cy+cardH-22 {
+		line := desc
+		if len(line) > maxChars {
+			cut := maxChars
+			for cut > 0 && line[cut] != ' ' {
+				cut--
+			}
+			if cut == 0 {
+				cut = maxChars
+			}
+			line = desc[:cut]
+			desc = desc[cut:]
+			if len(desc) > 0 && desc[0] == ' ' {
+				desc = desc[1:]
+			}
+		} else {
+			desc = ""
+		}
+		DrawText(screen, line, cx+7, lineY, ColorText)
+		lineY += 14
+	}
+
+	// Bottom row: type label and rarity
+	if isAttack {
+		DrawText(screen, "ATK", cx+6, cy+cardH-16, ColorDanger)
+	} else {
+		DrawText(screen, "DEF", cx+6, cy+cardH-16, ColorPrimary)
+	}
+	rarityLabel := card.Rarity
+	if rarityLabel == "ultra_rare" {
+		rarityLabel = "ULTRA"
+	}
+	DrawText(screen, rarityLabel, cx+cardW-6-len(rarityLabel)*6, cy+cardH-16, rarityCol)
+}
+
+// updateCardHoverAnimation updates the card hover state and animation each frame.
+func (s *GameplayScene) updateCardHoverAnimation() {
+	if s.combatMode != "cards" {
+		return
+	}
+
+	barY, cardW, cardH, cardStep, sidebarEnd := cardHandLayout()
+	peekH := 12
+	mx, my := ebiten.CursorPosition()
+
+	// Calculate current card top based on animation progress
+	currentCardTop := barY - peekH - int(float64(cardH-peekH)*s.cardHoverProgress)
+	fullTop := barY - cardH
+	if currentCardTop < fullTop {
+		currentCardTop = fullTop
+	}
+
+	// Determine which card is hovered
+	newHoveredIdx := -1
+	newHoveredIsAtk := false
+
+	// First check the currently active (raised/animating) card since it's drawn on top
+	activeIdx, activeIsAtk := s.getActiveCardIdx()
+	if activeIdx >= 0 {
+		var cx int
+		if activeIsAtk && activeIdx < len(s.myAttackCards) {
+			cx = sidebarEnd + activeIdx*cardStep
+		} else if !activeIsAtk && activeIdx < len(s.myDefenseCards) {
+			cx = ScreenWidth - 15 - cardW - activeIdx*cardStep
+		}
+		if mx >= cx && mx <= cx+cardW && my >= currentCardTop && my <= barY {
+			newHoveredIdx = activeIdx
+			newHoveredIsAtk = activeIsAtk
+		}
+	}
+
+	// Check attack cards - iterate from top (highest index drawn last = on top)
+	if newHoveredIdx == -1 {
+		for i := len(s.myAttackCards) - 1; i >= 0; i-- {
+			cx := sidebarEnd + i*cardStep
+			if mx >= cx && mx <= cx+cardW && my >= barY-peekH && my <= barY {
+				newHoveredIdx = i
+				newHoveredIsAtk = true
+				break
+			}
+		}
+	}
+
+	// Check defense cards (only if no card hovered yet)
+	// Defense cards: index 0 is rightmost (drawn last = on top)
+	if newHoveredIdx == -1 {
+		for i := 0; i < len(s.myDefenseCards); i++ {
+			cx := ScreenWidth - 15 - cardW - i*cardStep
+			if mx >= cx && mx <= cx+cardW && my >= barY-peekH && my <= barY {
+				newHoveredIdx = i
+				newHoveredIsAtk = false
+				break
+			}
+		}
+	}
+
+	// Track hover target changes
+	if newHoveredIdx >= 0 {
+		// New card hovered
+		if newHoveredIdx != s.hoveredCardIdx || newHoveredIsAtk != s.hoveredCardIsAtk {
+			// Switched to a different card - reset progress
+			s.cardHoverProgress = 0
+		}
+		s.lastHoveredIdx = newHoveredIdx
+		s.lastHoveredIsAtk = newHoveredIsAtk
+	}
+	s.hoveredCardIdx = newHoveredIdx
+	s.hoveredCardIsAtk = newHoveredIsAtk
+
+	// Animate
+	if s.hoveredCardIdx >= 0 {
+		// Rising
+		s.cardHoverProgress += 0.12
+		if s.cardHoverProgress > 1.0 {
+			s.cardHoverProgress = 1.0
+		}
+	} else if s.cardHoverProgress > 0 {
+		// Falling back down
+		s.cardHoverProgress -= 0.12
+		if s.cardHoverProgress < 0 {
+			s.cardHoverProgress = 0
+			s.lastHoveredIdx = -1
+		}
+	}
+}
+
+// getActiveCardIdx returns the index and type of the card currently being
+// hovered or animating down. Returns (-1, false) if none.
+func (s *GameplayScene) getActiveCardIdx() (int, bool) {
+	if s.hoveredCardIdx >= 0 {
+		return s.hoveredCardIdx, s.hoveredCardIsAtk
+	}
+	if s.lastHoveredIdx >= 0 && s.cardHoverProgress > 0 {
+		return s.lastHoveredIdx, s.lastHoveredIsAtk
+	}
+	return -1, false
+}
+
+// drawCardHand draws the card hand BEHIND the status bar.
+// Cards are always fully rendered at their resting position (mostly hidden behind the bar).
+// The status bar is drawn on top, hiding the card bodies.
 func (s *GameplayScene) drawCardHand(screen *ebiten.Image) {
 	if s.combatMode != "cards" {
 		return
 	}
 
-	barY := ScreenHeight - 110
-	peekH := 10     // How much of the card top peeks above the bar
-	cardW := 75     // Width of card top (and full card)
-	cardH := 100    // Full card height when revealed
-	cardGap := 5
-	sidebarEnd := 255 // Where the sidebar ends
+	barY, cardW, cardH, cardStep, sidebarEnd := cardHandLayout()
+	peekH := 12 // How much of the top peeks above the bar at rest
 
-	mx, my := ebiten.CursorPosition()
+	activeIdx, activeIsAtk := s.getActiveCardIdx()
 
-	// Attack cards - left justified, starting after sidebar
+	// Attack cards - draw left to right; skip the active card (drawn last)
 	for i, card := range s.myAttackCards {
-		cx := sidebarEnd + i*(cardW+cardGap)
-		rarityCol := getRarityColor(card.Rarity)
-
-		// Check if mouse is hovering over the card area (peek or revealed)
-		isHovered := mx >= cx && mx <= cx+cardW && my >= barY-cardH && my <= barY+5
-
-		if isHovered {
-			// Draw full card rising up from under the status bar
-			cardTop := barY - cardH
-			// Card background
-			vector.DrawFilledRect(screen, float32(cx), float32(cardTop), float32(cardW), float32(cardH), color.RGBA{40, 28, 28, 245}, false)
-			// Rarity border
-			vector.StrokeRect(screen, float32(cx), float32(cardTop), float32(cardW), float32(cardH), 2, rarityCol, false)
-
-			// Card content
-			DrawText(screen, card.Name, cx+5, cardTop+6, rarityCol)
-			// Word-wrap description into the card width
-			desc := card.Description
-			lineY := cardTop + 22
-			maxChars := (cardW - 10) / 6 // approximate chars per line
-			for len(desc) > 0 && lineY < cardTop+cardH-25 {
-				line := desc
-				if len(line) > maxChars {
-					// Find last space before maxChars
-					cut := maxChars
-					for cut > 0 && line[cut] != ' ' {
-						cut--
-					}
-					if cut == 0 {
-						cut = maxChars
-					}
-					line = desc[:cut]
-					desc = desc[cut:]
-					// Trim leading space
-					if len(desc) > 0 && desc[0] == ' ' {
-						desc = desc[1:]
-					}
-				} else {
-					desc = ""
-				}
-				DrawText(screen, line, cx+5, lineY, ColorText)
-				lineY += 14
-			}
-
-			// Type label
-			DrawText(screen, "ATK", cx+5, cardTop+cardH-20, ColorDanger)
-			// Rarity label at bottom-right
-			rarityLabel := card.Rarity
-			if rarityLabel == "ultra_rare" {
-				rarityLabel = "ULTRA"
-			}
-			DrawText(screen, rarityLabel, cx+cardW-35, cardTop+cardH-20, rarityCol)
-		} else {
-			// Draw just the peek strip above the status bar
-			peekY := barY - peekH
-			vector.DrawFilledRect(screen, float32(cx), float32(peekY), float32(cardW), float32(peekH), color.RGBA{50, 30, 30, 230}, false)
-			vector.StrokeRect(screen, float32(cx), float32(peekY), float32(cardW), float32(peekH), 1, rarityCol, false)
+		if activeIsAtk && i == activeIdx {
+			continue // Draw on top after all others
 		}
+		cx := sidebarEnd + i*cardStep
+		s.drawCardContent(screen, cx, barY-peekH, cardW, cardH, card, true)
+	}
+	// Draw active attack card last (on top of neighbors)
+	if activeIsAtk && activeIdx >= 0 && activeIdx < len(s.myAttackCards) {
+		cx := sidebarEnd + activeIdx*cardStep
+		fullTop := barY - cardH
+		cardTop := barY - peekH - int(float64(cardH-peekH)*s.cardHoverProgress)
+		if cardTop < fullTop {
+			cardTop = fullTop
+		}
+		s.drawCardContent(screen, cx, cardTop, cardW, cardH, s.myAttackCards[activeIdx], true)
 	}
 
-	// Defense cards - right justified
-	for i, card := range s.myDefenseCards {
-		cx := ScreenWidth - 15 - (i+1)*(cardW+cardGap)
-		rarityCol := getRarityColor(card.Rarity)
-
-		// Check if mouse is hovering over the card area (peek or revealed)
-		isHovered := mx >= cx && mx <= cx+cardW && my >= barY-cardH && my <= barY+5
-
-		if isHovered {
-			// Draw full card rising up from under the status bar
-			cardTop := barY - cardH
-			// Card background
-			vector.DrawFilledRect(screen, float32(cx), float32(cardTop), float32(cardW), float32(cardH), color.RGBA{28, 28, 40, 245}, false)
-			// Rarity border
-			vector.StrokeRect(screen, float32(cx), float32(cardTop), float32(cardW), float32(cardH), 2, rarityCol, false)
-
-			// Card content
-			DrawText(screen, card.Name, cx+5, cardTop+6, rarityCol)
-			// Word-wrap description
-			desc := card.Description
-			lineY := cardTop + 22
-			maxChars := (cardW - 10) / 6
-			for len(desc) > 0 && lineY < cardTop+cardH-25 {
-				line := desc
-				if len(line) > maxChars {
-					cut := maxChars
-					for cut > 0 && line[cut] != ' ' {
-						cut--
-					}
-					if cut == 0 {
-						cut = maxChars
-					}
-					line = desc[:cut]
-					desc = desc[cut:]
-					if len(desc) > 0 && desc[0] == ' ' {
-						desc = desc[1:]
-					}
-				} else {
-					desc = ""
-				}
-				DrawText(screen, line, cx+5, lineY, ColorText)
-				lineY += 14
-			}
-
-			// Type label
-			DrawText(screen, "DEF", cx+5, cardTop+cardH-20, ColorPrimary)
-			// Rarity label at bottom-right
-			rarityLabel := card.Rarity
-			if rarityLabel == "ultra_rare" {
-				rarityLabel = "ULTRA"
-			}
-			DrawText(screen, rarityLabel, cx+cardW-35, cardTop+cardH-20, rarityCol)
-		} else {
-			// Draw just the peek strip above the status bar
-			peekY := barY - peekH
-			vector.DrawFilledRect(screen, float32(cx), float32(peekY), float32(cardW), float32(peekH), color.RGBA{30, 30, 50, 230}, false)
-			vector.StrokeRect(screen, float32(cx), float32(peekY), float32(cardW), float32(peekH), 1, rarityCol, false)
+	// Defense cards - draw right to left (index 0 = rightmost, drawn last = on top)
+	// Skip the active card (drawn last)
+	for i := len(s.myDefenseCards) - 1; i >= 0; i-- {
+		if !activeIsAtk && i == activeIdx {
+			continue
 		}
+		cx := ScreenWidth - 15 - cardW - i*cardStep
+		s.drawCardContent(screen, cx, barY-peekH, cardW, cardH, s.myDefenseCards[i], false)
+	}
+	// Draw active defense card last (on top of neighbors)
+	if !activeIsAtk && activeIdx >= 0 && activeIdx < len(s.myDefenseCards) {
+		cx := ScreenWidth - 15 - cardW - activeIdx*cardStep
+		fullTop := barY - cardH
+		cardTop := barY - peekH - int(float64(cardH-peekH)*s.cardHoverProgress)
+		if cardTop < fullTop {
+			cardTop = fullTop
+		}
+		s.drawCardContent(screen, cx, cardTop, cardW, cardH, s.myDefenseCards[activeIdx], false)
+	}
+}
+
+// drawCardHandHovered redraws ONLY the portion of the active card that is
+// above the status bar. Uses a clipped sub-image so the card stays behind
+// the bar during animation and only the raised portion peeks out.
+// Handles both rising (hovered) and falling (last hovered, animating down).
+func (s *GameplayScene) drawCardHandHovered(screen *ebiten.Image) {
+	if s.combatMode != "cards" || s.cardHoverProgress <= 0 {
+		return
+	}
+
+	activeIdx, activeIsAtk := s.getActiveCardIdx()
+	if activeIdx < 0 {
+		return
+	}
+
+	barY, cardW, cardH, cardStep, sidebarEnd := cardHandLayout()
+	peekH := 12
+
+	fullTop := barY - cardH
+	cardTop := barY - peekH - int(float64(cardH-peekH)*s.cardHoverProgress)
+	if cardTop < fullTop {
+		cardTop = fullTop
+	}
+
+	// Only need to redraw if card has risen above the peek strip
+	visibleAboveBar := barY - cardTop
+	if visibleAboveBar <= peekH {
+		return
+	}
+
+	// Create a clipped sub-image covering only the area above the status bar
+	clipRect := image.Rect(0, cardTop, ScreenWidth, barY)
+	clipped := screen.SubImage(clipRect).(*ebiten.Image)
+
+	if activeIsAtk && activeIdx < len(s.myAttackCards) {
+		cx := sidebarEnd + activeIdx*cardStep
+		card := s.myAttackCards[activeIdx]
+		s.drawCardContent(clipped, cx, cardTop, cardW, cardH, card, true)
+	} else if !activeIsAtk && activeIdx < len(s.myDefenseCards) {
+		cx := ScreenWidth - 15 - cardW - activeIdx*cardStep
+		card := s.myDefenseCards[activeIdx]
+		s.drawCardContent(clipped, cx, cardTop, cardW, cardH, card, false)
 	}
 }
