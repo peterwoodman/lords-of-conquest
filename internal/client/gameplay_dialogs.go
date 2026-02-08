@@ -376,7 +376,7 @@ func (s *GameplayScene) drawAttackPlan(screen *ebiten.Image) {
 
 		for _, card := range s.myAttackCards {
 			selected := s.selectedAttackCardIDs[card.ID]
-			s.drawCardMini(screen, cardX+5, cardY, cardColumnW-15, 100, card, selected)
+			s.drawCardContentSel(screen, cardX+5, cardY, cardColumnW-15, 100, card, true, selected)
 			cardY += 110
 		}
 
@@ -2845,6 +2845,19 @@ func getRarityColor(rarity string) color.RGBA {
 	}
 }
 
+// cardSelectLayout computes layout for the card selection dialogs based on card count.
+func cardSelectLayout(nCards int) (cardW, cardH, cardGap, panelW int) {
+	cardW = 110
+	cardH = 110
+	cardGap = 8
+	totalCardsW := nCards*(cardW+cardGap) - cardGap
+	panelW = totalCardsW + 40 // 20px padding each side
+	if panelW < 400 {
+		panelW = 400
+	}
+	return
+}
+
 // drawAttackCardSelect draws the attack card selection dialog.
 func (s *GameplayScene) drawAttackCardSelect(screen *ebiten.Image) {
 	if !s.showAttackCardSelect {
@@ -2854,7 +2867,7 @@ func (s *GameplayScene) drawAttackCardSelect(screen *ebiten.Image) {
 	// Semi-transparent overlay
 	vector.DrawFilledRect(screen, 0, 0, float32(ScreenWidth), float32(ScreenHeight), color.RGBA{0, 0, 0, 150}, false)
 
-	panelW := 500
+	cardW, cardH, cardGap, panelW := cardSelectLayout(len(s.myAttackCards))
 	panelH := 300
 	panelX := (ScreenWidth - panelW) / 2
 	panelY := (ScreenHeight - panelH) / 2
@@ -2864,9 +2877,6 @@ func (s *GameplayScene) drawAttackCardSelect(screen *ebiten.Image) {
 	DrawText(screen, "Choose cards to play face-down (click to toggle):", panelX+20, panelY+45, ColorTextMuted)
 
 	// Draw attack cards
-	cardW := 80
-	cardH := 100
-	cardGap := 10
 	totalW := len(s.myAttackCards)*(cardW+cardGap) - cardGap
 	startX := panelX + (panelW-totalW)/2
 	cardY := panelY + 70
@@ -2874,7 +2884,7 @@ func (s *GameplayScene) drawAttackCardSelect(screen *ebiten.Image) {
 	for i, card := range s.myAttackCards {
 		cx := startX + i*(cardW+cardGap)
 		selected := s.selectedAttackCardIDs[card.ID]
-		s.drawCardMini(screen, cx, cardY, cardW, cardH, card, selected)
+		s.drawCardContentSel(screen, cx, cardY, cardW, cardH, card, true, selected)
 	}
 
 	// Selected count
@@ -2912,7 +2922,7 @@ func (s *GameplayScene) drawDefenseCardSelect(screen *ebiten.Image) {
 	// Semi-transparent overlay
 	vector.DrawFilledRect(screen, 0, 0, float32(ScreenWidth), float32(ScreenHeight), color.RGBA{0, 0, 0, 150}, false)
 
-	panelW := 500
+	cardW, cardH, cardGap, panelW := cardSelectLayout(len(s.myDefenseCards))
 	panelH := 340
 	panelX := (ScreenWidth - panelW) / 2
 	panelY := (ScreenHeight - panelH) / 2
@@ -2927,9 +2937,6 @@ func (s *GameplayScene) drawDefenseCardSelect(screen *ebiten.Image) {
 		panelX+20, panelY+78, ColorTextMuted)
 
 	// Draw defense cards
-	cardW := 80
-	cardH := 100
-	cardGap := 10
 	totalW := len(s.myDefenseCards)*(cardW+cardGap) - cardGap
 	startX := panelX + (panelW-totalW)/2
 	cardY := panelY + 100
@@ -2937,7 +2944,7 @@ func (s *GameplayScene) drawDefenseCardSelect(screen *ebiten.Image) {
 	for i, card := range s.myDefenseCards {
 		cx := startX + i*(cardW+cardGap)
 		selected := s.selectedDefenseCardIDs[card.ID]
-		s.drawCardMini(screen, cx, cardY, cardW, cardH, card, selected)
+		s.drawCardContentSel(screen, cx, cardY, cardW, cardH, card, false, selected)
 	}
 
 	// Selected count
@@ -2964,44 +2971,6 @@ func (s *GameplayScene) drawDefenseCardSelect(screen *ebiten.Image) {
 	s.skipDefenseCardsBtn.X = panelX + panelW/2 + 10
 	s.skipDefenseCardsBtn.Y = btnY
 	s.skipDefenseCardsBtn.Draw(screen)
-}
-
-// drawCardMini draws a small card representation with selection state.
-func (s *GameplayScene) drawCardMini(screen *ebiten.Image, x, y, w, h int, card CardDisplayInfo, selected bool) {
-	// Card background
-	bgColor := color.RGBA{40, 40, 50, 240}
-	if selected {
-		bgColor = color.RGBA{60, 80, 60, 240}
-	}
-	vector.DrawFilledRect(screen, float32(x), float32(y), float32(w), float32(h), bgColor, false)
-
-	// Rarity border
-	rarityCol := getRarityColor(card.Rarity)
-	borderWidth := float32(2)
-	if selected {
-		borderWidth = 3
-	}
-	vector.StrokeRect(screen, float32(x), float32(y), float32(w), float32(h), borderWidth, rarityCol, false)
-
-	// Card name (wrapped if needed)
-	nameY := y + 8
-	DrawText(screen, card.Name, x+5, nameY, ColorText)
-
-	// Card description
-	descY := nameY + 18
-	DrawText(screen, card.Description, x+5, descY, ColorTextMuted)
-
-	// Rarity label at bottom
-	rarityLabel := card.Rarity
-	if rarityLabel == "ultra_rare" {
-		rarityLabel = "ULTRA"
-	}
-	DrawText(screen, rarityLabel, x+5, y+h-15, rarityCol)
-
-	// Selection indicator
-	if selected {
-		DrawText(screen, "[X]", x+w-22, y+5, ColorSuccess)
-	}
 }
 
 // drawCardDrawnPopup draws the popup showing a newly purchased card.
@@ -3133,22 +3102,19 @@ func maxInt(a, b int) int {
 func (s *GameplayScene) handleCardSelectionClick(cards []CardDisplayInfo, selectedIDs map[string]bool) {
 	mx, my := ebiten.CursorPosition()
 
-	panelW := 500
+	cardW, cardH, cardGap, panelW := cardSelectLayout(len(cards))
 	panelH := 300
 	if len(cards) > 0 && cards[0].CardType == "defense" {
-		panelH = 320
+		panelH = 340
 	}
 	panelX := (ScreenWidth - panelW) / 2
 	panelY := (ScreenHeight - panelH) / 2
 
-	cardW := 80
-	cardH := 100
-	cardGap := 10
 	totalW := len(cards)*(cardW+cardGap) - cardGap
 	startX := panelX + (panelW-totalW)/2
 	cardY := panelY + 70
 	if len(cards) > 0 && cards[0].CardType == "defense" {
-		cardY = panelY + 85
+		cardY = panelY + 100
 	}
 
 	for i, card := range cards {
@@ -3180,6 +3146,11 @@ func cardHandPos(i int, isAttack bool) int {
 
 // drawCardContent draws a single card's full content at the given position.
 func (s *GameplayScene) drawCardContent(screen *ebiten.Image, cx, cy, cardW, cardH int, card CardDisplayInfo, isAttack bool) {
+	s.drawCardContentSel(screen, cx, cy, cardW, cardH, card, isAttack, false)
+}
+
+// drawCardContentSel draws a card with an optional selection highlight.
+func (s *GameplayScene) drawCardContentSel(screen *ebiten.Image, cx, cy, cardW, cardH int, card CardDisplayInfo, isAttack, selected bool) {
 	rarityCol := getRarityColor(card.Rarity)
 
 	// Card background
@@ -3187,11 +3158,27 @@ func (s *GameplayScene) drawCardContent(screen *ebiten.Image, cx, cy, cardW, car
 	if !isAttack {
 		bgColor = color.RGBA{25, 25, 40, 245}
 	}
+	if selected {
+		if isAttack {
+			bgColor = color.RGBA{50, 35, 30, 245}
+		} else {
+			bgColor = color.RGBA{30, 40, 55, 245}
+		}
+	}
 	vector.DrawFilledRect(screen, float32(cx), float32(cy), float32(cardW), float32(cardH), bgColor, false)
 
 	// Border - matching game panel style: outer bright + inner dark
-	vector.StrokeRect(screen, float32(cx), float32(cy), float32(cardW), float32(cardH), 2, rarityCol, false)
+	outerBorder := rarityCol
+	if selected {
+		outerBorder = ColorSuccess
+	}
+	vector.StrokeRect(screen, float32(cx), float32(cy), float32(cardW), float32(cardH), 2, outerBorder, false)
 	vector.StrokeRect(screen, float32(cx+2), float32(cy+2), float32(cardW-4), float32(cardH-4), 1, ColorBorderDark, false)
+
+	// Selection check mark
+	if selected {
+		DrawText(screen, "[X]", cx+cardW-22, cy+5, ColorSuccess)
+	}
 
 	// Title (bold = draw twice offset by 1px)
 	DrawText(screen, card.Name, cx+6, cy+6, rarityCol)
