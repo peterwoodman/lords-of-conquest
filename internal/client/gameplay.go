@@ -648,8 +648,8 @@ func NewGameplayScene(game *Game) *GameplayScene {
 	// Attack planning buttons
 	s.attackNoReinfBtn = &Button{
 		X: 0, Y: 0, W: 160, H: 40,
-		Text:    "Attack Without",
-		OnClick: func() { s.doAttack(false) },
+		Text:    "Plan Attack",
+		OnClick: func() { s.doAttack(s.selectedReinforcement != nil) },
 	}
 	s.attackWithReinfBtn = &Button{
 		X: 0, Y: 0, W: 160, H: 40,
@@ -908,6 +908,16 @@ func (s *GameplayScene) Update() error {
 
 	// Update card hand hover animation (always runs)
 	s.updateCardHoverAnimation()
+
+	// Update hovered cell early so tooltips work even during dialogs like attack planning
+	{
+		mx, my := ebiten.CursorPosition()
+		if s.isMouseOverUI(mx, my) {
+			s.hoveredCell = [2]int{-1, -1}
+		} else {
+			s.hoveredCell = s.screenToGrid(mx, my)
+		}
+	}
 
 	// Handle victory screen (takes priority over everything)
 	if s.showVictory {
@@ -1172,14 +1182,11 @@ func (s *GameplayScene) Update() error {
 		// Handle reinforcement selection clicks
 		s.updateAttackPlanInput()
 
-		// Only allow attack without reinforcement if base strength > 0
-		if s.attackPreview != nil && s.attackPreview.AttackStrength > 0 {
+		// Only allow plan attack if there's base strength or a selected reinforcement
+		if s.attackPreview != nil && (s.attackPreview.AttackStrength > 0 || s.selectedReinforcement != nil) {
 			s.attackNoReinfBtn.Update()
 		}
 		s.cancelAttackBtn.Update()
-		if s.selectedReinforcement != nil {
-			s.attackWithReinfBtn.Update()
-		}
 		if inpututil.IsKeyJustPressed(ebiten.KeyEscape) {
 			s.cancelAttackPlan()
 		}
@@ -1230,15 +1237,8 @@ func (s *GameplayScene) Update() error {
 		}
 	}
 
-	// Update hovered cell (suppress when mouse is over UI elements)
-	mx, my := ebiten.CursorPosition()
-	if s.isMouseOverUI(mx, my) {
-		s.hoveredCell = [2]int{-1, -1}
-	} else {
-		s.hoveredCell = s.screenToGrid(mx, my)
-	}
-
 	// Update buttons
+	mx, my := ebiten.CursorPosition()
 	isMyTurn := s.currentTurn == s.game.config.PlayerID
 	showEndButton := isMyTurn && s.isActionPhase()
 	s.endPhaseBtn.Disabled = !showEndButton
@@ -1333,20 +1333,14 @@ func (s *GameplayScene) isDialogOrAnimationShowing() bool {
 	return s.showProductionAnim ||
 		s.showStockpileCapture ||
 		s.showCombatAnimation ||
-		s.showAttackPlan ||
-		s.showAttackConfirmation ||
 		s.showWaterBodySelect ||
 		s.showAllyMenu ||
 		s.showSurrenderConfirm ||
-		s.showVictory ||
 		s.showTradePropose ||
 		s.showColorPicker ||
 		s.showEditTerritory ||
 		s.pendingHorseSelection != "" ||
-		s.showCardReveal ||
-		s.cardSelectionMode != "" ||
-		s.bottomBarNotification != "" ||
-		s.bottomBarMediumMode != ""
+		s.cardSelectionMode != ""
 }
 
 func (s *GameplayScene) Draw(screen *ebiten.Image) {

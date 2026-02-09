@@ -782,17 +782,19 @@ func (s *GameplayScene) drawTerritoryHighlights(screen *ebiten.Image, width, hei
 		}
 		fmt.Sscanf(highlight.TerritoryID[1:], "%d", &numID)
 
-		// Apply pulse to highlight color
+		// Apply pulse to highlight color (premultiplied alpha: scale all channels)
 		hlColor := color.RGBA{
-			highlight.Color.R,
-			highlight.Color.G,
-			highlight.Color.B,
+			uint8(float64(highlight.Color.R) * pulseAlpha),
+			uint8(float64(highlight.Color.G) * pulseAlpha),
+			uint8(float64(highlight.Color.B) * pulseAlpha),
 			uint8(float64(highlight.Color.A) * pulseAlpha),
 		}
 
-		lineWidth := float32(3)
+		lineWidth := float32(5)
+		cornerRadius := lineWidth / 2
 
-		// Draw border segments on the outer edges of this territory
+		// Draw border segments on the outer edges of this territory,
+		// with filled circles at corners for a rounded appearance.
 		for y := 0; y < height; y++ {
 			for x := 0; x < width; x++ {
 				if getTerritoryAt(x, y) != numID {
@@ -804,18 +806,52 @@ func (s *GameplayScene) drawTerritoryHighlights(screen *ebiten.Image, width, hei
 				fx := float32(sx)
 				fy := float32(sy)
 
+				left := getTerritoryAt(x-1, y) != numID
+				right := getTerritoryAt(x+1, y) != numID
+				top := getTerritoryAt(x, y-1) != numID
+				bottom := getTerritoryAt(x, y+1) != numID
+
 				// Draw edge on each side that borders a different territory
-				if getTerritoryAt(x-1, y) != numID {
+				if left {
 					vector.StrokeLine(screen, fx, fy, fx, fy+cs, lineWidth, hlColor, false)
 				}
-				if getTerritoryAt(x+1, y) != numID {
+				if right {
 					vector.StrokeLine(screen, fx+cs, fy, fx+cs, fy+cs, lineWidth, hlColor, false)
 				}
-				if getTerritoryAt(x, y-1) != numID {
+				if top {
 					vector.StrokeLine(screen, fx, fy, fx+cs, fy, lineWidth, hlColor, false)
 				}
-				if getTerritoryAt(x, y+1) != numID {
+				if bottom {
 					vector.StrokeLine(screen, fx, fy+cs, fx+cs, fy+cs, lineWidth, hlColor, false)
+				}
+
+				// Draw rounded corners where two border edges meet
+				if left && top {
+					vector.DrawFilledCircle(screen, fx, fy, cornerRadius, hlColor, false)
+				}
+				if right && top {
+					vector.DrawFilledCircle(screen, fx+cs, fy, cornerRadius, hlColor, false)
+				}
+				if left && bottom {
+					vector.DrawFilledCircle(screen, fx, fy+cs, cornerRadius, hlColor, false)
+				}
+				if right && bottom {
+					vector.DrawFilledCircle(screen, fx+cs, fy+cs, cornerRadius, hlColor, false)
+				}
+
+				// Also round outer corners where the territory bends inward
+				// (diagonal neighbor is outside but both adjacent sides are inside)
+				if !left && !top && getTerritoryAt(x-1, y-1) != numID {
+					vector.DrawFilledCircle(screen, fx, fy, cornerRadius, hlColor, false)
+				}
+				if !right && !top && getTerritoryAt(x+1, y-1) != numID {
+					vector.DrawFilledCircle(screen, fx+cs, fy, cornerRadius, hlColor, false)
+				}
+				if !left && !bottom && getTerritoryAt(x-1, y+1) != numID {
+					vector.DrawFilledCircle(screen, fx, fy+cs, cornerRadius, hlColor, false)
+				}
+				if !right && !bottom && getTerritoryAt(x+1, y+1) != numID {
+					vector.DrawFilledCircle(screen, fx+cs, fy+cs, cornerRadius, hlColor, false)
 				}
 			}
 		}

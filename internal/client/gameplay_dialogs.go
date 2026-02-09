@@ -215,7 +215,7 @@ func (s *GameplayScene) drawAttackPlan(screen *ebiten.Image) {
 	// === CENTER SECTION: Reinforcements ===
 	reinfX := barX + 420
 	if reinforceCount > 0 {
-		DrawText(screen, "Reinforcements (click to select):", reinfX, barY+12, ColorText)
+		DrawText(screen, "Reinforcements (click to toggle):", reinfX, barY+12, ColorText)
 
 		for i, reinf := range s.attackPreview.Reinforcements {
 			fromName := reinf.FromTerritory
@@ -313,35 +313,23 @@ func (s *GameplayScene) drawAttackPlan(screen *ebiten.Image) {
 	btnWidth := 150
 	btnX := barX + barW - btnWidth - 20
 
-	// Plan Attack button
-	if s.attackPreview.AttackStrength > 0 {
-		if reinforceCount == 0 {
-			s.attackNoReinfBtn.Text = "Plan Attack"
-		} else {
-			s.attackNoReinfBtn.Text = "Plan Without"
-		}
+	// Plan Attack button (uses selected reinforcement if any)
+	canAttack := s.attackPreview.AttackStrength > 0 || s.selectedReinforcement != nil
+	if canAttack {
+		s.attackNoReinfBtn.Text = "Plan Attack"
 		s.attackNoReinfBtn.W = btnWidth
 		s.attackNoReinfBtn.X = btnX
 		s.attackNoReinfBtn.Y = barY + 15
 		s.attackNoReinfBtn.Draw(screen)
-	} else if s.selectedReinforcement == nil {
+	} else {
 		DrawText(screen, "Bring forces", btnX, barY+20, ColorWarning)
 		DrawText(screen, "to attack", btnX, barY+38, ColorWarning)
-	}
-
-	// Plan with reinforcement button
-	if s.selectedReinforcement != nil {
-		s.attackWithReinfBtn.W = btnWidth
-		s.attackWithReinfBtn.X = btnX
-		s.attackWithReinfBtn.Y = barY + 60
-		s.attackWithReinfBtn.Text = "Plan w/ " + s.selectedReinforcement.UnitType
-		s.attackWithReinfBtn.Draw(screen)
 	}
 
 	// Cancel button
 	s.cancelAttackBtn.W = btnWidth
 	s.cancelAttackBtn.X = btnX
-	s.cancelAttackBtn.Y = barY + 105
+	s.cancelAttackBtn.Y = barY + 60
 	s.cancelAttackBtn.Draw(screen)
 
 	// Card selection hint (card combat mode only)
@@ -372,25 +360,34 @@ func (s *GameplayScene) updateAttackPlanInput() {
 	if inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) {
 		mx, my := ebiten.CursorPosition()
 
-		// Handle reinforcement selection clicks
+		// Handle reinforcement selection clicks (click to select, click again to deselect)
 		if reinforceCount > 0 {
 			for i, reinf := range s.attackPreview.Reinforcements {
 				optY := barY + 35 + i*50
 				boxW := 380
 				if mx >= reinfX && mx <= reinfX+boxW &&
 					my >= optY && my <= optY+45 {
-					s.selectedReinforcement = &ReinforcementData{
-						UnitType:            reinf.UnitType,
-						FromTerritory:       reinf.FromTerritory,
-						WaterBodyID:         reinf.WaterBodyID,
-						StrengthBonus:       reinf.StrengthBonus,
-						CanCarryWeapon:      reinf.CanCarryWeapon,
-						WeaponStrengthBonus: reinf.WeaponStrengthBonus,
-						CanCarryHorse:       reinf.CanCarryHorse,
-						HorseStrengthBonus:  reinf.HorseStrengthBonus,
+					// Toggle: if already selected, deselect it
+					if s.selectedReinforcement != nil &&
+						s.selectedReinforcement.FromTerritory == reinf.FromTerritory &&
+						s.selectedReinforcement.UnitType == reinf.UnitType {
+						s.selectedReinforcement = nil
+						s.loadHorseCheckbox = false
+						s.loadWeaponCheckbox = false
+					} else {
+						s.selectedReinforcement = &ReinforcementData{
+							UnitType:            reinf.UnitType,
+							FromTerritory:       reinf.FromTerritory,
+							WaterBodyID:         reinf.WaterBodyID,
+							StrengthBonus:       reinf.StrengthBonus,
+							CanCarryWeapon:      reinf.CanCarryWeapon,
+							WeaponStrengthBonus: reinf.WeaponStrengthBonus,
+							CanCarryHorse:       reinf.CanCarryHorse,
+							HorseStrengthBonus:  reinf.HorseStrengthBonus,
+						}
+						s.loadHorseCheckbox = false
+						s.loadWeaponCheckbox = false
 					}
-					s.loadHorseCheckbox = false
-					s.loadWeaponCheckbox = false
 					break
 				}
 			}
@@ -484,9 +481,9 @@ func (s *GameplayScene) showCombatResultAsNotification() {
 	r := s.combatResult
 	var msg string
 	if r.AttackerWins {
-		msg = fmt.Sprintf("VICTORY! %s captured %s -- Atk: %d vs Def: %d", r.AttackerName, r.TargetName, r.AttackStrength, r.DefenseStrength)
+		msg = fmt.Sprintf("ATTACK SUCCESSFUL! %s captured %s -- Atk: %d vs Def: %d", r.AttackerName, r.TargetName, r.AttackStrength, r.DefenseStrength)
 	} else {
-		msg = fmt.Sprintf("DEFEAT! %s defended %s -- Atk: %d vs Def: %d", r.DefenderName, r.TargetName, r.AttackStrength, r.DefenseStrength)
+		msg = fmt.Sprintf("ATTACK REPULSED! %s defended %s -- Atk: %d vs Def: %d", r.DefenderName, r.TargetName, r.AttackStrength, r.DefenseStrength)
 	}
 	s.showBottomBarNotification(msg, "OK", func() {
 		s.dismissCombatResult()
@@ -654,15 +651,16 @@ func (s *GameplayScene) ShowAttackPlan(preview *AttackPreviewData) {
 	s.showAttackPlan = true
 
 	// Calculate dynamic bar height based on content
+	// Right section buttons need: Plan Attack at +15 (h40) + Cancel at +60 (h40) = 100 + padding
 	reinforceCount := len(preview.Reinforcements)
-	barH := 100 // base: title + strength + buttons
+	barH := 105 // base: enough for buttons + text with no reinforcements
 	if reinforceCount > 0 {
-		barH = 90 + reinforceCount*50 + 25 // header + items + spacing
-		// Extra for possible checkboxes (2 max)
-		barH += 55
-	}
-	if barH < 150 {
-		barH = 150
+		// Reinforcement boxes start at +35, each is 45px tall with 5px gap (50px per item)
+		// Below boxes: up to 2 checkboxes (25px each) + 5px offset = 55px
+		reinfH := 35 + reinforceCount*50 + 55 + 10 // +10 bottom padding
+		if reinfH > barH {
+			barH = reinfH
+		}
 	}
 	s.SetBarHeight(barH)
 
