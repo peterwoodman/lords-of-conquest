@@ -91,19 +91,23 @@ type GameplayScene struct {
 	dismissCardDrawnBtn  *Button
 
 	// Card combat - Hand display
-	myAttackCards  []CardDisplayInfo // Parsed from game state
-	myDefenseCards []CardDisplayInfo
-	hoveredCardIdx     int     // Index of card being hovered (-1 = none)
-	hoveredCardIsAtk   bool    // true = attack card, false = defense card
-	cardHoverProgress  float64 // 0.0 = tucked, 1.0 = fully raised
-	lastHoveredIdx     int     // Last hovered card index (for animate-down)
-	lastHoveredIsAtk   bool    // Last hovered card type
+	myAttackCards     []CardDisplayInfo // Parsed from game state
+	myDefenseCards    []CardDisplayInfo
+	hoveredCardIdx    int     // Index of card being hovered (-1 = none)
+	hoveredCardIsAtk  bool    // true = attack card, false = defense card
+	cardHoverProgress float64 // 0.0 = tucked, 1.0 = fully raised
+	lastHoveredIdx    int     // Last hovered card index (for animate-down)
+	lastHoveredIsAtk  bool    // Last hovered card type
+
+	// Card combat - Card selection via card hand (bottom bar context mode)
+	cardSelectionMode string          // "", "attack", "defense" - when non-empty, card hand is in selection mode
+	selectedCardIDs   map[string]bool // Card IDs currently selected (toggled by clicking)
 
 	// Card combat - Attack card selection (during conquest)
-	showAttackCardSelect   bool
-	selectedAttackCardIDs  map[string]bool // Card IDs selected for this attack
-	confirmAttackCardsBtn  *Button
-	skipAttackCardsBtn     *Button
+	showAttackCardSelect  bool
+	selectedAttackCardIDs map[string]bool // Card IDs selected for this attack
+	confirmAttackCardsBtn *Button
+	skipAttackCardsBtn    *Button
 
 	// Card combat - Defense card selection (when defending)
 	showDefenseCardSelect   bool
@@ -117,10 +121,15 @@ type GameplayScene struct {
 	confirmDefenseCardsBtn  *Button
 	skipDefenseCardsBtn     *Button
 
+	// Card selection bottom bar buttons
+	cardSelectConfirmBtn *Button
+	cardSelectSkipBtn    *Button
+	cardSelectContextMsg string // "Select attack cards for [territory]"
+
 	// Card combat - Card reveal
-	showCardReveal     bool
-	cardRevealData     *protocol.CardRevealPayload
-	cardRevealTimer    int
+	showCardReveal       bool
+	cardRevealData       *protocol.CardRevealPayload
+	cardRevealTimer      int
 	dismissCardRevealBtn *Button
 
 	// Combat mode setting
@@ -261,9 +270,9 @@ type GameplayScene struct {
 	usedColors      map[string]bool // Colors already used by other players
 
 	// Trade phase UI
-	proposeTradeBtn            *Button
-	showTradePropose           bool               // Show propose trade popup
-	showTradeIncoming          bool               // Show incoming trade popup
+	proposeTradeBtn  *Button
+	showTradePropose bool // Show propose trade popup
+
 	showTradeResult            bool               // Show trade result popup
 	waitingForTrade            bool               // Waiting for trade response
 	tradeProposal              *TradeProposalData // Incoming proposal
@@ -305,6 +314,28 @@ type GameplayScene struct {
 	turnToastTimer  int    // Frames elapsed in current phase
 	turnToastPhase  string // "slide-in", "hold", "slide-out"
 	initialTurnLoad bool   // Track if this is the first state load
+
+	// Territory highlighting (pulsing border for combat/trade context)
+	highlightedTerritories []TerritoryHighlight
+	highlightPulseTimer    int // Global pulse timer (increments each frame)
+
+	// Dynamic bottom bar
+	targetBarHeight  int     // Desired height (100, 200, 250, 300)
+	currentBarHeight float64 // Animated, lerps toward target each frame
+	currentBarTop    int     // ScreenHeight - int(currentBarHeight) - 10
+
+	// Bottom bar notification system (replaces simple modal dialogs)
+	bottomBarNotification    string // Current notification text (empty = show standard phase content)
+	bottomBarNotifAction     func() // Action for the OK/dismiss button
+	bottomBarNotifBtnText    string // Text for the dismiss button (default "OK")
+	bottomBarNotifDismissBtn *Button
+
+	// Bottom bar medium interaction mode (replaces medium modal dialogs)
+	// These have inline action buttons but stay at 100px height
+	bottomBarMediumMode    string    // "", "alliance_request", "attack_confirm", "trade_incoming"
+	bottomBarMediumBtns    []*Button // Dynamic buttons for the current mode
+	bottomBarMediumText    string    // Primary text for the mode
+	bottomBarMediumSubtext string    // Secondary/detail text
 }
 
 // TradeProposalData holds data for an incoming trade proposal.
@@ -347,6 +378,12 @@ type HistoryEntry struct {
 	PlayerName string
 	EventType  string
 	Message    string
+}
+
+// TerritoryHighlight represents a territory that should be visually highlighted on the map.
+type TerritoryHighlight struct {
+	TerritoryID string     // e.g. "t5"
+	Color       color.RGBA // Highlight color (red=enemy, green=ally, blue=trade)
 }
 
 // CombatExplosion represents a single explosion effect in the combat animation.
@@ -578,6 +615,28 @@ func NewGameplayScene(game *Game) *GameplayScene {
 	s.hoveredCardIdx = -1
 	s.lastHoveredIdx = -1
 
+	// Card selection via card hand (bottom bar mode)
+	s.selectedCardIDs = make(map[string]bool)
+	s.cardSelectConfirmBtn = &Button{
+		X: 0, Y: 0, W: 140, H: 35,
+		Text:    "Confirm",
+		Primary: true,
+		OnClick: func() { s.confirmCardSelection() },
+	}
+	s.cardSelectSkipBtn = &Button{
+		X: 0, Y: 0, W: 120, H: 35,
+		Text:    "No Cards",
+		OnClick: func() { s.skipCardSelection() },
+	}
+
+	// Bottom bar notification dismiss button
+	s.bottomBarNotifDismissBtn = &Button{
+		X: 0, Y: 0, W: 100, H: 35,
+		Text:    "OK",
+		Primary: true,
+		OnClick: func() { s.dismissBottomBarNotification() },
+	}
+
 	// Combat result dismiss button
 	s.dismissResultBtn = &Button{
 		X: 0, Y: 0, W: 120, H: 40,
@@ -788,9 +847,22 @@ func (s *GameplayScene) OnEnter() {
 	s.gameState = nil
 	s.initialTurnLoad = true // First state load - don't show toast
 	s.showTurnToast = false
+	s.targetBarHeight = 100
+	s.currentBarHeight = 100
+	s.currentBarTop = ScreenHeight - 110
 }
 
 func (s *GameplayScene) OnExit() {}
+
+// SetBarHeight sets the target height for the bottom bar, triggering smooth animation.
+func (s *GameplayScene) SetBarHeight(height int) {
+	s.targetBarHeight = height
+}
+
+// ResetBarHeight returns the bar to its default 100px height.
+func (s *GameplayScene) ResetBarHeight() {
+	s.targetBarHeight = 100
+}
 
 func (s *GameplayScene) Update() error {
 	// Only process input if we have map data
@@ -822,6 +894,18 @@ func (s *GameplayScene) Update() error {
 	// Always handle pan/zoom - even during animations
 	s.updatePanZoom()
 
+	// Update territory highlight pulse timer
+	s.highlightPulseTimer++
+
+	// Animate bottom bar height (smooth lerp)
+	diff := float64(s.targetBarHeight) - s.currentBarHeight
+	if diff > 0.5 || diff < -0.5 {
+		s.currentBarHeight += diff * 0.15 // ease-out, ~200ms to settle
+	} else {
+		s.currentBarHeight = float64(s.targetBarHeight)
+	}
+	s.currentBarTop = ScreenHeight - int(s.currentBarHeight) - 10
+
 	// Update card hand hover animation (always runs)
 	s.updateCardHoverAnimation()
 
@@ -850,25 +934,32 @@ func (s *GameplayScene) Update() error {
 		return nil // Block all input during animation
 	}
 
-	// Handle combat result dialog
-	if s.showCombatResult {
-		s.dismissResultBtn.Update()
+	// Handle bottom bar notification (replaces combat result, card drawn, phase skip, trade result popups)
+	if s.bottomBarNotification != "" {
+		s.bottomBarNotifDismissBtn.Update()
 		if inpututil.IsKeyJustPressed(ebiten.KeyEscape) || inpututil.IsKeyJustPressed(ebiten.KeyEnter) {
-			s.dismissCombatResult()
+			s.dismissBottomBarNotification()
 		}
-		return nil // Block other input while showing result
+		return nil // Block other input while showing notification
 	}
 
-	// Handle card drawn popup
-	if s.showCardDrawn {
-		s.dismissCardDrawnBtn.Update()
-		if inpututil.IsKeyJustPressed(ebiten.KeyEscape) || inpututil.IsKeyJustPressed(ebiten.KeyEnter) {
-			s.showCardDrawn = false
+	// Handle bottom bar medium interaction (replaces alliance request, trade incoming popups)
+	if s.bottomBarMediumMode != "" {
+		for _, btn := range s.bottomBarMediumBtns {
+			btn.Update()
 		}
-		return nil
+		// Mode-specific logic
+		if s.bottomBarMediumMode == "alliance_request" {
+			s.allyRequestCountdown--
+			if s.allyRequestCountdown <= 0 {
+				s.voteAlliance("neutral")
+				s.clearBottomBarMedium()
+			}
+		}
+		return nil // Block other input while showing interaction
 	}
 
-	// Handle card reveal dialog
+	// Handle card reveal dialog (rendered in expanded bottom bar)
 	if s.showCardReveal {
 		s.dismissCardRevealBtn.Update()
 		if inpututil.IsKeyJustPressed(ebiten.KeyEscape) || inpututil.IsKeyJustPressed(ebiten.KeyEnter) {
@@ -877,39 +968,15 @@ func (s *GameplayScene) Update() error {
 		return nil
 	}
 
-	// Handle defense card selection
-	if s.showDefenseCardSelect {
-		s.confirmDefenseCardsBtn.Update()
-		s.skipDefenseCardsBtn.Update()
-		// Handle card clicking
-		if inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) {
-			s.handleCardSelectionClick(s.myDefenseCards, s.selectedDefenseCardIDs)
+	// Handle card selection mode (attack/defense cards via card hand)
+	if s.cardSelectionMode != "" {
+		s.cardSelectConfirmBtn.Update()
+		s.cardSelectSkipBtn.Update()
+		if inpututil.IsKeyJustPressed(ebiten.KeyEnter) {
+			s.confirmCardSelection()
 		}
 		if inpututil.IsKeyJustPressed(ebiten.KeyEscape) {
-			// Escape = play no cards
-			s.commitDefenseCards()
-		}
-		return nil
-	}
-
-	// Handle phase skip popup
-	if s.showPhaseSkip {
-		s.dismissSkipBtn.Update()
-		s.phaseSkipCountdown--
-		if s.phaseSkipCountdown <= 0 {
-			s.showNextPhaseSkip() // Show next in queue or close
-		}
-		if inpututil.IsKeyJustPressed(ebiten.KeyEscape) || inpututil.IsKeyJustPressed(ebiten.KeyEnter) {
-			s.showNextPhaseSkip() // Show next in queue or close
-		}
-		return nil // Block other input while showing popup
-	}
-
-	// Handle trade result popup
-	if s.showTradeResult {
-		s.tradeResultOkBtn.Update()
-		if inpututil.IsKeyJustPressed(ebiten.KeyEscape) || inpututil.IsKeyJustPressed(ebiten.KeyEnter) {
-			s.showTradeResult = false
+			s.skipCardSelection()
 		}
 		return nil
 	}
@@ -974,16 +1041,7 @@ func (s *GameplayScene) Update() error {
 		return nil
 	}
 
-	// Handle incoming trade proposal popup
-	if s.showTradeIncoming {
-		s.tradeAcceptBtn.Update()
-		s.tradeRejectBtn.Update()
-
-		if inpututil.IsKeyJustPressed(ebiten.KeyEscape) {
-			s.rejectTrade()
-		}
-		return nil
-	}
+	// Trade incoming is now handled via bottom bar medium mode
 
 	// Handle trade proposal popup
 	if s.showTradePropose {
@@ -1090,10 +1148,13 @@ func (s *GameplayScene) Update() error {
 		return nil // Block other input while showing selection
 	}
 
-	// Handle attack confirmation dialog
+	// Handle attack confirmation (now in bottom bar)
 	if s.showAttackConfirmation {
 		s.confirmAttackBtn.Update()
 		s.cancelConfirmBtn.Update()
+		if inpututil.IsKeyJustPressed(ebiten.KeyEnter) {
+			s.confirmAttack()
+		}
 		if inpututil.IsKeyJustPressed(ebiten.KeyEscape) {
 			s.cancelAttackConfirmation()
 		}
@@ -1153,19 +1214,7 @@ func (s *GameplayScene) Update() error {
 		return nil // Block other input while showing menu
 	}
 
-	// Handle alliance request popup
-	if s.showAllyRequest {
-		s.supportAttackerBtn.Update()
-		s.supportDefenderBtn.Update()
-		s.stayNeutralBtn.Update()
-		// Update countdown
-		s.allyRequestCountdown--
-		if s.allyRequestCountdown <= 0 {
-			// Timeout - auto neutral
-			s.voteAlliance("neutral")
-		}
-		return nil // Block other input while showing request
-	}
+	// Alliance request countdown is now handled in the bottomBarMediumMode block above
 
 	// Handle shipment phase controls (no blocking - controls are in status bar)
 	if s.currentPhase == "Shipment" && s.currentTurn == s.game.config.PlayerID {
@@ -1181,9 +1230,13 @@ func (s *GameplayScene) Update() error {
 		}
 	}
 
-	// Update hovered cell
+	// Update hovered cell (suppress when mouse is over UI elements)
 	mx, my := ebiten.CursorPosition()
-	s.hoveredCell = s.screenToGrid(mx, my)
+	if s.isMouseOverUI(mx, my) {
+		s.hoveredCell = [2]int{-1, -1}
+	} else {
+		s.hoveredCell = s.screenToGrid(mx, my)
+	}
 
 	// Update buttons
 	isMyTurn := s.currentTurn == s.game.config.PlayerID
@@ -1253,32 +1306,47 @@ func (s *GameplayScene) isActionPhase() bool {
 	return s.currentPhase == "Trade" || s.currentPhase == "Shipment" || s.currentPhase == "Conquest" || s.currentPhase == "Development"
 }
 
+// isMouseOverUI returns true if the mouse cursor is over a UI element
+// (sidebar, bottom bar, or card peek area), meaning the tooltip should be suppressed.
+func (s *GameplayScene) isMouseOverUI(mx, my int) bool {
+	// Left sidebar (panel at x=5, width=280)
+	if mx < 290 {
+		return true
+	}
+	// Bottom bar area (from currentBarTop to screen bottom)
+	if my >= s.currentBarTop {
+		return true
+	}
+	// Card peek area above the bar
+	if s.combatMode == "cards" {
+		_, _, _, _, peekH, _ := s.cardHandLayout()
+		if my >= s.currentBarTop-peekH {
+			return true
+		}
+	}
+	return false
+}
+
 // isDialogOrAnimationShowing returns true if any modal dialog or animation is active.
 // Used to hide the territory hover info popup during these events.
 func (s *GameplayScene) isDialogOrAnimationShowing() bool {
 	return s.showProductionAnim ||
 		s.showStockpileCapture ||
 		s.showCombatAnimation ||
-		s.showCombatResult ||
 		s.showAttackPlan ||
 		s.showAttackConfirmation ||
-		s.showWaitingForAlliance ||
 		s.showWaterBodySelect ||
 		s.showAllyMenu ||
-		s.showAllyRequest ||
 		s.showSurrenderConfirm ||
-		s.showPhaseSkip ||
 		s.showVictory ||
 		s.showTradePropose ||
-		s.showTradeIncoming ||
-		s.showTradeResult ||
-		s.waitingForTrade ||
 		s.showColorPicker ||
 		s.showEditTerritory ||
 		s.pendingHorseSelection != "" ||
-		s.showDefenseCardSelect ||
 		s.showCardReveal ||
-		s.showCardDrawn
+		s.cardSelectionMode != "" ||
+		s.bottomBarNotification != "" ||
+		s.bottomBarMediumMode != ""
 }
 
 func (s *GameplayScene) Draw(screen *ebiten.Image) {
@@ -1335,28 +1403,10 @@ func (s *GameplayScene) Draw(screen *ebiten.Image) {
 	if s.showWaterBodySelect {
 		s.drawWaterBodySelect(screen)
 	}
-	if s.showAttackPlan {
-		s.drawAttackPlan(screen)
-	}
-	if s.showWaitingForAlliance {
-		s.drawWaitingForAlliance(screen)
-	}
-	if s.showAttackConfirmation {
-		s.drawAttackConfirmation(screen)
-	}
-	// Card combat dialogs
-	if s.showDefenseCardSelect {
-		s.drawDefenseCardSelect(screen)
-	}
-	if s.showCardReveal {
-		s.drawCardRevealDialog(screen)
-	}
-	if s.showCardDrawn {
-		s.drawCardDrawnPopup(screen)
-	}
-	if s.showCombatResult {
-		s.drawCombatResult(screen)
-	}
+	// Attack plan is now rendered within the bottom bar via drawBottomBar
+	// Waiting for alliance is now shown as a bottom bar notification
+	// Attack confirmation and card reveal are now rendered within the bottom bar via drawBottomBar
+	// Card drawn, combat result are now bottom bar notifications
 	// Draw diplomacy menu overlay (renamed from alliance)
 	if s.showAllyMenu {
 		s.drawDiplomacyMenu(screen)
@@ -1365,23 +1415,13 @@ func (s *GameplayScene) Draw(screen *ebiten.Image) {
 	if s.showSurrenderConfirm {
 		s.drawSurrenderConfirm(screen)
 	}
-	// Draw alliance request popup overlay
-	if s.showAllyRequest {
-		s.drawAllyRequest(screen)
-	}
+	// Alliance request is now handled via bottom bar medium mode
 	// Draw trade popups
 	if s.showTradePropose {
 		s.drawTradePropose(screen)
 	}
-	if s.showTradeIncoming {
-		s.drawTradeIncoming(screen)
-	}
-	if s.showTradeResult {
-		s.drawTradeResult(screen)
-	}
-	if s.waitingForTrade {
-		s.drawTradeWaiting(screen)
-	}
+	// Trade incoming is now rendered via drawBottomBarMedium
+	// Trade result and trade waiting are now bottom bar notifications
 	// Draw edit territory dialog
 	if s.showEditTerritory {
 		s.drawEditTerritory(screen)
@@ -1390,10 +1430,7 @@ func (s *GameplayScene) Draw(screen *ebiten.Image) {
 	if s.showColorPicker {
 		s.drawColorPicker(screen)
 	}
-	// Draw phase skip popup overlay
-	if s.showPhaseSkip {
-		s.drawPhaseSkip(screen)
-	}
+	// Phase skip is now a bottom bar notification
 	// Draw victory screen overlay (last, on top of everything)
 	if s.showVictory {
 		s.drawVictoryScreen(screen)
@@ -1451,7 +1488,7 @@ func (s *GameplayScene) updatePanZoom() {
 			}
 			// Adjust pan to zoom toward mouse position
 			if s.zoom != oldZoom {
-				sidebarWidth := 270
+				sidebarWidth := 300
 				mapCenterX := sidebarWidth + (ScreenWidth-sidebarWidth)/2
 				mapCenterY := (ScreenHeight - 120) / 2
 				zoomRatio := s.zoom / oldZoom

@@ -1,9 +1,11 @@
 package client
 
 import (
+	"bytes"
 	"fmt"
 	"image"
 	"image/color"
+	"log"
 	"runtime"
 	"strings"
 
@@ -12,11 +14,60 @@ import (
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
 	"github.com/hajimehoshi/ebiten/v2/inpututil"
+	"github.com/hajimehoshi/ebiten/v2/text/v2"
 	"github.com/hajimehoshi/ebiten/v2/vector"
 	"golang.design/x/clipboard"
+	"golang.org/x/image/font/gofont/goregular"
+	"golang.org/x/image/font/gofont/gobold"
 )
 
 var clipboardInitialized bool
+
+// Font faces for TTF rendering (initialized by InitFonts)
+var (
+	fontSource     *text.GoTextFaceSource
+	fontBoldSource *text.GoTextFaceSource
+	fontInited     bool
+)
+
+// Font size constants
+const (
+	FontSizeBody  = 14
+	FontSizeLarge = 20
+	FontSizeHuge  = 28
+)
+
+// InitFonts initializes the TTF font system. Call once at startup.
+func InitFonts() {
+	var err error
+	fontSource, err = text.NewGoTextFaceSource(bytes.NewReader(goregular.TTF))
+	if err != nil {
+		log.Printf("WARNING: Failed to load regular font: %v", err)
+		return
+	}
+	fontBoldSource, err = text.NewGoTextFaceSource(bytes.NewReader(gobold.TTF))
+	if err != nil {
+		log.Printf("WARNING: Failed to load bold font: %v", err)
+		fontBoldSource = fontSource // fallback to regular
+	}
+	fontInited = true
+}
+
+// getFace returns a GoTextFace at the given size.
+func getFace(size float64) *text.GoTextFace {
+	return &text.GoTextFace{
+		Source: fontSource,
+		Size:   size,
+	}
+}
+
+// getBoldFace returns a bold GoTextFace at the given size.
+func getBoldFace(size float64) *text.GoTextFace {
+	return &text.GoTextFace{
+		Source: fontBoldSource,
+		Size:   size,
+	}
+}
 
 // InitClipboard initializes the clipboard for paste support.
 // Call this once at startup.
@@ -177,7 +228,7 @@ func (b *Button) Draw(screen *ebiten.Image) {
 	if b.hovered && b.Tooltip != "" {
 		// Draw tooltip above the button
 		tooltipY := b.Y - 22
-		tooltipW := len(b.Tooltip)*7 + 10
+		tooltipW := int(MeasureText(b.Tooltip, FontSizeBody)) + 10
 		tooltipX := b.X + b.W/2 - tooltipW/2
 
 		// Keep tooltip on screen
@@ -297,25 +348,36 @@ func (t *TextInput) Draw(screen *ebiten.Image) {
 	vector.StrokeRect(screen, float32(t.X), float32(t.Y), float32(t.W), float32(t.H), 2, borderColor, false)
 
 	// Draw text or placeholder
-	text := t.Text
+	displayText := t.Text
 	textColor := ColorText
-	if text == "" {
-		text = t.Placeholder
+	if displayText == "" {
+		displayText = t.Placeholder
 		textColor = ColorTextMuted
 	}
 
-	// Clip text to fit (debug font is 6 pixels per character)
-	maxChars := (t.W - 16) / 6
-	if len(text) > maxChars {
-		text = text[len(text)-maxChars:]
+	// Clip text to fit
+	charWidth := 8 // approximate character width for TTF body font
+	if !fontInited {
+		charWidth = 6
+	}
+	maxChars := (t.W - 16) / charWidth
+	if maxChars < 1 {
+		maxChars = 1
+	}
+	if len(displayText) > maxChars {
+		displayText = displayText[len(displayText)-maxChars:]
 	}
 
-	ebitenutil.DebugPrintAt(screen, text, t.X+8, t.Y+t.H/2-6)
-	_ = textColor // TODO: Use custom font rendering for colored text
+	DrawText(screen, displayText, t.X+8, t.Y+t.H/2-7, textColor)
 
-	// Draw cursor (debug font is 6 pixels per character)
+	// Draw cursor
 	if t.focused && (t.cursorBlink/30)%2 == 0 {
-		cursorX := t.X + 8 + len(t.Text)*6
+		var cursorX int
+		if fontInited {
+			cursorX = t.X + 8 + int(MeasureText(t.Text, FontSizeBody))
+		} else {
+			cursorX = t.X + 8 + len(t.Text)*6
+		}
 		if cursorX < t.X+t.W-8 {
 			vector.DrawFilledRect(screen, float32(cursorX), float32(t.Y+8), 2, float32(t.H-16), ColorText, false)
 		}
@@ -405,7 +467,8 @@ func (s *Slider) Draw(screen *ebiten.Image) {
 		// Show numeric value
 		valueStr = fmt.Sprintf("%d", s.Value)
 	}
-	DrawText(screen, valueStr, s.X+s.W-len(valueStr)*6, s.Y, ColorPrimary)
+	valW := int(MeasureText(valueStr, FontSizeBody))
+	DrawText(screen, valueStr, s.X+s.W-valW, s.Y, ColorPrimary)
 
 	// Track background
 	trackY := s.Y + 18
@@ -475,93 +538,159 @@ func DrawFancyPanel(screen *ebiten.Image, x, y, w, h int, title string) {
 	}
 }
 
-// DrawText draws text at a position.
-// DrawText draws text with a dark shadow for contrast.
-func DrawText(screen *ebiten.Image, text string, x, y int, clr color.Color) {
-	// Simple shadow
-	ebitenutil.DebugPrintAt(screen, text, x+1, y+1)
-	// Main text
-	ebitenutil.DebugPrintAt(screen, text, x, y)
-}
+// drawTextTTF draws text using the TTF font system at a given size with shadow.
+func drawTextTTF(screen *ebiten.Image, str string, x, y int, size float64, clr color.Color, centered bool) {
+	face := getFace(size)
 
-// DrawTextCentered draws text centered at a position.
-func DrawTextCentered(screen *ebiten.Image, text string, x, y int, clr color.Color) {
-	w := len(text) * 6
-	DrawText(screen, text, x-w/2, y, clr)
-}
-
-// DrawLargeText draws scaled-up text (2x). Height is ~24px.
-func DrawLargeText(screen *ebiten.Image, text string, x, y int, clr color.Color) {
-	// Create a temporary image to render the text
-	textW := len(text) * 6
-	textH := 12
-	tmpImg := ebiten.NewImage(textW, textH)
-
-	// Render text to temp image
-	ebitenutil.DebugPrintAt(tmpImg, text, 0, 0)
-
-	// Get color components
 	r, g, b, a := clr.RGBA()
 	rf := float32(r) / 0xffff
 	gf := float32(g) / 0xffff
 	bf := float32(b) / 0xffff
 	af := float32(a) / 0xffff
 
-	// Draw shadow
-	opts := &ebiten.DrawImageOptions{}
-	opts.GeoM.Scale(2.0, 2.0)
-	opts.GeoM.Translate(float64(x+1), float64(y+1))
-	opts.ColorScale.Scale(0, 0, 0, af*0.5)
-	screen.DrawImage(tmpImg, opts)
+	opts := &text.DrawOptions{}
 
-	// Draw main scaled text with color
-	opts = &ebiten.DrawImageOptions{}
-	opts.GeoM.Scale(2.0, 2.0)
+	if centered {
+		opts.LayoutOptions.PrimaryAlign = text.AlignCenter
+	}
+
+	// Shadow
+	opts.GeoM.Translate(float64(x+1), float64(y+1))
+	opts.ColorScale.Scale(0, 0, 0, af*0.6)
+	text.Draw(screen, str, face, opts)
+
+	// Main text
+	opts = &text.DrawOptions{}
+	if centered {
+		opts.LayoutOptions.PrimaryAlign = text.AlignCenter
+	}
 	opts.GeoM.Translate(float64(x), float64(y))
 	opts.ColorScale.Scale(rf, gf, bf, af)
-	screen.DrawImage(tmpImg, opts)
+	text.Draw(screen, str, face, opts)
+}
+
+// drawTextTTFBold draws bold text using the TTF font system.
+func drawTextTTFBold(screen *ebiten.Image, str string, x, y int, size float64, clr color.Color, centered bool) {
+	face := getBoldFace(size)
+
+	r, g, b, a := clr.RGBA()
+	rf := float32(r) / 0xffff
+	gf := float32(g) / 0xffff
+	bf := float32(b) / 0xffff
+	af := float32(a) / 0xffff
+
+	opts := &text.DrawOptions{}
+	if centered {
+		opts.LayoutOptions.PrimaryAlign = text.AlignCenter
+	}
+
+	// Shadow
+	opts.GeoM.Translate(float64(x+1), float64(y+1))
+	opts.ColorScale.Scale(0, 0, 0, af*0.6)
+	text.Draw(screen, str, face, opts)
+
+	// Main text
+	opts = &text.DrawOptions{}
+	if centered {
+		opts.LayoutOptions.PrimaryAlign = text.AlignCenter
+	}
+	opts.GeoM.Translate(float64(x), float64(y))
+	opts.ColorScale.Scale(rf, gf, bf, af)
+	text.Draw(screen, str, face, opts)
+}
+
+// MeasureText returns the width of text at the given font size.
+func MeasureText(str string, size float64) float64 {
+	if !fontInited {
+		return float64(len(str)) * size * 0.6 // rough fallback
+	}
+	face := getFace(size)
+	w, _ := text.Measure(str, face, 0)
+	return w
+}
+
+// DrawText draws text at a position with body font size.
+func DrawText(screen *ebiten.Image, str string, x, y int, clr color.Color) {
+	if !fontInited {
+		// Fallback to debug font
+		ebitenutil.DebugPrintAt(screen, str, x+1, y+1)
+		ebitenutil.DebugPrintAt(screen, str, x, y)
+		return
+	}
+	drawTextTTF(screen, str, x, y, FontSizeBody, clr, false)
+}
+
+// DrawTextCentered draws text centered at a position.
+func DrawTextCentered(screen *ebiten.Image, str string, x, y int, clr color.Color) {
+	if !fontInited {
+		w := len(str) * 6
+		ebitenutil.DebugPrintAt(screen, str, x-w/2+1, y+1)
+		ebitenutil.DebugPrintAt(screen, str, x-w/2, y)
+		return
+	}
+	drawTextTTF(screen, str, x, y, FontSizeBody, clr, true)
+}
+
+// DrawLargeText draws large text (~20px). Height is ~20px.
+func DrawLargeText(screen *ebiten.Image, str string, x, y int, clr color.Color) {
+	if !fontInited {
+		// Fallback: use scaled debug font
+		textW := len(str) * 6
+		textH := 12
+		tmpImg := ebiten.NewImage(textW, textH)
+		ebitenutil.DebugPrintAt(tmpImg, str, 0, 0)
+		r, g, b, a := clr.RGBA()
+		rf := float32(r) / 0xffff
+		gf := float32(g) / 0xffff
+		bf := float32(b) / 0xffff
+		af := float32(a) / 0xffff
+		opts := &ebiten.DrawImageOptions{}
+		opts.GeoM.Scale(2.0, 2.0)
+		opts.GeoM.Translate(float64(x), float64(y))
+		opts.ColorScale.Scale(rf, gf, bf, af)
+		screen.DrawImage(tmpImg, opts)
+		return
+	}
+	drawTextTTFBold(screen, str, x, y, FontSizeLarge, clr, false)
 }
 
 // DrawLargeTextCentered draws large text centered.
-func DrawLargeTextCentered(screen *ebiten.Image, text string, x, y int, clr color.Color) {
-	w := len(text) * 6 * 2 // 2x scale
-	DrawLargeText(screen, text, x-w/2, y, clr)
+func DrawLargeTextCentered(screen *ebiten.Image, str string, x, y int, clr color.Color) {
+	if !fontInited {
+		w := len(str) * 6 * 2
+		DrawLargeText(screen, str, x-w/2, y, clr)
+		return
+	}
+	drawTextTTFBold(screen, str, x, y, FontSizeLarge, clr, true)
 }
 
-// DrawHugeTitle draws a massive title (3x scale). Height is ~36px.
-func DrawHugeTitle(screen *ebiten.Image, text string, x, y int) {
-	// Create a temporary image to render the text
-	textW := len(text) * 6
-	textH := 12
-	tmpImg := ebiten.NewImage(textW, textH)
-
-	// Render text to temp image
-	ebitenutil.DebugPrintAt(tmpImg, text, 0, 0)
-
-	// Gold/amber color for title
-	rf := float32(1.0)
-	gf := float32(0.85)
-	bf := float32(0.3)
-
-	// Draw shadow
-	opts := &ebiten.DrawImageOptions{}
-	opts.GeoM.Scale(3.0, 3.0)
-	opts.GeoM.Translate(float64(x+2), float64(y+2))
-	opts.ColorScale.Scale(0, 0, 0, 0.6)
-	screen.DrawImage(tmpImg, opts)
-
-	// Draw main scaled text with color
-	opts = &ebiten.DrawImageOptions{}
-	opts.GeoM.Scale(3.0, 3.0)
-	opts.GeoM.Translate(float64(x), float64(y))
-	opts.ColorScale.Scale(rf, gf, bf, 1.0)
-	screen.DrawImage(tmpImg, opts)
+// DrawHugeTitle draws a massive title. Height is ~28px.
+func DrawHugeTitle(screen *ebiten.Image, str string, x, y int) {
+	clr := color.RGBA{255, 217, 77, 255} // Gold/amber
+	if !fontInited {
+		textW := len(str) * 6
+		textH := 12
+		tmpImg := ebiten.NewImage(textW, textH)
+		ebitenutil.DebugPrintAt(tmpImg, str, 0, 0)
+		opts := &ebiten.DrawImageOptions{}
+		opts.GeoM.Scale(3.0, 3.0)
+		opts.GeoM.Translate(float64(x), float64(y))
+		opts.ColorScale.Scale(1.0, 0.85, 0.3, 1.0)
+		screen.DrawImage(tmpImg, opts)
+		return
+	}
+	drawTextTTFBold(screen, str, x, y, FontSizeHuge, clr, false)
 }
 
 // DrawHugeTitleCentered draws a huge title centered.
-func DrawHugeTitleCentered(screen *ebiten.Image, text string, x, y int) {
-	w := len(text) * 6 * 3 // 3x scale
-	DrawHugeTitle(screen, text, x-w/2, y)
+func DrawHugeTitleCentered(screen *ebiten.Image, str string, x, y int) {
+	clr := color.RGBA{255, 217, 77, 255} // Gold/amber
+	if !fontInited {
+		w := len(str) * 6 * 3
+		DrawHugeTitle(screen, str, x-w/2, y)
+		return
+	}
+	drawTextTTFBold(screen, str, x, y, FontSizeHuge, clr, true)
 }
 
 // Cache for inverted icons (keyed by original icon pointer and size)

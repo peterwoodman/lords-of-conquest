@@ -87,9 +87,9 @@ func (s *GameplayScene) drawCombatResult(screen *ebiten.Image) {
 
 // drawWaterBodySelect draws the water body selection UI for boat placement
 func (s *GameplayScene) drawWaterBodySelect(screen *ebiten.Image) {
-	// Semi-transparent overlay
+	// Semi-transparent overlay (less opaque so map is visible)
 	vector.DrawFilledRect(screen, 0, 0, float32(ScreenWidth), float32(ScreenHeight),
-		color.RGBA{0, 0, 0, 180}, false)
+		color.RGBA{0, 0, 0, 120}, false)
 
 	// Panel
 	panelW := 280
@@ -183,9 +183,9 @@ func (s *GameplayScene) drawAttackPlan(screen *ebiten.Image) {
 		return
 	}
 
-	// Semi-transparent overlay
-	vector.DrawFilledRect(screen, 0, 0, float32(ScreenWidth), float32(ScreenHeight),
-		color.RGBA{0, 0, 0, 180}, false)
+	barX := 10
+	barY := s.currentBarTop
+	barW := ScreenWidth - 20
 
 	// Get target name
 	targetName := s.attackPlanTarget
@@ -195,52 +195,12 @@ func (s *GameplayScene) drawAttackPlan(screen *ebiten.Image) {
 		}
 	}
 
-	// Check if we need the card column
-	hasCardColumn := s.combatMode == "cards" && len(s.myAttackCards) > 0
-	cardColumnW := 0
-	if hasCardColumn {
-		cardColumnW = 200
-	}
-
-	// Panel dimensions based on reinforcement count
 	reinforceCount := len(s.attackPreview.Reinforcements)
-	leftW := 450 // Left column width (reinforcements)
-	panelW := leftW + cardColumnW
-	panelH := 160 // Base height for no reinforcements
-	if reinforceCount > 0 {
-		panelH = 200 + reinforceCount*60
-		// Add extra space for checkboxes when a unit is selected
-		if s.selectedReinforcement != nil {
-			checkboxCount := 0
-			if s.selectedReinforcement.UnitType == "boat" {
-				if s.selectedReinforcement.CanCarryHorse {
-					checkboxCount++
-				}
-				if s.selectedReinforcement.CanCarryWeapon {
-					checkboxCount++
-				}
-			} else if s.selectedReinforcement.UnitType == "horse" && s.selectedReinforcement.CanCarryWeapon {
-				checkboxCount++
-			}
-			panelH += checkboxCount * 25
-		}
-	}
-	// Ensure panel is tall enough for card column
-	if hasCardColumn {
-		cardMinH := 100 + len(s.myAttackCards)*115 + 30
-		if cardMinH > panelH {
-			panelH = cardMinH
-		}
-	}
-	panelX := ScreenWidth/2 - panelW/2
-	panelY := ScreenHeight/2 - panelH/2
 
-	DrawFancyPanel(screen, panelX, panelY, panelW, panelH, "Plan Attack")
+	// === LEFT SECTION: Title + Strength ===
+	DrawLargeText(screen, "Plan Attack: "+targetName, barX+20, barY+12, ColorText)
 
-	// Target info
-	DrawTextCentered(screen, "Attack: "+targetName, panelX+leftW/2, panelY+45, ColorText)
-
-	// Strength preview with ally info
+	// Strength preview
 	attackStr := fmt.Sprintf("%d", s.attackPreview.AttackStrength)
 	if s.attackPreview.AttackerAllyStrength > 0 {
 		attackStr = fmt.Sprintf("%d (+%d allies)", s.attackPreview.AttackStrength, s.attackPreview.AttackerAllyStrength)
@@ -249,18 +209,15 @@ func (s *GameplayScene) drawAttackPlan(screen *ebiten.Image) {
 	if s.attackPreview.DefenderAllyStrength > 0 {
 		defenseStr = fmt.Sprintf("%d (+%d allies)", s.attackPreview.DefenseStrength, s.attackPreview.DefenderAllyStrength)
 	}
-	strengthText := fmt.Sprintf("Attack: %s vs Defense: %s", attackStr, defenseStr)
-	DrawTextCentered(screen, strengthText, panelX+leftW/2, panelY+70, ColorTextMuted)
+	strengthText := fmt.Sprintf("Atk: %s  vs  Def: %s", attackStr, defenseStr)
+	DrawText(screen, strengthText, barX+20, barY+40, ColorTextMuted)
 
-	yPos := panelY + 100
-
-	// Reinforcement options (left column)
+	// === CENTER SECTION: Reinforcements ===
+	reinfX := barX + 420
 	if reinforceCount > 0 {
-		DrawText(screen, "Available Reinforcements (click to select):", panelX+15, yPos, ColorText)
-		yPos += 25
+		DrawText(screen, "Reinforcements (click to select):", reinfX, barY+12, ColorText)
 
 		for i, reinf := range s.attackPreview.Reinforcements {
-			// Territory name
 			fromName := reinf.FromTerritory
 			if terr, ok := s.territories[reinf.FromTerritory].(map[string]interface{}); ok {
 				if name, ok := terr["name"].(string); ok {
@@ -268,28 +225,24 @@ func (s *GameplayScene) drawAttackPlan(screen *ebiten.Image) {
 				}
 			}
 
-			// Check if selected
 			isSelected := s.selectedReinforcement != nil &&
 				s.selectedReinforcement.FromTerritory == reinf.FromTerritory &&
 				s.selectedReinforcement.UnitType == reinf.UnitType
 
-			// Draw option box
-			optY := yPos + i*60
-			boxW := leftW - 30
+			optY := barY + 35 + i*50
+			boxW := 380
 			boxColor := color.RGBA{50, 50, 70, 255}
 			if isSelected {
 				boxColor = color.RGBA{80, 100, 150, 255}
 			}
-			vector.DrawFilledRect(screen, float32(panelX+15), float32(optY), float32(boxW), 55, boxColor, false)
+			vector.DrawFilledRect(screen, float32(reinfX), float32(optY), float32(boxW), 45, boxColor, false)
 			if isSelected {
-				vector.StrokeRect(screen, float32(panelX+15), float32(optY), float32(boxW), 55, 2, ColorBorder, false)
+				vector.StrokeRect(screen, float32(reinfX), float32(optY), float32(boxW), 45, 2, ColorBorder, false)
 			}
 
-			// Unit type and location
 			unitLabel := fmt.Sprintf("%s from %s (+%d)", reinf.UnitType, fromName, reinf.StrengthBonus)
-			DrawText(screen, unitLabel, panelX+25, optY+15, ColorText)
+			DrawText(screen, unitLabel, reinfX+10, optY+10, ColorText)
 
-			// Carry options with strength bonuses
 			carryText := ""
 			if reinf.UnitType == "boat" {
 				if reinf.CanCarryHorse {
@@ -314,12 +267,12 @@ func (s *GameplayScene) drawAttackPlan(screen *ebiten.Image) {
 				}
 			}
 			if carryText != "" {
-				DrawText(screen, carryText, panelX+25, optY+35, ColorTextMuted)
+				DrawText(screen, carryText, reinfX+10, optY+28, ColorTextDim)
 			}
 		}
-		yPos += reinforceCount * 60
 
-		// Cargo checkboxes if boat or horse selected
+		// Cargo checkboxes below reinforcements
+		checkboxY := barY + 35 + reinforceCount*50
 		if s.selectedReinforcement != nil {
 			if s.selectedReinforcement.UnitType == "boat" {
 				if s.selectedReinforcement.CanCarryHorse {
@@ -329,8 +282,8 @@ func (s *GameplayScene) drawAttackPlan(screen *ebiten.Image) {
 					} else {
 						horseLabel = "Load Horse onto Boat (already in range)"
 					}
-					s.drawCheckbox(screen, panelX+20, yPos+10, horseLabel, &s.loadHorseCheckbox)
-					yPos += 25
+					s.drawCheckbox(screen, reinfX, checkboxY+5, horseLabel, &s.loadHorseCheckbox)
+					checkboxY += 25
 				}
 				if s.selectedReinforcement.CanCarryWeapon {
 					weaponLabel := "Load Weapon onto Boat"
@@ -339,8 +292,8 @@ func (s *GameplayScene) drawAttackPlan(screen *ebiten.Image) {
 					} else {
 						weaponLabel = "Load Weapon onto Boat (already in range)"
 					}
-					s.drawCheckbox(screen, panelX+20, yPos+10, weaponLabel, &s.loadWeaponCheckbox)
-					yPos += 25
+					s.drawCheckbox(screen, reinfX, checkboxY+5, weaponLabel, &s.loadWeaponCheckbox)
+					checkboxY += 25
 				}
 			} else if s.selectedReinforcement.UnitType == "horse" && s.selectedReinforcement.CanCarryWeapon {
 				weaponLabel := "Carry Weapon on Horse"
@@ -349,54 +302,18 @@ func (s *GameplayScene) drawAttackPlan(screen *ebiten.Image) {
 				} else {
 					weaponLabel = "Carry Weapon on Horse (already in range)"
 				}
-				s.drawCheckbox(screen, panelX+20, yPos+10, weaponLabel, &s.loadWeaponCheckbox)
-				yPos += 25
+				s.drawCheckbox(screen, reinfX, checkboxY+5, weaponLabel, &s.loadWeaponCheckbox)
 			}
 		}
+	} else {
+		DrawText(screen, "No reinforcements available", reinfX, barY+30, ColorTextDim)
 	}
 
-	// === Right column: Attack cards (card combat mode only) ===
-	if hasCardColumn {
-		cardX := panelX + leftW + 5
-		cardY := panelY + 45
+	// === RIGHT SECTION: Buttons (stacked vertically) ===
+	btnWidth := 150
+	btnX := barX + barW - btnWidth - 20
 
-		// Divider line
-		vector.DrawFilledRect(screen, float32(panelX+leftW-2), float32(panelY+35), 1, float32(panelH-90), ColorBorderDark, false)
-
-		DrawText(screen, "Attack Cards", cardX+5, cardY, ColorText)
-		DrawText(screen, "(click to toggle)", cardX+5, cardY+14, ColorTextDim)
-		cardY += 35
-
-		selectedCount := 0
-		for _, v := range s.selectedAttackCardIDs {
-			if v {
-				selectedCount++
-			}
-		}
-
-		for _, card := range s.myAttackCards {
-			selected := s.selectedAttackCardIDs[card.ID]
-			s.drawCardContentSel(screen, cardX+5, cardY, cardColumnW-15, 100, card, true, selected)
-			cardY += 110
-		}
-
-		if selectedCount > 0 {
-			DrawText(screen, fmt.Sprintf("%d card(s) selected", selectedCount), cardX+5, panelY+panelH-60, ColorSuccess)
-		}
-	}
-
-	// Buttons at bottom of panel
-	btnY := panelY + panelH - 55
-
-	// Button layout: space them evenly across the left column
-	// [Attack Without] [With Unit] [Cancel]
-	btnWidth := 130
-	btnGap := 15
-	totalBtnsWidth := btnWidth*3 + btnGap*2
-	btnStartX := panelX + (leftW-totalBtnsWidth)/2
-
-	// Plan Attack button - only show if base attack strength > 0
-	// (if strength is 0, player must bring reinforcements to attack)
+	// Plan Attack button
 	if s.attackPreview.AttackStrength > 0 {
 		if reinforceCount == 0 {
 			s.attackNoReinfBtn.Text = "Plan Attack"
@@ -404,28 +321,41 @@ func (s *GameplayScene) drawAttackPlan(screen *ebiten.Image) {
 			s.attackNoReinfBtn.Text = "Plan Without"
 		}
 		s.attackNoReinfBtn.W = btnWidth
-		s.attackNoReinfBtn.X = btnStartX
-		s.attackNoReinfBtn.Y = btnY
+		s.attackNoReinfBtn.X = btnX
+		s.attackNoReinfBtn.Y = barY + 15
 		s.attackNoReinfBtn.Draw(screen)
 	} else if s.selectedReinforcement == nil {
-		// Show message that reinforcement is required
-		DrawText(screen, "Bring forces to attack", btnStartX, btnY+10, ColorWarning)
+		DrawText(screen, "Bring forces", btnX, barY+20, ColorWarning)
+		DrawText(screen, "to attack", btnX, barY+38, ColorWarning)
 	}
 
-	// Plan Attack with selected reinforcement (only if one is selected)
+	// Plan with reinforcement button
 	if s.selectedReinforcement != nil {
 		s.attackWithReinfBtn.W = btnWidth
-		s.attackWithReinfBtn.X = btnStartX + btnWidth + btnGap
-		s.attackWithReinfBtn.Y = btnY
+		s.attackWithReinfBtn.X = btnX
+		s.attackWithReinfBtn.Y = barY + 60
 		s.attackWithReinfBtn.Text = "Plan w/ " + s.selectedReinforcement.UnitType
 		s.attackWithReinfBtn.Draw(screen)
 	}
 
-	// Cancel button (always on the right)
+	// Cancel button
 	s.cancelAttackBtn.W = btnWidth
-	s.cancelAttackBtn.X = btnStartX + (btnWidth+btnGap)*2
-	s.cancelAttackBtn.Y = btnY
+	s.cancelAttackBtn.X = btnX
+	s.cancelAttackBtn.Y = barY + 105
 	s.cancelAttackBtn.Draw(screen)
+
+	// Card selection hint (card combat mode only)
+	if s.combatMode == "cards" && len(s.myAttackCards) > 0 {
+		selectedCount := len(s.selectedCardIDs)
+		if selectedCount > 0 {
+			DrawText(screen, fmt.Sprintf("%d attack card(s) selected", selectedCount), barX+20, barY+60, ColorSuccess)
+		} else {
+			DrawText(screen, "Click attack cards below to select", barX+20, barY+60, ColorTextDim)
+		}
+		DrawText(screen, "Esc to cancel", barX+20, barY+78, ColorTextDim)
+	} else {
+		DrawText(screen, "Esc to cancel", barX+20, barY+60, ColorTextDim)
+	}
 }
 
 // updateAttackPlanInput handles input for the attack planning dialog (called from Update)
@@ -434,54 +364,21 @@ func (s *GameplayScene) updateAttackPlanInput() {
 		return
 	}
 
-	// Calculate panel dimensions (must match drawAttackPlan)
-	hasCardColumn := s.combatMode == "cards" && len(s.myAttackCards) > 0
-	cardColumnW := 0
-	if hasCardColumn {
-		cardColumnW = 200
-	}
+	barX := 10
+	barY := s.currentBarTop
+	reinfX := barX + 420
 	reinforceCount := len(s.attackPreview.Reinforcements)
-	leftW := 450
-	panelW := leftW + cardColumnW
-	panelH := 160
-	if reinforceCount > 0 {
-		panelH = 200 + reinforceCount*60
-		if s.selectedReinforcement != nil {
-			checkboxCount := 0
-			if s.selectedReinforcement.UnitType == "boat" {
-				if s.selectedReinforcement.CanCarryHorse {
-					checkboxCount++
-				}
-				if s.selectedReinforcement.CanCarryWeapon {
-					checkboxCount++
-				}
-			} else if s.selectedReinforcement.UnitType == "horse" && s.selectedReinforcement.CanCarryWeapon {
-				checkboxCount++
-			}
-			panelH += checkboxCount * 25
-		}
-	}
-	if hasCardColumn {
-		cardMinH := 100 + len(s.myAttackCards)*115 + 30
-		if cardMinH > panelH {
-			panelH = cardMinH
-		}
-	}
-	panelX := ScreenWidth/2 - panelW/2
-	panelY := ScreenHeight/2 - panelH/2
-	yPos := panelY + 100
 
 	if inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) {
 		mx, my := ebiten.CursorPosition()
 
 		// Handle reinforcement selection clicks
 		if reinforceCount > 0 {
-			reinfY := yPos + 25 // After header text
-
 			for i, reinf := range s.attackPreview.Reinforcements {
-				optY := reinfY + i*60
-				if mx >= panelX+15 && mx <= panelX+leftW-15 &&
-					my >= optY && my <= optY+55 {
+				optY := barY + 35 + i*50
+				boxW := 380
+				if mx >= reinfX && mx <= reinfX+boxW &&
+					my >= optY && my <= optY+45 {
 					s.selectedReinforcement = &ReinforcementData{
 						UnitType:            reinf.UnitType,
 						FromTerritory:       reinf.FromTerritory,
@@ -500,46 +397,29 @@ func (s *GameplayScene) updateAttackPlanInput() {
 
 			// Handle checkbox clicks
 			if s.selectedReinforcement != nil {
-				checkboxY := reinfY + reinforceCount*60
-				checkboxX := panelX + 20
+				checkboxY := barY + 35 + reinforceCount*50
 				boxSize := 16
 
 				if s.selectedReinforcement.UnitType == "boat" {
 					if s.selectedReinforcement.CanCarryHorse {
-						if mx >= checkboxX && mx <= checkboxX+boxSize+150 &&
-							my >= checkboxY+10 && my <= checkboxY+10+boxSize {
+						if mx >= reinfX && mx <= reinfX+boxSize+300 &&
+							my >= checkboxY+5 && my <= checkboxY+5+boxSize {
 							s.loadHorseCheckbox = !s.loadHorseCheckbox
 						}
 						checkboxY += 25
 					}
 					if s.selectedReinforcement.CanCarryWeapon {
-						if mx >= checkboxX && mx <= checkboxX+boxSize+150 &&
-							my >= checkboxY+10 && my <= checkboxY+10+boxSize {
+						if mx >= reinfX && mx <= reinfX+boxSize+300 &&
+							my >= checkboxY+5 && my <= checkboxY+5+boxSize {
 							s.loadWeaponCheckbox = !s.loadWeaponCheckbox
 						}
 					}
 				} else if s.selectedReinforcement.UnitType == "horse" && s.selectedReinforcement.CanCarryWeapon {
-					if mx >= checkboxX && mx <= checkboxX+boxSize+150 &&
-						my >= checkboxY+10 && my <= checkboxY+10+boxSize {
+					if mx >= reinfX && mx <= reinfX+boxSize+300 &&
+						my >= checkboxY+5 && my <= checkboxY+5+boxSize {
 						s.loadWeaponCheckbox = !s.loadWeaponCheckbox
 					}
 				}
-			}
-		}
-
-		// Handle card clicks in the right column
-		if hasCardColumn {
-			cardX := panelX + leftW + 5
-			cardY := panelY + 45 + 35 // After header text
-			cardW := cardColumnW - 15
-			cardH := 100
-
-			for _, card := range s.myAttackCards {
-				if mx >= cardX+5 && mx <= cardX+5+cardW && my >= cardY && my <= cardY+cardH {
-					s.selectedAttackCardIDs[card.ID] = !s.selectedAttackCardIDs[card.ID]
-					break
-				}
-				cardY += 110
 			}
 		}
 	}
@@ -568,8 +448,13 @@ func (s *GameplayScene) drawCheckbox(screen *ebiten.Image, x, y int, label strin
 	DrawText(screen, label, x+boxSize+8, y+2, ColorText)
 }
 
-// ShowCombatResult starts the combat animation before displaying the result
+// ShowCombatResult starts the combat animation before displaying the result.
 func (s *GameplayScene) ShowCombatResult(result *CombatResultData) {
+	// Highlight the target territory
+	s.SetHighlightedTerritories([]TerritoryHighlight{
+		{TerritoryID: result.TargetTerritory, Color: color.RGBA{255, 80, 80, 255}},
+	})
+
 	// Start the combat animation directly - server handles synchronization
 	s.startCombatAnimation(result)
 }
@@ -591,6 +476,23 @@ func (s *GameplayScene) startCombatAnimation(result *CombatResultData) {
 	s.showCombatAnimation = true
 }
 
+// showCombatResultAsNotification shows the combat result in the bottom bar notification.
+func (s *GameplayScene) showCombatResultAsNotification() {
+	if s.combatResult == nil {
+		return
+	}
+	r := s.combatResult
+	var msg string
+	if r.AttackerWins {
+		msg = fmt.Sprintf("VICTORY! %s captured %s -- Atk: %d vs Def: %d", r.AttackerName, r.TargetName, r.AttackStrength, r.DefenseStrength)
+	} else {
+		msg = fmt.Sprintf("DEFEAT! %s defended %s -- Atk: %d vs Def: %d", r.DefenderName, r.TargetName, r.AttackStrength, r.DefenseStrength)
+	}
+	s.showBottomBarNotification(msg, "OK", func() {
+		s.dismissCombatResult()
+	})
+}
+
 // dismissCombatResult dismisses the combat result and sends ack to the server.
 func (s *GameplayScene) dismissCombatResult() {
 	// Send acknowledgment for this combat result
@@ -600,6 +502,7 @@ func (s *GameplayScene) dismissCombatResult() {
 
 	s.showCombatResult = false
 	s.combatResult = nil
+	s.ClearHighlightedTerritories()
 }
 
 // updateCombatAnimation updates the combat animation state each frame
@@ -657,9 +560,9 @@ func (s *GameplayScene) updateCombatAnimation() {
 			return
 		}
 
-		// Always show combat result dialog - ack is sent when user dismisses
+		// Show combat result as bottom bar notification
 		s.combatResult = s.combatPendingResult
-		s.showCombatResult = true
+		s.showCombatResultAsNotification()
 	}
 }
 
@@ -747,7 +650,26 @@ func (s *GameplayScene) ShowAttackPlan(preview *AttackPreviewData) {
 	s.loadHorseCheckbox = false
 	s.loadWeaponCheckbox = false
 	s.selectedAttackCardIDs = make(map[string]bool)
+	s.selectedCardIDs = make(map[string]bool) // For card hand click-to-toggle
 	s.showAttackPlan = true
+
+	// Calculate dynamic bar height based on content
+	reinforceCount := len(preview.Reinforcements)
+	barH := 100 // base: title + strength + buttons
+	if reinforceCount > 0 {
+		barH = 90 + reinforceCount*50 + 25 // header + items + spacing
+		// Extra for possible checkboxes (2 max)
+		barH += 55
+	}
+	if barH < 150 {
+		barH = 150
+	}
+	s.SetBarHeight(barH)
+
+	// Highlight the target territory and auto-pan to it
+	s.SetHighlightedTerritories([]TerritoryHighlight{
+		{TerritoryID: preview.TargetTerritory, Color: color.RGBA{255, 80, 80, 255}},
+	})
 }
 
 // doAttack requests the attack plan (triggers alliance resolution)
@@ -786,9 +708,11 @@ func (s *GameplayScene) doAttack(withReinforcement bool) {
 	log.Printf("Requesting attack plan for %s with reinforcement: %v", s.attackPlanTarget, reinforcement)
 
 	// Store the reinforcement selection for later confirmation
-	// Hide the attack plan dialog and show waiting overlay
+	// Hide the attack plan dialog and show waiting overlay in bottom bar
 	s.showAttackPlan = false
+	s.ResetBarHeight()
 	s.showWaitingForAlliance = true
+	s.showBottomBarNotification("Planning attack... Waiting for alliance decisions (up to 60s)", "", nil)
 
 	// Send the request to server to resolve alliances
 	s.game.RequestAttackPlan(s.attackPlanTarget, reinforcement)
@@ -800,16 +724,19 @@ func (s *GameplayScene) cancelAttackPlan() {
 	s.attackPlanTarget = ""
 	s.attackPreview = nil
 	s.selectedReinforcement = nil
+	s.selectedCardIDs = make(map[string]bool)
+	s.ClearHighlightedTerritories()
 	s.loadHorseCheckbox = false
 	s.loadWeaponCheckbox = false
+	s.ResetBarHeight()
 }
 
 // drawDiplomacyMenu draws the diplomacy menu (alliance + surrender options)
 // Uses two-column layout for player lists to fit 8 players on screen
 func (s *GameplayScene) drawDiplomacyMenu(screen *ebiten.Image) {
-	// Semi-transparent overlay
+	// Semi-transparent overlay (less opaque so map is visible)
 	vector.DrawFilledRect(screen, 0, 0, float32(ScreenWidth), float32(ScreenHeight),
-		color.RGBA{0, 0, 0, 180}, false)
+		color.RGBA{0, 0, 0, 120}, false)
 
 	// Count other non-eliminated players for menu sizing
 	otherPlayerCount := 0
@@ -985,9 +912,9 @@ func (s *GameplayScene) drawDiplomacyMenu(screen *ebiten.Image) {
 
 // drawSurrenderConfirm draws the surrender confirmation dialog
 func (s *GameplayScene) drawSurrenderConfirm(screen *ebiten.Image) {
-	// Semi-transparent overlay
+	// Semi-transparent overlay (less opaque so map is visible)
 	vector.DrawFilledRect(screen, 0, 0, float32(ScreenWidth), float32(ScreenHeight),
-		color.RGBA{0, 0, 0, 200}, false)
+		color.RGBA{0, 0, 0, 120}, false)
 
 	// Panel
 	panelW := 450
@@ -1117,7 +1044,35 @@ func (s *GameplayScene) ShowAllianceRequest(payload *protocol.AllianceRequestPay
 	}
 	// Set countdown to 60 seconds (60fps * 60 seconds)
 	s.allyRequestCountdown = 60 * 60
-	s.showAllyRequest = true
+
+	// Show as bottom bar medium interaction instead of modal
+	text := fmt.Sprintf("%s is attacking %s -- Your adjacent strength: %d",
+		payload.AttackerName, payload.TerritoryName, payload.YourStrength)
+	subtext := "Join the defense?"
+
+	defendBtn := &Button{
+		W: 140, H: 35,
+		Text:    "Yes, Defend",
+		Primary: true,
+		OnClick: func() {
+			s.voteAlliance("defender")
+			s.clearBottomBarMedium()
+		},
+	}
+	neutralBtn := &Button{
+		W: 140, H: 35,
+		Text: "Stay Neutral",
+		OnClick: func() {
+			s.voteAlliance("neutral")
+			s.clearBottomBarMedium()
+		},
+	}
+	s.showBottomBarMedium("alliance_request", text, subtext, []*Button{defendBtn, neutralBtn})
+
+	// Highlight the territory under attack
+	s.SetHighlightedTerritories([]TerritoryHighlight{
+		{TerritoryID: payload.TerritoryID, Color: color.RGBA{255, 200, 50, 255}},
+	})
 }
 
 // voteAlliance sends the alliance vote to the server
@@ -1128,6 +1083,7 @@ func (s *GameplayScene) voteAlliance(side string) {
 	}
 	s.showAllyRequest = false
 	s.allyRequest = nil
+	s.ClearHighlightedTerritories()
 }
 
 // ShowPhaseSkipped queues a phase skip popup for display.
@@ -1145,7 +1101,7 @@ func (s *GameplayScene) ShowPhaseSkipped(eventID, phase, reason string) {
 	}
 }
 
-// showNextPhaseSkip displays the next queued phase skip.
+// showNextPhaseSkip displays the next queued phase skip as a bottom bar notification.
 func (s *GameplayScene) showNextPhaseSkip() {
 	// Send acknowledgment for the current skip before moving to next
 	if s.phaseSkipEventID != "" {
@@ -1154,7 +1110,6 @@ func (s *GameplayScene) showNextPhaseSkip() {
 	}
 
 	if len(s.phaseSkipQueue) == 0 {
-		s.showPhaseSkip = false
 		return
 	}
 
@@ -1165,8 +1120,11 @@ func (s *GameplayScene) showNextPhaseSkip() {
 	s.phaseSkipEventID = skip.EventID
 	s.phaseSkipPhase = skip.Phase
 	s.phaseSkipReason = skip.Reason
-	s.phaseSkipCountdown = 30 * 60 // 30 seconds at 60fps
-	s.showPhaseSkip = true
+
+	msg := fmt.Sprintf("%s was skipped: %s", skip.Phase, skip.Reason)
+	s.showBottomBarNotification(msg, "OK", func() {
+		s.showNextPhaseSkip()
+	})
 }
 
 // drawPhaseSkip draws the phase skip popup.
@@ -1900,7 +1858,7 @@ func (s *GameplayScene) startStockpileCaptureAnimation(combatResult *CombatResul
 		// No stockpile, just show combat result
 		log.Printf("No stockpile territory found, skipping capture animation")
 		s.combatResult = combatResult
-		s.showCombatResult = true
+		s.showCombatResultAsNotification()
 		return
 	}
 
@@ -1923,7 +1881,7 @@ func (s *GameplayScene) startStockpileCaptureAnimation(combatResult *CombatResul
 		// No resources to animate, just show combat result
 		log.Printf("Stockpile captured but no resources, skipping animation")
 		s.combatResult = combatResult
-		s.showCombatResult = true
+		s.showCombatResultAsNotification()
 		return
 	}
 
@@ -1990,9 +1948,9 @@ func (s *GameplayScene) applyStockpileCaptureVisual(resource CapturedResource) {
 func (s *GameplayScene) finishStockpileCaptureAnimation() {
 	log.Printf("Stockpile capture animation complete")
 
-	// Show the combat result dialog
+	// Show the combat result as a bottom bar notification
 	s.combatResult = s.stockpileCaptureData.PendingCombatData
-	s.showCombatResult = true
+	s.showCombatResultAsNotification()
 
 	// Clear animation state
 	s.showStockpileCapture = false
@@ -2052,12 +2010,21 @@ func (s *GameplayScene) drawStockpileCapturePanel(screen *ebiten.Image, resource
 
 // ==================== Attack Confirmation ====================
 
-// ShowAttackConfirmation displays the confirmation dialog with resolved alliance totals.
+// ShowAttackConfirmation displays the confirmation in the expanded bottom bar with resolved alliance totals.
 func (s *GameplayScene) ShowAttackConfirmation(payload *protocol.AttackPlanResolvedPayload) {
 	s.showWaitingForAlliance = false
+	s.bottomBarNotification = "" // Clear waiting notification
 	s.attackPlanResolved = payload
 	s.showAttackConfirmation = true
+	s.SetBarHeight(200)
 	log.Printf("Showing attack confirmation: plan %s", payload.PlanID)
+
+	// Highlight the target territory
+	if payload.TargetTerritory != "" {
+		s.SetHighlightedTerritories([]TerritoryHighlight{
+			{TerritoryID: payload.TargetTerritory, Color: color.RGBA{255, 80, 80, 255}},
+		})
+	}
 }
 
 // drawWaitingForAlliance draws the waiting overlay while alliances are being resolved.
@@ -2077,15 +2044,15 @@ func (s *GameplayScene) drawWaitingForAlliance(screen *ebiten.Image) {
 	DrawTextCentered(screen, "(This may take up to 60 seconds)", ScreenWidth/2, panelY+80, ColorTextMuted)
 }
 
-// drawAttackConfirmation draws the confirmation dialog with resolved alliance totals.
+// drawAttackConfirmation draws the confirmation inside the expanded bottom bar.
 func (s *GameplayScene) drawAttackConfirmation(screen *ebiten.Image) {
 	if s.attackPlanResolved == nil {
 		return
 	}
 
-	// Semi-transparent overlay
-	vector.DrawFilledRect(screen, 0, 0, float32(ScreenWidth), float32(ScreenHeight),
-		color.RGBA{0, 0, 0, 200}, false)
+	barX := 10
+	barY := s.currentBarTop
+	barW := ScreenWidth - 20
 
 	// Get target name
 	targetName := s.attackPlanResolved.TargetTerritory
@@ -2095,76 +2062,75 @@ func (s *GameplayScene) drawAttackConfirmation(screen *ebiten.Image) {
 		}
 	}
 
-	// Panel dimensions
-	panelW := 450
-	panelH := 280
-	panelX := ScreenWidth/2 - panelW/2
-	panelY := ScreenHeight/2 - panelH/2
+	// Title
+	DrawLargeText(screen, "Confirm Attack: "+targetName, barX+20, barY+12, ColorText)
 
-	DrawFancyPanel(screen, panelX, panelY, panelW, panelH, "Confirm Attack")
-
-	// Target info
-	DrawTextCentered(screen, "Attack: "+targetName, ScreenWidth/2, panelY+45, ColorText)
-
-	// Two-column layout: Attack on left, Defense on right
-	leftColX := panelX + 20
-	rightColX := panelX + panelW/2 + 10
-	y := panelY + 75
+	// Three columns: Attack | Defense | Buttons
+	col1X := barX + 20
+	col2X := barX + barW/3 + 20
+	col3X := barX + barW - 180
+	y := barY + 45
 
 	// Attack side breakdown (left column)
-	DrawText(screen, "ATTACK FORCES:", leftColX, y, ColorSuccess)
+	DrawText(screen, "ATTACK FORCES:", col1X, y, ColorSuccess)
 	attackY := y + 22
 
 	totalAttack := s.attackPlanResolved.BaseAttackStrength + s.attackPlanResolved.AttackerAllyStrength
-	DrawText(screen, fmt.Sprintf("  Your forces: %d", s.attackPlanResolved.BaseAttackStrength), leftColX, attackY, ColorText)
+	DrawText(screen, fmt.Sprintf("  Your forces: %d", s.attackPlanResolved.BaseAttackStrength), col1X, attackY, ColorText)
 	attackY += 20
 
 	if s.attackPlanResolved.AttackerAllyStrength > 0 {
 		allyNames := strings.Join(s.attackPlanResolved.AttackerAllyNames, ", ")
-		DrawText(screen, fmt.Sprintf("  Allies: +%d (%s)", s.attackPlanResolved.AttackerAllyStrength, allyNames), leftColX, attackY, ColorText)
+		DrawText(screen, fmt.Sprintf("  Allies: +%d (%s)", s.attackPlanResolved.AttackerAllyStrength, allyNames), col1X, attackY, ColorText)
 		attackY += 20
 	} else {
-		DrawText(screen, "  Allies: none", leftColX, attackY, ColorTextMuted)
+		DrawText(screen, "  Allies: none", col1X, attackY, ColorTextMuted)
 		attackY += 20
 	}
 
-	DrawText(screen, fmt.Sprintf("  Total: %d", totalAttack), leftColX, attackY, ColorSuccess)
+	DrawText(screen, fmt.Sprintf("  Total: %d", totalAttack), col1X, attackY, ColorSuccess)
 
-	// Defense side breakdown (right column)
-	DrawText(screen, "DEFENSE FORCES:", rightColX, y, ColorDanger)
+	// Defense side breakdown (center column)
+	DrawText(screen, "DEFENSE FORCES:", col2X, y, ColorDanger)
 	defenseY := y + 22
 
 	totalDefense := s.attackPlanResolved.BaseDefenseStrength + s.attackPlanResolved.DefenderAllyStrength
-	DrawText(screen, fmt.Sprintf("  Base defense: %d", s.attackPlanResolved.BaseDefenseStrength), rightColX, defenseY, ColorText)
+	DrawText(screen, fmt.Sprintf("  Base defense: %d", s.attackPlanResolved.BaseDefenseStrength), col2X, defenseY, ColorText)
 	defenseY += 20
 
 	if s.attackPlanResolved.DefenderAllyStrength > 0 {
 		allyNames := strings.Join(s.attackPlanResolved.DefenderAllyNames, ", ")
-		DrawText(screen, fmt.Sprintf("  Allies: +%d (%s)", s.attackPlanResolved.DefenderAllyStrength, allyNames), rightColX, defenseY, ColorText)
+		DrawText(screen, fmt.Sprintf("  Allies: +%d (%s)", s.attackPlanResolved.DefenderAllyStrength, allyNames), col2X, defenseY, ColorText)
 		defenseY += 20
 	} else {
-		DrawText(screen, "  Allies: none", rightColX, defenseY, ColorTextMuted)
+		DrawText(screen, "  Allies: none", col2X, defenseY, ColorTextMuted)
 		defenseY += 20
 	}
 
-	DrawText(screen, fmt.Sprintf("  Total: %d", totalDefense), rightColX, defenseY, ColorDanger)
+	DrawText(screen, fmt.Sprintf("  Total: %d", totalDefense), col2X, defenseY, ColorDanger)
 
-	// Buttons at bottom
-	btnY := panelY + panelH - 55
-	btnWidth := 140
-	btnGap := 20
-	totalBtnsWidth := btnWidth*2 + btnGap
-	btnStartX := panelX + (panelW-totalBtnsWidth)/2
-
-	s.confirmAttackBtn.X = btnStartX
-	s.confirmAttackBtn.Y = btnY
+	// Buttons (right column, stacked vertically)
+	btnWidth := 150
+	s.confirmAttackBtn.X = col3X
+	s.confirmAttackBtn.Y = barY + 50
 	s.confirmAttackBtn.W = btnWidth
 	s.confirmAttackBtn.Draw(screen)
 
-	s.cancelConfirmBtn.X = btnStartX + btnWidth + btnGap
-	s.cancelConfirmBtn.Y = btnY
+	s.cancelConfirmBtn.X = col3X
+	s.cancelConfirmBtn.Y = barY + 95
 	s.cancelConfirmBtn.W = btnWidth
 	s.cancelConfirmBtn.Draw(screen)
+
+	// Card selection info & keyboard hint
+	if s.combatMode == "cards" {
+		selectedCount := len(s.selectedCardIDs)
+		if selectedCount > 0 {
+			DrawText(screen, fmt.Sprintf("%d attack card(s) selected", selectedCount), col3X, barY+140, ColorSuccess)
+		} else if len(s.myAttackCards) > 0 {
+			DrawText(screen, "No attack cards selected", col3X, barY+140, ColorTextDim)
+		}
+	}
+	DrawText(screen, "Enter to confirm, Esc to cancel", barX+20, barY+170, ColorTextDim)
 }
 
 // confirmAttack executes the attack using the cached plan.
@@ -2203,19 +2169,17 @@ func (s *GameplayScene) confirmAttack() {
 		}
 	}
 
-	// Execute attack -- include selected cards in card combat mode
+	// Execute attack -- use cards pre-selected during attack planning
 	if s.combatMode == "cards" {
 		cardIDs := make([]string, 0)
-		for id, selected := range s.selectedAttackCardIDs {
-			if selected {
-				cardIDs = append(cardIDs, id)
-			}
+		for id := range s.selectedCardIDs {
+			cardIDs = append(cardIDs, id)
 		}
+		log.Printf("Executing attack with %d pre-selected cards", len(cardIDs))
 		s.game.ExecuteAttackWithCards(s.attackPlanResolved.TargetTerritory, reinforcement, s.attackPlanResolved.PlanID, cardIDs)
 	} else {
 		s.game.ExecuteAttackWithPlan(s.attackPlanResolved.TargetTerritory, s.attackPlanResolved.PlanID, reinforcement)
 	}
-
 	// Clean up
 	s.cancelAttackConfirmation()
 }
@@ -2228,8 +2192,11 @@ func (s *GameplayScene) cancelAttackConfirmation() {
 	s.attackPlanTarget = ""
 	s.attackPreview = nil
 	s.selectedReinforcement = nil
+	s.selectedCardIDs = make(map[string]bool)
 	s.loadHorseCheckbox = false
 	s.loadWeaponCheckbox = false
+	s.ClearHighlightedTerritories()
+	s.ResetBarHeight()
 }
 
 // openEditTerritoryDialog opens the edit territory dialog for the given territory.
@@ -2681,7 +2648,6 @@ func (s *GameplayScene) drawEditTerritory(screen *ebiten.Image) {
 		vector.DrawFilledRect(screen, dotX, dotY, dotSize, dotSize, ColorText, false)
 	}
 
-
 	// Color palette - 2 columns of 5
 	colorStartY := toolbarY + 115
 	for i, colorIdx := range DrawingColorOrder {
@@ -2790,23 +2756,34 @@ func (s *GameplayScene) commitDefenseCards() {
 
 // ShowDefenseCardRequest shows the defense card selection dialog.
 func (s *GameplayScene) ShowDefenseCardRequest(battleID, attackerName, terrName string, atkCardCount, baseAtkStr, baseDefStr int) {
-	s.showDefenseCardSelect = true
 	s.defenseCardBattleID = battleID
 	s.defenseCardAttackerName = attackerName
 	s.defenseCardTerrName = terrName
 	s.defenseCardAtkCount = atkCardCount
 	s.defenseCardAtkStr = baseAtkStr
 	s.defenseCardDefStr = baseDefStr
-	s.selectedDefenseCardIDs = make(map[string]bool)
+
+	// Use card hand selection mode instead of modal dialog
+	contextMsg := fmt.Sprintf("%s attacking %s! Atk %d vs Def %d -- Select defense cards:", attackerName, terrName, baseAtkStr, baseDefStr)
+	s.enterCardSelectionMode("defense", contextMsg)
+
+	// Highlight territory under attack (find territory ID from name)
+	for tid, tdata := range s.territories {
+		if terr, ok := tdata.(map[string]interface{}); ok {
+			if name, ok := terr["name"].(string); ok && name == terrName {
+				s.SetHighlightedTerritories([]TerritoryHighlight{
+					{TerritoryID: tid, Color: color.RGBA{255, 200, 50, 255}},
+				})
+				break
+			}
+		}
+	}
 }
 
-// ShowCardDrawn displays the newly drawn card popup.
+// ShowCardDrawn is called when a card is purchased. The card appears in the
+// player's hand automatically, so no notification is needed.
 func (s *GameplayScene) ShowCardDrawn(name, desc, rarity, cardType string) {
-	s.showCardDrawn = true
-	s.drawnCardName = name
-	s.drawnCardDesc = desc
-	s.drawnCardRarity = rarity
-	s.drawnCardType = cardType
+	// No-op: the card visually appears in the card hand
 }
 
 // ShowCardReveal shows the card reveal animation after combat.
@@ -2818,6 +2795,7 @@ func (s *GameplayScene) ShowCardReveal(data *protocol.CardRevealPayload) {
 	s.showCardReveal = true
 	s.cardRevealData = data
 	s.cardRevealTimer = 0
+	// Territory highlighting is kept from the preceding attack plan/confirmation
 }
 
 // dismissCardReveal closes the card reveal dialog and sends ack to the server.
@@ -2829,6 +2807,7 @@ func (s *GameplayScene) dismissCardReveal() {
 
 	s.showCardReveal = false
 	s.cardRevealData = nil
+	s.ResetBarHeight()
 }
 
 // getRarityColor returns the color for a card rarity.
@@ -3010,7 +2989,7 @@ func (s *GameplayScene) drawCardDrawnPopup(screen *ebiten.Image) {
 	s.dismissCardDrawnBtn.Draw(screen)
 }
 
-// drawCardRevealDialog draws the card reveal after combat.
+// drawCardRevealDialog draws the card reveal in the expanded bottom bar.
 func (s *GameplayScene) drawCardRevealDialog(screen *ebiten.Image) {
 	if !s.showCardReveal || s.cardRevealData == nil {
 		return
@@ -3018,22 +2997,28 @@ func (s *GameplayScene) drawCardRevealDialog(screen *ebiten.Image) {
 
 	data := s.cardRevealData
 
-	// Semi-transparent overlay
-	vector.DrawFilledRect(screen, 0, 0, float32(ScreenWidth), float32(ScreenHeight), color.RGBA{0, 0, 0, 150}, false)
+	// Expand the bottom bar for card reveal
+	s.SetBarHeight(200)
 
-	panelW := 550
-	panelH := 350
-	panelX := (ScreenWidth - panelW) / 2
-	panelY := (ScreenHeight - panelH) / 2
+	barX := 10
+	barY := s.currentBarTop
+	barW := ScreenWidth - 20
 
-	title := "Cards Revealed!"
-	DrawFancyPanel(screen, panelX, panelY, panelW, panelH, title)
+	// Draw bar background (already drawn by drawBottomBar, but we override content)
+	DrawFancyPanel(screen, barX, barY, barW, int(s.currentBarHeight), "")
 
-	// Attack cards
-	DrawText(screen, "Attack Cards:", panelX+20, panelY+45, ColorDanger)
-	cardY := panelY + 60
+	// Title
+	DrawLargeText(screen, "CARD REVEAL", barX+20, barY+15, ColorText)
+
+	// 2-column layout: Attack Cards | Defense Cards, with totals below
+	colW := (barW - 60) / 2
+
+	// Column 1: Attack Cards
+	col1X := barX + 20
+	DrawText(screen, "ATTACK CARDS:", col1X, barY+42, ColorDanger)
+	cardY := barY + 60
 	if len(data.AttackerCards) == 0 {
-		DrawText(screen, "(none)", panelX+30, cardY, ColorTextDim)
+		DrawText(screen, "(none)", col1X+10, cardY, ColorTextDim)
 	}
 	for i, c := range data.AttackerCards {
 		col := getRarityColor(c.Rarity)
@@ -3049,45 +3034,58 @@ func (s *GameplayScene) drawCardRevealDialog(screen *ebiten.Image) {
 			text += " [NEGATED]"
 			col = ColorTextDim
 		}
-		DrawText(screen, text, panelX+30, cardY+i*14, col)
+		DrawText(screen, text, col1X+10, cardY+i*16, col)
 	}
 
-	// Defense cards
-	defY := panelY + 60 + maxInt(len(data.AttackerCards), 1)*14 + 20
-	DrawText(screen, "Defense Cards:", panelX+20, defY, ColorPrimary)
-	defCardY := defY + 15
+	// Column 2: Defense Cards
+	col2X := col1X + colW + 20
+	DrawText(screen, "DEFENSE CARDS:", col2X, barY+42, ColorPrimary)
+	defCardY := barY + 60
 	if len(data.DefenderCards) == 0 {
-		DrawText(screen, "(none)", panelX+30, defCardY, ColorTextDim)
+		DrawText(screen, "(none)", col2X+10, defCardY, ColorTextDim)
 	}
 	for i, c := range data.DefenderCards {
 		col := getRarityColor(c.Rarity)
+		negated := false
+		for _, nc := range data.NegatedCards {
+			if nc.ID == c.ID {
+				negated = true
+				break
+			}
+		}
 		text := fmt.Sprintf("- %s: %s", c.Name, c.Description)
-		DrawText(screen, text, panelX+30, defCardY+i*14, col)
+		if negated {
+			text += " [NEGATED]"
+			col = ColorTextDim
+		}
+		DrawText(screen, text, col2X+10, defCardY+i*16, col)
 	}
 
-	// Result summary
-	resultY := panelY + panelH - 90
+	// Final totals at bottom of bar
+	totalsY := barY + int(s.currentBarHeight) - 55
 	if data.BribeActivated {
-		DrawText(screen, "BRIBE! Defense auto-wins (3 gold spent)", panelX+20, resultY, color.RGBA{255, 200, 50, 255})
+		DrawLargeText(screen, "BRIBE activated! Defense auto-wins", barX+20, totalsY, color.RGBA{255, 200, 50, 255})
 	} else {
-		resultText := fmt.Sprintf("Final: Attack %d vs Defense %d", data.FinalAttackStr, data.FinalDefenseStr)
-		DrawText(screen, resultText, panelX+20, resultY, ColorText)
+		DrawText(screen, fmt.Sprintf("Final Attack Strength: %d", data.FinalAttackStr), barX+20, totalsY, ColorDanger)
+		DrawText(screen, fmt.Sprintf("Final Defense Strength: %d", data.FinalDefenseStr), barX+20, totalsY+18, ColorPrimary)
 	}
-
+	if data.SabotageCount > 0 {
+		DrawText(screen, fmt.Sprintf("Sabotage: %d unit(s) destroyed", data.SabotageCount), barX+400, totalsY, ColorDanger)
+	}
 	if data.SafeRetreat {
-		DrawText(screen, "Safe Retreat: brought unit returned home", panelX+20, resultY+14, ColorPrimary)
-	}
-	if data.CounterAttackTerr != "" {
-		DrawText(screen, "Counter-Attack: territory captured!", panelX+20, resultY+14, ColorDanger)
-	}
-	if data.BlitzReturnCount > 0 {
-		DrawText(screen, fmt.Sprintf("Blitz: %d attack cards returned!", data.BlitzReturnCount), panelX+20, resultY+14, ColorSuccess)
+		DrawText(screen, "Safe Retreat active", barX+400, totalsY+18, ColorPrimary)
 	}
 
 	// OK button
-	s.dismissCardRevealBtn.X = panelX + panelW/2 - 50
-	s.dismissCardRevealBtn.Y = panelY + panelH - 50
+	s.dismissCardRevealBtn.X = barX + barW - 130
+	s.dismissCardRevealBtn.Y = barY + int(s.currentBarHeight) - 50
+	s.dismissCardRevealBtn.Update()
 	s.dismissCardRevealBtn.Draw(screen)
+
+	// Also dismiss on Enter
+	if inpututil.IsKeyJustPressed(ebiten.KeyEnter) {
+		s.dismissCardReveal()
+	}
 }
 
 // maxInt returns the larger of two ints.
@@ -3128,19 +3126,22 @@ func (s *GameplayScene) handleCardSelectionClick(cards []CardDisplayInfo, select
 }
 
 // cardHandLayout returns shared layout constants for the card hand display.
-// cardStep is the horizontal distance between card origins (overlapping by 25%).
-func cardHandLayout() (barY, cardW, cardH, cardStep, sidebarEnd int) {
+// barY tracks the current bottom bar top so cards move with the bar.
+func (s *GameplayScene) cardHandLayout() (barY, cardW, cardH, cardStep, peekH, sidebarEnd int) {
 	w := 110
-	return ScreenHeight - 110, w, 110, w * 3 / 4, 255
+	gap := 15
+	// barY is the TOP of the bottom bar -- cards tuck under it
+	// cardH must be <= barHeight so cards don't poke below the bar
+	return s.currentBarTop, w, 100, w + gap, 30, 300
 }
 
 // cardHandPos returns the x position for a card at index i (attack or defense).
-func cardHandPos(i int, isAttack bool) int {
-	_, cardW, _, cardStep, sidebarEnd := cardHandLayout()
+func (s *GameplayScene) cardHandPos(i int, isAttack bool) int {
+	_, cardW, _, cardStep, _, sidebarEnd := s.cardHandLayout()
 	if isAttack {
 		return sidebarEnd + i*cardStep
 	}
-	// Defense cards: rightmost card at index 0 is flush right, each subsequent overlaps to the left
+	// Defense cards: rightmost card at index 0 is flush right, each subsequent card to the left
 	return ScreenWidth - 15 - cardW - i*cardStep
 }
 
@@ -3223,7 +3224,7 @@ func (s *GameplayScene) drawCardContentSel(screen *ebiten.Image, cx, cy, cardW, 
 	if rarityLabel == "ultra_rare" {
 		rarityLabel = "ULTRA"
 	}
-	DrawText(screen, rarityLabel, cx+cardW-6-len(rarityLabel)*6, cy+cardH-16, rarityCol)
+	DrawText(screen, rarityLabel, cx+cardW-6-int(MeasureText(rarityLabel, FontSizeBody)), cy+cardH-16, rarityCol)
 }
 
 // updateCardHoverAnimation updates the card hover state and animation each frame.
@@ -3232,13 +3233,12 @@ func (s *GameplayScene) updateCardHoverAnimation() {
 		return
 	}
 
-	barY, cardW, cardH, cardStep, sidebarEnd := cardHandLayout()
-	peekH := 12
+	barY, cardW, cardH, cardStep, peekH, sidebarEnd := s.cardHandLayout()
 	mx, my := ebiten.CursorPosition()
 
 	// Calculate current card top based on animation progress
-	currentCardTop := barY - peekH - int(float64(cardH-peekH)*s.cardHoverProgress)
 	fullTop := barY - cardH
+	currentCardTop := barY - peekH - int(float64(cardH-peekH)*s.cardHoverProgress)
 	if currentCardTop < fullTop {
 		currentCardTop = fullTop
 	}
@@ -3256,17 +3256,24 @@ func (s *GameplayScene) updateCardHoverAnimation() {
 		} else if !activeIsAtk && activeIdx < len(s.myDefenseCards) {
 			cx = ScreenWidth - 15 - cardW - activeIdx*cardStep
 		}
-		if mx >= cx && mx <= cx+cardW && my >= currentCardTop && my <= barY {
+		if mx >= cx && mx <= cx+cardW && my >= currentCardTop && my < barY {
 			newHoveredIdx = activeIdx
 			newHoveredIsAtk = activeIsAtk
 		}
 	}
 
 	// Check attack cards - iterate from top (highest index drawn last = on top)
-	if newHoveredIdx == -1 {
+	// Attack cards are hidden during defense card selection
+	hideAttackCards := s.cardSelectionMode == "defense"
+	if newHoveredIdx == -1 && !hideAttackCards {
 		for i := len(s.myAttackCards) - 1; i >= 0; i-- {
 			cx := sidebarEnd + i*cardStep
-			if mx >= cx && mx <= cx+cardW && my >= barY-peekH && my <= barY {
+			// For selected cards, check the full raised area too
+			topY := barY - peekH
+			if s.isCardSelected(s.myAttackCards[i].ID) {
+				topY = fullTop
+			}
+			if mx >= cx && mx <= cx+cardW && my >= topY && my < barY {
 				newHoveredIdx = i
 				newHoveredIsAtk = true
 				break
@@ -3275,14 +3282,53 @@ func (s *GameplayScene) updateCardHoverAnimation() {
 	}
 
 	// Check defense cards (only if no card hovered yet)
-	// Defense cards: index 0 is rightmost (drawn last = on top)
-	if newHoveredIdx == -1 {
+	// Defense cards are hidden during attack planning/confirmation
+	hideDefenseCards := s.showAttackPlan || s.showAttackConfirmation
+	if newHoveredIdx == -1 && !hideDefenseCards {
+		// Defense cards: index 0 is rightmost (drawn last = on top)
 		for i := 0; i < len(s.myDefenseCards); i++ {
 			cx := ScreenWidth - 15 - cardW - i*cardStep
-			if mx >= cx && mx <= cx+cardW && my >= barY-peekH && my <= barY {
+			topY := barY - peekH
+			if s.isCardSelected(s.myDefenseCards[i].ID) {
+				topY = fullTop
+			}
+			if mx >= cx && mx <= cx+cardW && my >= topY && my < barY {
 				newHoveredIdx = i
 				newHoveredIsAtk = false
 				break
+			}
+		}
+	}
+
+	// Handle click to toggle card selection:
+	// - In explicit card selection mode (defense cards after being attacked)
+	// - During attack planning (attack cards can be pre-selected)
+	allowCardToggle := s.cardSelectionMode != "" || s.showAttackPlan
+	if allowCardToggle && inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) {
+		if newHoveredIdx >= 0 {
+			var cardID string
+			if newHoveredIsAtk && newHoveredIdx < len(s.myAttackCards) {
+				cardID = s.myAttackCards[newHoveredIdx].ID
+			} else if !newHoveredIsAtk && newHoveredIdx < len(s.myDefenseCards) {
+				cardID = s.myDefenseCards[newHoveredIdx].ID
+			}
+			if cardID != "" {
+				// Determine valid selection based on context
+				validSelection := false
+				if s.showAttackPlan {
+					// During attack planning, only attack cards
+					validSelection = newHoveredIsAtk
+				} else {
+					validSelection = (s.cardSelectionMode == "attack" && newHoveredIsAtk) ||
+						(s.cardSelectionMode == "defense" && !newHoveredIsAtk)
+				}
+				if validSelection {
+					if s.selectedCardIDs[cardID] {
+						delete(s.selectedCardIDs, cardID)
+					} else {
+						s.selectedCardIDs[cardID] = true
+					}
+				}
 			}
 		}
 	}
@@ -3317,6 +3363,138 @@ func (s *GameplayScene) updateCardHoverAnimation() {
 	}
 }
 
+// isCardSelected returns whether a card ID is currently selected in the card hand.
+func (s *GameplayScene) isCardSelected(cardID string) bool {
+	return s.selectedCardIDs[cardID]
+}
+
+// enterCardSelectionMode starts card selection via the card hand.
+func (s *GameplayScene) enterCardSelectionMode(mode string, contextMsg string) {
+	s.cardSelectionMode = mode
+	s.cardSelectContextMsg = contextMsg
+	s.selectedCardIDs = make(map[string]bool)
+}
+
+// exitCardSelectionMode clears card selection state.
+func (s *GameplayScene) exitCardSelectionMode() {
+	s.cardSelectionMode = ""
+	s.cardSelectContextMsg = ""
+	s.selectedCardIDs = make(map[string]bool)
+}
+
+// confirmCardSelection commits the selected cards to the server.
+func (s *GameplayScene) confirmCardSelection() {
+	cardIDs := make([]string, 0)
+	for id := range s.selectedCardIDs {
+		cardIDs = append(cardIDs, id)
+	}
+
+	if s.cardSelectionMode == "attack" {
+		log.Printf("Committing attack card selection: %d cards", len(cardIDs))
+		// Build reinforcement info from attack plan state
+		var reinforcement *ReinforcementInfo
+		if s.selectedReinforcement != nil {
+			reinforcement = &ReinforcementInfo{
+				UnitType:      s.selectedReinforcement.UnitType,
+				FromTerritory: s.selectedReinforcement.FromTerritory,
+				WaterBodyID:   s.selectedReinforcement.WaterBodyID,
+			}
+			if s.selectedReinforcement.UnitType == "boat" {
+				if s.loadWeaponCheckbox && s.selectedReinforcement.CanCarryWeapon {
+					reinforcement.CarryWeapon = true
+					reinforcement.WeaponFrom = s.selectedReinforcement.FromTerritory
+				}
+				if s.loadHorseCheckbox && s.selectedReinforcement.CanCarryHorse {
+					reinforcement.CarryHorse = true
+					reinforcement.HorseFrom = s.selectedReinforcement.FromTerritory
+				}
+			}
+			if s.selectedReinforcement.UnitType == "horse" {
+				if s.loadWeaponCheckbox && s.selectedReinforcement.CanCarryWeapon {
+					reinforcement.CarryWeapon = true
+					reinforcement.WeaponFrom = s.selectedReinforcement.FromTerritory
+				}
+			}
+		}
+		if s.attackPlanResolved != nil {
+			s.game.ExecuteAttackWithCards(s.attackPlanResolved.TargetTerritory, reinforcement, s.attackPlanResolved.PlanID, cardIDs)
+		}
+		s.cancelAttackConfirmation()
+	} else if s.cardSelectionMode == "defense" {
+		log.Printf("Committing defense card selection: %d cards", len(cardIDs))
+		s.game.SelectDefenseCards(cardIDs)
+		s.ClearHighlightedTerritories()
+	}
+
+	s.exitCardSelectionMode()
+}
+
+// skipCardSelection skips card selection (plays no cards).
+func (s *GameplayScene) skipCardSelection() {
+	if s.cardSelectionMode == "attack" {
+		log.Println("Skipping attack card selection")
+		var reinforcement *ReinforcementInfo
+		if s.selectedReinforcement != nil {
+			reinforcement = &ReinforcementInfo{
+				UnitType:      s.selectedReinforcement.UnitType,
+				FromTerritory: s.selectedReinforcement.FromTerritory,
+				WaterBodyID:   s.selectedReinforcement.WaterBodyID,
+			}
+		}
+		if s.attackPlanResolved != nil {
+			s.game.ExecuteAttackWithCards(s.attackPlanResolved.TargetTerritory, reinforcement, s.attackPlanResolved.PlanID, nil)
+		}
+		s.cancelAttackConfirmation()
+	} else if s.cardSelectionMode == "defense" {
+		log.Println("Skipping defense card selection")
+		s.game.SelectDefenseCards(nil)
+		s.ClearHighlightedTerritories()
+	}
+
+	s.exitCardSelectionMode()
+}
+
+// drawCardSelectionBar draws the card selection context in the bottom bar.
+func (s *GameplayScene) drawCardSelectionBar(screen *ebiten.Image) {
+	if s.cardSelectionMode == "" {
+		return
+	}
+
+	barX := 10
+	barY := s.currentBarTop
+	barW := ScreenWidth - 20
+
+	// Context message
+	DrawLargeText(screen, s.cardSelectContextMsg, barX+20, barY+15, ColorText)
+
+	// Selected count
+	selectedCount := len(s.selectedCardIDs)
+	countText := fmt.Sprintf("%d cards selected -- Click cards below to toggle", selectedCount)
+	DrawText(screen, countText, barX+20, barY+45, ColorTextMuted)
+
+	// Buttons
+	btnY := barY + 30
+	s.cardSelectConfirmBtn.X = barX + barW - 300
+	s.cardSelectConfirmBtn.Y = btnY
+	s.cardSelectConfirmBtn.W = 140
+	s.cardSelectConfirmBtn.H = 35
+	if selectedCount > 0 {
+		s.cardSelectConfirmBtn.Text = fmt.Sprintf("Play %d Cards", selectedCount)
+	} else {
+		s.cardSelectConfirmBtn.Text = "Confirm"
+	}
+	s.cardSelectConfirmBtn.Disabled = selectedCount == 0
+	s.cardSelectConfirmBtn.Update()
+	s.cardSelectConfirmBtn.Draw(screen)
+
+	s.cardSelectSkipBtn.X = barX + barW - 150
+	s.cardSelectSkipBtn.Y = btnY
+	s.cardSelectSkipBtn.W = 120
+	s.cardSelectSkipBtn.H = 35
+	s.cardSelectSkipBtn.Update()
+	s.cardSelectSkipBtn.Draw(screen)
+}
+
 // getActiveCardIdx returns the index and type of the card currently being
 // hovered or animating down. Returns (-1, false) if none.
 func (s *GameplayScene) getActiveCardIdx() (int, bool) {
@@ -3332,53 +3510,82 @@ func (s *GameplayScene) getActiveCardIdx() (int, bool) {
 // drawCardHand draws the card hand BEHIND the status bar.
 // Cards are always fully rendered at their resting position (mostly hidden behind the bar).
 // The status bar is drawn on top, hiding the card bodies.
+// Selected cards (in card selection mode) are drawn fully raised.
 func (s *GameplayScene) drawCardHand(screen *ebiten.Image) {
 	if s.combatMode != "cards" {
 		return
 	}
 
-	barY, cardW, cardH, cardStep, sidebarEnd := cardHandLayout()
-	peekH := 12 // How much of the top peeks above the bar at rest
+	barY, cardW, cardH, cardStep, peekH, sidebarEnd := s.cardHandLayout()
+	fullTop := barY - cardH
 
 	activeIdx, activeIsAtk := s.getActiveCardIdx()
 
-	// Attack cards - draw left to right; skip the active card (drawn last)
-	for i, card := range s.myAttackCards {
-		if activeIsAtk && i == activeIdx {
-			continue // Draw on top after all others
+	// Attack cards - hidden during defense card selection
+	hideAttackCards := s.cardSelectionMode == "defense"
+	if !hideAttackCards {
+		// Draw left to right; skip the active card (drawn last)
+		for i, card := range s.myAttackCards {
+			if activeIsAtk && i == activeIdx {
+				continue // Draw on top after all others
+			}
+			cx := sidebarEnd + i*cardStep
+			// Selected cards stay fully raised
+			if s.isCardSelected(card.ID) {
+				s.drawCardContentSel(screen, cx, fullTop, cardW, cardH, card, true, true)
+			} else {
+				s.drawCardContent(screen, cx, barY-peekH, cardW, cardH, card, true)
+			}
 		}
-		cx := sidebarEnd + i*cardStep
-		s.drawCardContent(screen, cx, barY-peekH, cardW, cardH, card, true)
-	}
-	// Draw active attack card last (on top of neighbors)
-	if activeIsAtk && activeIdx >= 0 && activeIdx < len(s.myAttackCards) {
-		cx := sidebarEnd + activeIdx*cardStep
-		fullTop := barY - cardH
-		cardTop := barY - peekH - int(float64(cardH-peekH)*s.cardHoverProgress)
-		if cardTop < fullTop {
-			cardTop = fullTop
+		// Draw active attack card last (on top of neighbors)
+		if activeIsAtk && activeIdx >= 0 && activeIdx < len(s.myAttackCards) {
+			card := s.myAttackCards[activeIdx]
+			cx := sidebarEnd + activeIdx*cardStep
+			selected := s.isCardSelected(card.ID)
+			if selected {
+				s.drawCardContentSel(screen, cx, fullTop, cardW, cardH, card, true, true)
+			} else {
+				cardTop := barY - peekH - int(float64(cardH-peekH)*s.cardHoverProgress)
+				if cardTop < fullTop {
+					cardTop = fullTop
+				}
+				s.drawCardContent(screen, cx, cardTop, cardW, cardH, card, true)
+			}
 		}
-		s.drawCardContent(screen, cx, cardTop, cardW, cardH, s.myAttackCards[activeIdx], true)
 	}
 
-	// Defense cards - draw right to left (index 0 = rightmost, drawn last = on top)
-	// Skip the active card (drawn last)
-	for i := len(s.myDefenseCards) - 1; i >= 0; i-- {
-		if !activeIsAtk && i == activeIdx {
-			continue
+	// Defense cards - hidden during attack planning/confirmation
+	hideDefenseCards := s.showAttackPlan || s.showAttackConfirmation
+	if !hideDefenseCards {
+		// Draw right to left (index 0 = rightmost, drawn last = on top)
+		// Skip the active card (drawn last)
+		for i := len(s.myDefenseCards) - 1; i >= 0; i-- {
+			if !activeIsAtk && i == activeIdx {
+				continue
+			}
+			card := s.myDefenseCards[i]
+			cx := ScreenWidth - 15 - cardW - i*cardStep
+			if s.isCardSelected(card.ID) {
+				s.drawCardContentSel(screen, cx, fullTop, cardW, cardH, card, false, true)
+			} else {
+				s.drawCardContent(screen, cx, barY-peekH, cardW, cardH, card, false)
+			}
 		}
-		cx := ScreenWidth - 15 - cardW - i*cardStep
-		s.drawCardContent(screen, cx, barY-peekH, cardW, cardH, s.myDefenseCards[i], false)
-	}
-	// Draw active defense card last (on top of neighbors)
-	if !activeIsAtk && activeIdx >= 0 && activeIdx < len(s.myDefenseCards) {
-		cx := ScreenWidth - 15 - cardW - activeIdx*cardStep
-		fullTop := barY - cardH
-		cardTop := barY - peekH - int(float64(cardH-peekH)*s.cardHoverProgress)
-		if cardTop < fullTop {
-			cardTop = fullTop
+		// Draw active defense card last (on top of neighbors)
+		if !activeIsAtk && activeIdx >= 0 && activeIdx < len(s.myDefenseCards) {
+			card := s.myDefenseCards[activeIdx]
+			cx := ScreenWidth - 15 - cardW - activeIdx*cardStep
+			selected := s.isCardSelected(card.ID)
+			if selected {
+				s.drawCardContentSel(screen, cx, fullTop, cardW, cardH, card, false, true)
+			} else {
+				cardTop := barY - peekH - int(float64(cardH-peekH)*s.cardHoverProgress)
+				if cardTop < fullTop {
+					cardTop = fullTop
+				}
+				s.drawCardContent(screen, cx, cardTop, cardW, cardH, card, false)
+			}
 		}
-		s.drawCardContent(screen, cx, cardTop, cardW, cardH, s.myDefenseCards[activeIdx], false)
 	}
 }
 
@@ -3396,8 +3603,7 @@ func (s *GameplayScene) drawCardHandHovered(screen *ebiten.Image) {
 		return
 	}
 
-	barY, cardW, cardH, cardStep, sidebarEnd := cardHandLayout()
-	peekH := 12
+	barY, cardW, cardH, cardStep, peekH, sidebarEnd := s.cardHandLayout()
 
 	fullTop := barY - cardH
 	cardTop := barY - peekH - int(float64(cardH-peekH)*s.cardHoverProgress)
@@ -3409,6 +3615,18 @@ func (s *GameplayScene) drawCardHandHovered(screen *ebiten.Image) {
 	visibleAboveBar := barY - cardTop
 	if visibleAboveBar <= peekH {
 		return
+	}
+
+	// If the active card is selected (locked in), it's already drawn fully raised
+	// by drawCardHand — don't draw a second animating copy on top.
+	if activeIsAtk && activeIdx < len(s.myAttackCards) {
+		if s.isCardSelected(s.myAttackCards[activeIdx].ID) {
+			return
+		}
+	} else if !activeIsAtk && activeIdx < len(s.myDefenseCards) {
+		if s.isCardSelected(s.myDefenseCards[activeIdx].ID) {
+			return
+		}
 	}
 
 	// Create a clipped sub-image covering only the area above the status bar

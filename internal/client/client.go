@@ -14,8 +14,8 @@ import (
 )
 
 const (
-	ScreenWidth  = 1280
-	ScreenHeight = 720
+	ScreenWidth  = 1920
+	ScreenHeight = 1080
 )
 
 // Scene represents a game screen/state.
@@ -53,6 +53,12 @@ type Game struct {
 	musicVolumeSlider *Slider
 	musicMuteBtn      *Button
 	musicCloseBtn     *Button
+
+	// Window geometry tracking (saved on cleanup)
+	lastWindowWidth  int
+	lastWindowHeight int
+	lastWindowX      int
+	lastWindowY      int
 }
 
 // NewGame creates a new game instance.
@@ -74,6 +80,9 @@ func NewGame() (*Game, error) {
 
 	// Initialize clipboard for paste support
 	InitClipboard()
+
+	// Initialize TTF font system
+	InitFonts()
 
 	// Initialize audio
 	InitAudio()
@@ -135,6 +144,10 @@ func NewGame() (*Game, error) {
 
 // Update handles game logic.
 func (g *Game) Update() error {
+	// Track window geometry for saving on exit
+	g.lastWindowWidth, g.lastWindowHeight = ebiten.WindowSize()
+	g.lastWindowX, g.lastWindowY = ebiten.WindowPosition()
+
 	// Handle music control dialog (takes priority)
 	if g.showMusicControl {
 		g.musicVolumeSlider.Update()
@@ -277,6 +290,23 @@ func (g *Game) drawMusicControlDialog(screen *ebiten.Image) {
 // Layout returns the game's screen dimensions.
 func (g *Game) Layout(outsideWidth, outsideHeight int) (int, int) {
 	return ScreenWidth, ScreenHeight
+}
+
+// GetConfig returns the game's config for use by the main package.
+func (g *Game) GetConfig() *Config {
+	return g.config
+}
+
+// Cleanup saves final state before the game exits.
+func (g *Game) Cleanup() {
+	// Save last known window geometry to config
+	if g.lastWindowWidth > 0 && g.lastWindowHeight > 0 {
+		g.config.WindowWidth = g.lastWindowWidth
+		g.config.WindowHeight = g.lastWindowHeight
+		g.config.WindowX = g.lastWindowX
+		g.config.WindowY = g.lastWindowY
+		g.config.Save()
+	}
 }
 
 // SetScene transitions to a new scene.

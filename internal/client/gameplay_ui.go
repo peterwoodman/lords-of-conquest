@@ -22,7 +22,7 @@ func (s *GameplayScene) drawInfoPanel(screen *ebiten.Image) {
 func (s *GameplayScene) drawLeftSidebar(screen *ebiten.Image) {
 	sidebarX := 10
 	sidebarY := 10
-	sidebarW := 250
+	sidebarW := 280
 
 	// Player identity panel (with resources)
 	myPlayer, ok := s.players[s.game.config.PlayerID]
@@ -176,7 +176,7 @@ func (s *GameplayScene) drawLeftSidebar(screen *ebiten.Image) {
 
 				// Truncate name if in two-column mode to fit
 				if useTwoColumns && len(nameText) > 10 {
-					nameText = nameText[:9] + "…"
+					nameText = nameText[:9] + ".."
 				}
 
 				DrawText(screen, nameText, baseX+42, y, ColorText)
@@ -201,8 +201,12 @@ func (s *GameplayScene) drawLeftSidebar(screen *ebiten.Image) {
 		}
 	}
 
-	// History panel - directly below Players (no separate Resources panel)
-	historyY := playersY + playersH + 15
+	// Year & Phase panel - below Players
+	phaseY := playersY + playersH + 5
+	phasePanelH := s.drawYearPhasePanel(screen, sidebarX, phaseY, sidebarW)
+
+	// History panel - below Year & Phase
+	historyY := phaseY + phasePanelH + 5
 	s.drawHistoryPanel(screen, sidebarX, historyY, sidebarW)
 }
 
@@ -276,10 +280,57 @@ func (s *GameplayScene) drawResourcesPanel(screen *ebiten.Image, x, y, w int) {
 	}
 }
 
+// drawYearPhasePanel draws the year and phase indicator in the sidebar.
+// Returns the panel height so the caller can position subsequent panels.
+func (s *GameplayScene) drawYearPhasePanel(screen *ebiten.Image, x, y, w int) int {
+	lineHeight := 17
+	phases := []string{"Development", "Production", "Trade", "Shipment", "Conquest"}
+
+	// Calculate height up front
+	panelH := 10 + len(phases)*lineHeight + 8
+	if s.currentPhase == "Territory Selection" {
+		panelH = 40
+	}
+
+	DrawFancyPanel(screen, x, y, w, panelH, "")
+
+	// Year display on the left
+	DrawLargeText(screen, fmt.Sprintf("Year %d", s.round), x+12, y+panelH/2-4, ColorText)
+
+	// Phase indicator to the right of year
+	phaseX := x + 90
+
+	if s.currentPhase == "Territory Selection" {
+		displayText := "> Territory Selection"
+		textY := y + panelH/2 - 6
+		vector.DrawFilledRect(screen, float32(phaseX-2), float32(textY-2),
+			float32(int(MeasureText(displayText, FontSizeBody))+4), float32(lineHeight), color.RGBA{40, 80, 40, 255}, false)
+		DrawText(screen, displayText, phaseX, textY, ColorSuccess)
+	} else {
+		phaseY := y + 8
+		for _, phase := range phases {
+			textColor := ColorTextMuted
+			displayText := "  " + phase
+
+			if phase == s.currentPhase {
+				textColor = ColorSuccess
+				displayText = "> " + phase
+				vector.DrawFilledRect(screen, float32(phaseX-2), float32(phaseY-2),
+					float32(int(MeasureText(displayText, FontSizeBody))+4), float32(lineHeight), color.RGBA{40, 80, 40, 255}, false)
+			}
+
+			DrawText(screen, displayText, phaseX, phaseY, textColor)
+			phaseY += lineHeight
+		}
+	}
+
+	return panelH
+}
+
 // drawHistoryPanel draws the game history log (newest at top, scrollable).
 func (s *GameplayScene) drawHistoryPanel(screen *ebiten.Image, x, y, w int) {
 	// Calculate available height (fill remaining sidebar space, stopping before bottom bar)
-	bottomBarTop := ScreenHeight - 110  // Bottom bar starts here
+	bottomBarTop := s.currentBarTop     // Dynamic: moves up when bar expands
 	availableH := bottomBarTop - y - 10 // Leave 10px margin above bottom bar
 	if availableH < 100 {
 		availableH = 100 // Minimum height
@@ -402,6 +453,91 @@ func (s *GameplayScene) SetHistory(events []protocol.HistoryEvent) {
 	s.historyScroll = 0
 }
 
+// showBottomBarNotification shows a notification message in the bottom bar.
+func (s *GameplayScene) showBottomBarNotification(message string, btnText string, action func()) {
+	s.bottomBarNotification = message
+	s.bottomBarNotifBtnText = btnText
+	if action != nil {
+		s.bottomBarNotifAction = action
+	} else {
+		s.bottomBarNotifAction = nil
+	}
+}
+
+// dismissBottomBarNotification clears the notification from the bottom bar.
+func (s *GameplayScene) dismissBottomBarNotification() {
+	if s.bottomBarNotifAction != nil {
+		s.bottomBarNotifAction()
+	}
+	s.bottomBarNotification = ""
+	s.bottomBarNotifAction = nil
+	s.bottomBarNotifBtnText = ""
+	s.ResetBarHeight()
+}
+
+// drawBottomBarNotification draws a notification message in the bottom bar.
+func (s *GameplayScene) drawBottomBarNotification(screen *ebiten.Image) {
+	barX := 10
+	barY := s.currentBarTop
+	barW := ScreenWidth - 20
+
+	// Draw the notification text
+	DrawLargeText(screen, s.bottomBarNotification, barX+20, barY+15, ColorText)
+
+	// Draw dismiss button
+	btnText := s.bottomBarNotifBtnText
+	if btnText == "" {
+		btnText = "OK"
+	}
+	s.bottomBarNotifDismissBtn.Text = btnText
+	s.bottomBarNotifDismissBtn.X = barX + barW - 130
+	s.bottomBarNotifDismissBtn.Y = barY + 30
+	s.bottomBarNotifDismissBtn.W = 100
+	s.bottomBarNotifDismissBtn.H = 35
+	s.bottomBarNotifDismissBtn.Draw(screen)
+}
+
+// drawBottomBarMedium draws a medium interaction in the bottom bar (with inline action buttons).
+func (s *GameplayScene) drawBottomBarMedium(screen *ebiten.Image) {
+	barX := 10
+	barY := s.currentBarTop
+	barW := ScreenWidth - 20
+
+	// Primary text
+	DrawLargeText(screen, s.bottomBarMediumText, barX+20, barY+15, ColorText)
+
+	// Secondary text
+	if s.bottomBarMediumSubtext != "" {
+		DrawText(screen, s.bottomBarMediumSubtext, barX+20, barY+45, ColorTextMuted)
+	}
+
+	// Draw action buttons from right to left (Update() is called in gameplay.go Update phase)
+	btnX := barX + barW - 20
+	for i := len(s.bottomBarMediumBtns) - 1; i >= 0; i-- {
+		btn := s.bottomBarMediumBtns[i]
+		btn.X = btnX - btn.W
+		btn.Y = barY + 30
+		btn.Draw(screen)
+		btnX -= btn.W + 10
+	}
+}
+
+// showBottomBarMedium shows a medium interaction in the bottom bar with action buttons.
+func (s *GameplayScene) showBottomBarMedium(mode, text, subtext string, buttons []*Button) {
+	s.bottomBarMediumMode = mode
+	s.bottomBarMediumText = text
+	s.bottomBarMediumSubtext = subtext
+	s.bottomBarMediumBtns = buttons
+}
+
+// clearBottomBarMedium clears the medium interaction mode.
+func (s *GameplayScene) clearBottomBarMedium() {
+	s.bottomBarMediumMode = ""
+	s.bottomBarMediumText = ""
+	s.bottomBarMediumSubtext = ""
+	s.bottomBarMediumBtns = nil
+}
+
 // drawMapArea draws the map with a decorative frame.
 func (s *GameplayScene) drawMapArea(screen *ebiten.Image) {
 	if s.mapData == nil {
@@ -412,7 +548,7 @@ func (s *GameplayScene) drawMapArea(screen *ebiten.Image) {
 	height := int(s.mapData["height"].(float64))
 
 	// Calculate available space for the map
-	sidebarWidth := 270    // Left sidebar width + margin
+	sidebarWidth := 300    // Left sidebar width + margin
 	bottomBarHeight := 120 // Bottom bar height + margin
 	availableWidth := ScreenWidth - sidebarWidth - 20
 	availableHeight := ScreenHeight - bottomBarHeight - 20
@@ -461,58 +597,53 @@ func (s *GameplayScene) drawMapArea(screen *ebiten.Image) {
 // drawBottomBar draws phase/turn information with two sections.
 func (s *GameplayScene) drawBottomBar(screen *ebiten.Image) {
 	barX := 10
-	barY := ScreenHeight - 110
+	barY := s.currentBarTop
 	barW := ScreenWidth - 20
-	barH := 100
+	barH := int(s.currentBarHeight)
 
 	DrawFancyPanel(screen, barX, barY, barW, barH, "")
 
-	// === LEFT SECTION: Year and Phase List ===
-	leftSectionW := 280
-
-	// Year display - large text on the left
-	DrawLargeText(screen, fmt.Sprintf("Year %d", s.round), barX+15, barY+30, ColorText)
-
-	// Phase list - vertical list to the right of Year
-	// Order: Development (skipped Year 1) → Production → Trade → Shipment → Conquest
-	phases := []string{"Development", "Production", "Trade", "Shipment", "Conquest"}
-	phaseX := barX + 100 // Right of "Year X"
-	phaseY := barY + 12
-	lineHeight := 17
-
-	// Check if we're in Territory Selection (only before year 1)
-	if s.currentPhase == "Territory Selection" {
-		// During territory selection, show it prominently
-		displayText := "> Territory Selection"
-		vector.DrawFilledRect(screen, float32(phaseX-2), float32(phaseY+28),
-			float32(len(displayText)*7+4), float32(17), color.RGBA{40, 80, 40, 255}, false)
-		DrawText(screen, displayText, phaseX, phaseY+30, ColorSuccess)
-	} else {
-		// Draw phase list vertically
-		for _, phase := range phases {
-			textColor := ColorTextMuted
-			displayText := "  " + phase // Indent for non-current phases
-
-			if phase == s.currentPhase {
-				// Current phase - highlighted with arrow and background
-				textColor = ColorSuccess
-				displayText = "> " + phase
-				// Draw highlight background
-				vector.DrawFilledRect(screen, float32(phaseX-2), float32(phaseY-2),
-					float32(len(displayText)*7+4), float32(lineHeight), color.RGBA{40, 80, 40, 255}, false)
-			}
-
-			DrawText(screen, displayText, phaseX, phaseY, textColor)
-			phaseY += lineHeight
-		}
+	// If in card selection mode, show card selection context instead of standard content
+	if s.cardSelectionMode != "" {
+		s.drawCardSelectionBar(screen)
+		return
 	}
 
-	// Vertical divider between sections
-	dividerX := float32(barX + leftSectionW)
-	vector.StrokeLine(screen, dividerX, float32(barY+10), dividerX, float32(barY+barH-10), 1, ColorBorder, false)
+	// If showing a bottom bar notification, draw that instead of standard content
+	if s.bottomBarNotification != "" {
+		s.drawBottomBarNotification(screen)
+		return
+	}
 
-	// === RIGHT SECTION: Instructions and Controls ===
-	rightX := barX + leftSectionW + 20
+	// If in medium interaction mode, draw that
+	if s.bottomBarMediumMode != "" {
+		s.drawBottomBarMedium(screen)
+		return
+	}
+
+	// If showing attack plan in the bar
+	if s.showAttackPlan {
+		s.drawAttackPlan(screen)
+		return
+	}
+
+	// If showing attack confirmation in the bar
+	if s.showAttackConfirmation {
+		s.drawAttackConfirmation(screen)
+		return
+	}
+
+	// If showing card reveal in the bar
+	if s.showCardReveal {
+		s.drawCardRevealDialog(screen)
+		return
+	}
+
+	// Default bar height for standard phases (specific phases may override)
+	s.ResetBarHeight()
+
+	// === Instructions and Controls (full width) ===
+	rightX := barX + 20
 	isMyTurn := s.currentTurn == s.game.config.PlayerID
 
 	// Check for stockpile placement first (happens during Production phase)
@@ -918,6 +1049,9 @@ func (s *GameplayScene) drawDevelopmentControls(screen *ebiten.Image, startX, ba
 	barW := ScreenWidth - 20
 	barX := 10
 
+	// Expand bar for development controls
+	s.SetBarHeight(160)
+
 	// Get player resources
 	coal, gold, iron, timber := 0, 0, 0, 0
 	if myPlayer, ok := s.players[s.game.config.PlayerID]; ok {
@@ -951,33 +1085,38 @@ func (s *GameplayScene) drawDevelopmentControls(screen *ebiten.Image, startX, ba
 		canAffordBoat = timber >= 3
 	}
 
-	// Turn indicator with color block
+	// === ROW 1: Title + status ===
+	row1Y := barY + 12
 	indicatorX := startX
 	if myPlayer, ok := s.players[s.game.config.PlayerID]; ok {
 		player := myPlayer.(map[string]interface{})
 		if playerColor, ok := player["color"].(string); ok {
 			if pc, ok := PlayerColors[playerColor]; ok {
-				vector.DrawFilledRect(screen, float32(indicatorX), float32(barY+14), 14, 14, pc, false)
-				vector.StrokeRect(screen, float32(indicatorX), float32(barY+14), 14, 14, 1, ColorBorder, false)
+				vector.DrawFilledRect(screen, float32(indicatorX), float32(row1Y+2), 14, 14, pc, false)
+				vector.StrokeRect(screen, float32(indicatorX), float32(row1Y+2), 14, 14, 1, ColorBorder, false)
 			}
 		}
 	}
-	DrawLargeText(screen, "YOUR TURN - BUILD", startX+20, barY+12, ColorSuccess)
+	DrawLargeText(screen, "YOUR TURN - BUILD", startX+20, row1Y, ColorSuccess)
 
-	// Show current selection status
 	statusText := "Select what to build, then click a territory"
 	if s.selectedBuildType != "" {
 		statusText = "Click one of your territories to build " + s.selectedBuildType
 	}
-	DrawText(screen, statusText, startX, barY+40, ColorTextMuted)
+	DrawText(screen, statusText, startX, row1Y+24, ColorTextMuted)
 
-	// Build option buttons with costs to the right
-	btnW := 80
+	// End Turn button (top right)
+	s.endPhaseBtn.X = barX + barW - 170
+	s.endPhaseBtn.Y = row1Y
+	s.endPhaseBtn.Draw(screen)
+
+	// === ROW 2: Build buttons ===
+	row2Y := barY + 60
+	DrawText(screen, "BUILD:", startX, row2Y+8, ColorText)
+
+	btnW := 90
 	btnH := 30
-	btnY := barY + 58
-	btnX := startX
-	costGap := 8 // Gap between button and cost text
-	btnSpacing := 90 // Extra space between button+cost groups
+	btnX := startX + 60
 
 	// Cost text colors based on Use Gold toggle
 	normalColor := ColorTextMuted
@@ -986,49 +1125,48 @@ func (s *GameplayScene) drawDevelopmentControls(screen *ebiten.Image, startX, ba
 		normalColor = ColorTextDim
 		goldColor = ColorTextMuted
 	}
-	costY := btnY + 8 // Vertically center cost text with button
 
-	// City button
+	// City button + cost
 	s.devCityBtn.X = btnX
-	s.devCityBtn.Y = btnY
+	s.devCityBtn.Y = row2Y
 	s.devCityBtn.W = btnW
 	s.devCityBtn.H = btnH
 	s.devCityBtn.Primary = s.selectedBuildType == "city"
 	s.devCityBtn.Disabled = !canAffordCity
 	s.devCityBtn.Tooltip = ""
 	s.devCityBtn.Draw(screen)
-	// City cost: 1 of each resource OR 4 gold
-	DrawText(screen, "1 each", btnX+btnW+costGap, costY, normalColor)
-	DrawText(screen, "/4G", btnX+btnW+costGap+36, costY, goldColor)
-	btnX += btnW + costGap + 60 + btnSpacing
+	costX := btnX + btnW + 6
+	DrawText(screen, "1 each", costX, row2Y+8, normalColor)
+	DrawText(screen, " / 4G", costX+36, row2Y+8, goldColor)
+	btnX = costX + 80 + 20
 
-	// Weapon button
+	// Weapon button + cost
 	s.devWeaponBtn.X = btnX
-	s.devWeaponBtn.Y = btnY
+	s.devWeaponBtn.Y = row2Y
 	s.devWeaponBtn.W = btnW
 	s.devWeaponBtn.H = btnH
 	s.devWeaponBtn.Primary = s.selectedBuildType == "weapon"
 	s.devWeaponBtn.Disabled = !canAffordWeapon
 	s.devWeaponBtn.Tooltip = ""
 	s.devWeaponBtn.Draw(screen)
-	// Weapon cost: 1 Coal + 1 Iron OR 2 gold
-	DrawText(screen, "1C+1I", btnX+btnW+costGap, costY, normalColor)
-	DrawText(screen, "/2G", btnX+btnW+costGap+30, costY, goldColor)
-	btnX += btnW + costGap + 50 + btnSpacing
+	costX = btnX + btnW + 6
+	DrawText(screen, "1C+1I", costX, row2Y+8, normalColor)
+	DrawText(screen, " / 2G", costX+30, row2Y+8, goldColor)
+	btnX = costX + 65 + 20
 
-	// Boat button
+	// Boat button + cost
 	s.devBoatBtn.X = btnX
-	s.devBoatBtn.Y = btnY
+	s.devBoatBtn.Y = row2Y
 	s.devBoatBtn.W = btnW
 	s.devBoatBtn.H = btnH
 	s.devBoatBtn.Primary = s.selectedBuildType == "boat"
 	s.devBoatBtn.Disabled = !canAffordBoat
 	s.devBoatBtn.Tooltip = ""
 	s.devBoatBtn.Draw(screen)
-	// Boat cost: 3 Timber OR 3 gold
-	DrawText(screen, "3T", btnX+btnW+costGap, costY, normalColor)
-	DrawText(screen, "/3G", btnX+btnW+costGap+14, costY, goldColor)
-	btnX += btnW + costGap + 35 + 30
+	costX = btnX + btnW + 6
+	DrawText(screen, "3T", costX, row2Y+8, normalColor)
+	DrawText(screen, " / 3G", costX+14, row2Y+8, goldColor)
+	btnX = costX + 50 + 20
 
 	// Use Gold toggle
 	if s.buildUseGold {
@@ -1037,45 +1175,45 @@ func (s *GameplayScene) drawDevelopmentControls(screen *ebiten.Image, startX, ba
 		s.devUseGoldBtn.Text = "[ ] Use Gold"
 	}
 	s.devUseGoldBtn.X = btnX
-	s.devUseGoldBtn.Y = btnY
-	s.devUseGoldBtn.W = 100
+	s.devUseGoldBtn.Y = row2Y
+	s.devUseGoldBtn.W = 110
 	s.devUseGoldBtn.H = btnH
 	s.devUseGoldBtn.Primary = s.buildUseGold
 	s.devUseGoldBtn.Draw(screen)
 
-	// Card combat: buy card buttons (shown when combat mode is "cards")
-	// Positioned on the header row, to the right of "YOUR TURN - BUILD"
+	// === ROW 3: Card buying (only in card combat mode) ===
 	if s.combatMode == "cards" {
-		cardBtnY := barY + 10
-		cardBtnX := startX + 230
+		row3Y := barY + 105
+		DrawText(screen, "BUY CARDS:", startX, row3Y+6, ColorText)
+
+		cardBtnX := startX + 90
 
 		// Resource selector for card purchase
-		resLabel := "Pay 2: "
-		DrawText(screen, resLabel, cardBtnX, cardBtnY+8, ColorTextMuted)
-		cardBtnX += 40
+		DrawText(screen, "Pay 2:", cardBtnX, row3Y+6, ColorTextMuted)
+		cardBtnX += 42
 
 		resources := []string{"coal", "gold", "iron", "timber"}
 		resourceLabels := []string{"C", "G", "I", "T"}
 		for i, res := range resources {
-			rBtnX := cardBtnX + i*28
+			rBtnX := cardBtnX + i*30
 			selected := s.cardBuyResource == res
 			col := color.RGBA{60, 60, 70, 255}
 			if selected {
 				col = color.RGBA{80, 100, 80, 255}
 			}
-			vector.DrawFilledRect(screen, float32(rBtnX), float32(cardBtnY), 24, 24, col, false)
-			vector.StrokeRect(screen, float32(rBtnX), float32(cardBtnY), 24, 24, 1, ColorBorder, false)
-			DrawText(screen, resourceLabels[i], rBtnX+8, cardBtnY+6, ColorText)
+			vector.DrawFilledRect(screen, float32(rBtnX), float32(row3Y), 26, 26, col, false)
+			vector.StrokeRect(screen, float32(rBtnX), float32(row3Y), 26, 26, 1, ColorBorder, false)
+			DrawText(screen, resourceLabels[i], rBtnX+9, row3Y+7, ColorText)
 
-			// Click detection (handled in Update)
+			// Click detection
 			mx, my := ebiten.CursorPosition()
-			if mx >= rBtnX && mx <= rBtnX+24 && my >= cardBtnY && my <= cardBtnY+24 {
+			if mx >= rBtnX && mx <= rBtnX+26 && my >= row3Y && my <= row3Y+26 {
 				if ebiten.IsMouseButtonPressed(ebiten.MouseButtonLeft) {
 					s.cardBuyResource = res
 				}
 			}
 		}
-		cardBtnX += 4*28 + 10
+		cardBtnX += 4*30 + 15
 
 		// Can afford check
 		canAffordCard := false
@@ -1096,31 +1234,26 @@ func (s *GameplayScene) drawDevelopmentControls(screen *ebiten.Image, startX, ba
 		defHandFull := len(s.myDefenseCards) >= 5
 
 		s.devBuyAttackCardBtn.X = cardBtnX
-		s.devBuyAttackCardBtn.Y = cardBtnY
-		s.devBuyAttackCardBtn.W = 90
-		s.devBuyAttackCardBtn.H = 24
+		s.devBuyAttackCardBtn.Y = row3Y
+		s.devBuyAttackCardBtn.W = 100
+		s.devBuyAttackCardBtn.H = 26
 		s.devBuyAttackCardBtn.Disabled = !canAffordCard || atkHandFull
 		if atkHandFull {
 			s.devBuyAttackCardBtn.Tooltip = "Hand full (5/5)"
 		}
 		s.devBuyAttackCardBtn.Draw(screen)
-		cardBtnX += 100
+		cardBtnX += 110
 
 		s.devBuyDefenseCardBtn.X = cardBtnX
-		s.devBuyDefenseCardBtn.Y = cardBtnY
-		s.devBuyDefenseCardBtn.W = 90
-		s.devBuyDefenseCardBtn.H = 24
+		s.devBuyDefenseCardBtn.Y = row3Y
+		s.devBuyDefenseCardBtn.W = 100
+		s.devBuyDefenseCardBtn.H = 26
 		s.devBuyDefenseCardBtn.Disabled = !canAffordCard || defHandFull
 		if defHandFull {
 			s.devBuyDefenseCardBtn.Tooltip = "Hand full (5/5)"
 		}
 		s.devBuyDefenseCardBtn.Draw(screen)
 	}
-
-	// End Turn button (right side)
-	s.endPhaseBtn.X = barX + barW - 170
-	s.endPhaseBtn.Y = barY + 30
-	s.endPhaseBtn.Draw(screen)
 }
 
 func (s *GameplayScene) drawPlayersPanel(screen *ebiten.Image) {
@@ -1163,23 +1296,23 @@ func (s *GameplayScene) drawHoverInfo(screen *ebiten.Image) {
 
 		// City
 		if hasCity, ok := terr["hasCity"].(bool); ok && hasCity {
-			contents = append(contents, "🏠 City (+2 strength)")
+			contents = append(contents, "[City] (+2 strength)")
 		}
 
 		// Weapon
 		if hasWeapon, ok := terr["hasWeapon"].(bool); ok && hasWeapon {
-			contents = append(contents, "⚔ Weapon (+3 strength)")
+			contents = append(contents, "[Weapon] (+3 strength)")
 		}
 
 		// Horse
 		if hasHorse, ok := terr["hasHorse"].(bool); ok && hasHorse {
-			contents = append(contents, "🐎 Horse (+1 strength)")
+			contents = append(contents, "[Horse] (+1 strength)")
 		}
 
 		// Boats (using totalBoats for display)
 		if totalBoats, ok := terr["totalBoats"].(float64); ok && int(totalBoats) > 0 {
 			boatCount := int(totalBoats)
-			contents = append(contents, fmt.Sprintf("⛵ Boats: %d (+%d strength)", boatCount, boatCount*2))
+			contents = append(contents, fmt.Sprintf("[Boats] x%d (+%d strength)", boatCount, boatCount*2))
 		}
 
 		// Check for stockpile
@@ -1187,7 +1320,7 @@ func (s *GameplayScene) drawHoverInfo(screen *ebiten.Image) {
 			player := playerData.(map[string]interface{})
 			if stockpileTerr, ok := player["stockpileTerritory"]; ok && stockpileTerr == tid {
 				playerName := player["name"].(string)
-				contents = append(contents, "📦 Stockpile ("+playerName+")")
+				contents = append(contents, "[Stockpile] ("+playerName+")")
 				break
 			}
 		}
@@ -1198,7 +1331,7 @@ func (s *GameplayScene) drawHoverInfo(screen *ebiten.Image) {
 			if tb, ok := terr["totalBoats"].(float64); ok {
 				boats = int(tb)
 			}
-			contents = append(contents, fmt.Sprintf("🌊 Coastal (%d/%d boat slots)", boats, int(coastalTiles)))
+			contents = append(contents, fmt.Sprintf("Coastal (%d/%d boat slots)", boats, int(coastalTiles)))
 		}
 
 		// Determine box height based on content
@@ -1252,13 +1385,13 @@ func (s *GameplayScene) drawHoverInfo(screen *ebiten.Image) {
 
 		if isOwnTerritory {
 			// For own territories, show defense strength
-			DrawText(screen, "⚔ COMBAT STRENGTH", boxX+10, contentY+10, ColorWarning)
+			DrawText(screen, "COMBAT STRENGTH", boxX+10, contentY+10, ColorWarning)
 
 			defenseText := fmt.Sprintf("Defense: %d", defenseStr)
 			DrawText(screen, defenseText, boxX+10, contentY+27, ColorText)
 		} else {
 			// For enemy/unclaimed territories, show attack vs defense
-			DrawText(screen, "⚔ ATTACK PREVIEW", boxX+10, contentY+10, ColorWarning)
+			DrawText(screen, "ATTACK PREVIEW", boxX+10, contentY+10, ColorWarning)
 
 			// Attack strength (green)
 			attackText := fmt.Sprintf("Your Attack: %d", attackStr)
@@ -1483,11 +1616,9 @@ func (s *GameplayScene) drawTurnToast(screen *ebiten.Image) {
 
 	// Draw "YOUR TURN!" text - centered, large
 	titleText := "YOUR TURN!"
-	titleX := toastX + toastW/2 - len(titleText)*6 // Approximate centering for large text
-	DrawLargeText(screen, titleText, titleX, toastY+18, ColorText)
+	DrawLargeTextCentered(screen, titleText, toastX+toastW/2, toastY+18, ColorText)
 
 	// Draw phase name below - smaller, muted
 	phaseText := s.currentPhase
-	phaseX := toastX + toastW/2 - len(phaseText)*3 // Approximate centering for normal text
-	DrawText(screen, phaseText, phaseX, toastY+42, ColorTextMuted)
+	DrawTextCentered(screen, phaseText, toastX+toastW/2, toastY+42, ColorTextMuted)
 }

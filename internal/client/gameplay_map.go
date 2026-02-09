@@ -216,6 +216,9 @@ func (s *GameplayScene) drawMap(screen *ebiten.Image) {
 
 	// Draw boats in water cells
 	s.drawBoatsInWater(screen)
+
+	// Draw pulsing highlights on selected territories
+	s.drawTerritoryHighlights(screen, width, height, grid)
 }
 
 // drawTerritoryBoundaries draws lines between different territories with rounded corners
@@ -750,6 +753,148 @@ func (s *GameplayScene) hasCityInfluence(terrID string, terr map[string]interfac
 	}
 
 	return false
+}
+
+// drawTerritoryHighlights draws pulsing borders around highlighted territories.
+func (s *GameplayScene) drawTerritoryHighlights(screen *ebiten.Image, width, height int, grid []interface{}) {
+	if len(s.highlightedTerritories) == 0 {
+		return
+	}
+
+	// Calculate pulse alpha using a sine wave (0.3 to 1.0 range)
+	// highlightPulseTimer increments each frame at 60fps
+	pulsePhase := float64(s.highlightPulseTimer) * 0.08 // ~0.08 radians per frame = ~0.75Hz
+	pulseAlpha := 0.3 + 0.7*(0.5+0.5*sinApprox(pulsePhase))
+
+	getTerritoryAt := func(x, y int) int {
+		if x < 0 || x >= width || y < 0 || y >= height {
+			return -1
+		}
+		row := grid[y].([]interface{})
+		return int(row[x].(float64))
+	}
+
+	for _, highlight := range s.highlightedTerritories {
+		// Extract numeric ID from "t1", "t2", etc.
+		var numID int
+		if len(highlight.TerritoryID) < 2 || highlight.TerritoryID[0] != 't' {
+			continue
+		}
+		fmt.Sscanf(highlight.TerritoryID[1:], "%d", &numID)
+
+		// Apply pulse to highlight color
+		hlColor := color.RGBA{
+			highlight.Color.R,
+			highlight.Color.G,
+			highlight.Color.B,
+			uint8(float64(highlight.Color.A) * pulseAlpha),
+		}
+
+		lineWidth := float32(3)
+
+		// Draw border segments on the outer edges of this territory
+		for y := 0; y < height; y++ {
+			for x := 0; x < width; x++ {
+				if getTerritoryAt(x, y) != numID {
+					continue
+				}
+
+				sx, sy := s.gridToScreen(x, y)
+				cs := float32(s.cellSize)
+				fx := float32(sx)
+				fy := float32(sy)
+
+				// Draw edge on each side that borders a different territory
+				if getTerritoryAt(x-1, y) != numID {
+					vector.StrokeLine(screen, fx, fy, fx, fy+cs, lineWidth, hlColor, false)
+				}
+				if getTerritoryAt(x+1, y) != numID {
+					vector.StrokeLine(screen, fx+cs, fy, fx+cs, fy+cs, lineWidth, hlColor, false)
+				}
+				if getTerritoryAt(x, y-1) != numID {
+					vector.StrokeLine(screen, fx, fy, fx+cs, fy, lineWidth, hlColor, false)
+				}
+				if getTerritoryAt(x, y+1) != numID {
+					vector.StrokeLine(screen, fx, fy+cs, fx+cs, fy+cs, lineWidth, hlColor, false)
+				}
+			}
+		}
+	}
+}
+
+// SetHighlightedTerritories sets the list of territories to highlight on the map.
+func (s *GameplayScene) SetHighlightedTerritories(highlights []TerritoryHighlight) {
+	s.highlightedTerritories = highlights
+}
+
+// ClearHighlightedTerritories removes all territory highlights.
+func (s *GameplayScene) ClearHighlightedTerritories() {
+	s.highlightedTerritories = nil
+}
+
+// AutoPanToTerritory smoothly pans the map to center a territory in the visible area.
+func (s *GameplayScene) AutoPanToTerritory(territoryID string) {
+	if s.mapData == nil {
+		return
+	}
+
+	grid := s.mapData["grid"].([]interface{})
+	cells := s.findTerritoryCells(territoryID, grid)
+	if len(cells) == 0 {
+		return
+	}
+
+	// Find centroid of territory cells
+	sumX, sumY := 0, 0
+	for _, cell := range cells {
+		sumX += cell[0]
+		sumY += cell[1]
+	}
+	centerGridX := sumX / len(cells)
+	centerGridY := sumY / len(cells)
+
+	// Calculate where this grid position would be in screen space with no pan
+	width := int(s.mapData["width"].(float64))
+	height := int(s.mapData["height"].(float64))
+
+	sidebarWidth := 300
+	bottomBarHeight := 120
+	availableWidth := ScreenWidth - sidebarWidth - 20
+	availableHeight := ScreenHeight - bottomBarHeight - 20
+
+	cellW := availableWidth / width
+	cellH := availableHeight / height
+	baseCellSize := cellW
+	if cellH < cellW {
+		baseCellSize = cellH
+	}
+	if baseCellSize < 8 {
+		baseCellSize = 8
+	}
+	if baseCellSize > 40 {
+		baseCellSize = 40
+	}
+	zoomedCellSize := int(float64(baseCellSize) * s.zoom)
+	if zoomedCellSize < 4 {
+		zoomedCellSize = 4
+	}
+
+	mapW := width * zoomedCellSize
+	mapH := height * zoomedCellSize
+	baseOffsetX := sidebarWidth + (availableWidth-mapW)/2
+	baseOffsetY := 10 + (availableHeight-mapH)/2
+
+	// Target screen position (center of visible map area)
+	targetScreenX := sidebarWidth + availableWidth/2
+	targetScreenY := 10 + availableHeight/2
+
+	// Current screen position of territory center (with no pan)
+	terrScreenX := baseOffsetX + centerGridX*zoomedCellSize + zoomedCellSize/2
+	terrScreenY := baseOffsetY + centerGridY*zoomedCellSize + zoomedCellSize/2
+
+	// Calculate needed pan to center the territory
+	s.panX = targetScreenX - terrScreenX
+	s.panY = targetScreenY - terrScreenY
 }
 
 // getTerritoriesKeys returns the keys of the territories map for debugging
