@@ -55,6 +55,7 @@ type GameSettings struct {
 	ChanceLevel   string `json:"chance_level"`   // low, medium, high
 	VictoryCities int    `json:"victory_cities"` // 3-10
 	MapID         string `json:"map_id"`
+	CombatMode    string `json:"combat_mode"`    // "classic", "cards"
 }
 
 // UpdateMapPayload is sent by the host to change the game's map.
@@ -420,15 +421,16 @@ type BuildPayload struct {
 
 // ExecuteAttackPayload executes a planned attack.
 type ExecuteAttackPayload struct {
-	TargetTerritory string `json:"target_territory"`
-	BringUnit       string `json:"bring_unit,omitempty"`    // "horse", "weapon", or "boat"
-	BringFrom       string `json:"bring_from,omitempty"`    // Territory ID
-	WaterBodyID     string `json:"water_body_id,omitempty"` // For boats: which water body
-	CarryWeapon     bool   `json:"carry_weapon,omitempty"`  // For horse/boat
-	WeaponFrom      string `json:"weapon_from,omitempty"`   // Territory ID
-	CarryHorse      bool   `json:"carry_horse,omitempty"`   // For boat
-	HorseFrom       string `json:"horse_from,omitempty"`    // Territory ID
-	PlanID          string `json:"plan_id,omitempty"`       // Use cached plan from RequestAttackPlan
+	TargetTerritory string   `json:"target_territory"`
+	BringUnit       string   `json:"bring_unit,omitempty"`      // "horse", "weapon", or "boat"
+	BringFrom       string   `json:"bring_from,omitempty"`      // Territory ID
+	WaterBodyID     string   `json:"water_body_id,omitempty"`   // For boats: which water body
+	CarryWeapon     bool     `json:"carry_weapon,omitempty"`    // For horse/boat
+	WeaponFrom      string   `json:"weapon_from,omitempty"`     // Territory ID
+	CarryHorse      bool     `json:"carry_horse,omitempty"`     // For boat
+	HorseFrom       string   `json:"horse_from,omitempty"`      // Territory ID
+	PlanID          string   `json:"plan_id,omitempty"`         // Use cached plan from RequestAttackPlan
+	AttackCardIDs   []string `json:"attack_card_ids,omitempty"` // Card combat: IDs of attack cards to play
 }
 
 // RequestAttackPlanPayload requests alliance resolution before committing to attack.
@@ -475,6 +477,9 @@ type CombatResultPayload struct {
 	EventID         string   `json:"event_id"` // For sync acknowledgment
 	Success         bool     `json:"success"`
 	AttackerID      string   `json:"attacker_id"`
+	AttackerName    string   `json:"attacker_name"`
+	DefenderID      string   `json:"defender_id"`
+	DefenderName    string   `json:"defender_name"`
 	AttackerWins    bool     `json:"attacker_wins"`
 	AttackStrength  int      `json:"attack_strength"`
 	DefenseStrength int      `json:"defense_strength"`
@@ -490,11 +495,72 @@ type CombatResultPayload struct {
 	CapturedFromTerritory string `json:"captured_from_territory,omitempty"` // Where the stockpile was
 }
 
+// ==================== Card Combat Payloads ====================
+
+// BuyCardPayload requests purchasing a combat card during Development.
+type BuyCardPayload struct {
+	CardType string `json:"card_type"` // "attack" or "defense"
+	Resource string `json:"resource"`  // "coal", "gold", "iron", "timber"
+}
+
+// CardDrawnPayload is sent when a card is successfully purchased.
+type CardDrawnPayload struct {
+	Card CardInfo `json:"card"`
+}
+
+// CardInfo describes a combat card for protocol messages.
+type CardInfo struct {
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	CardType    string `json:"card_type"` // "attack" or "defense"
+	Rarity      string `json:"rarity"`    // "common", "uncommon", "rare", "ultra_rare"
+	Effect      string `json:"effect"`
+	Value       int    `json:"value"`
+}
+
+// SelectCardsPayload is sent by attacker or defender to commit cards face-down.
+type SelectCardsPayload struct {
+	CardIDs []string `json:"card_ids"` // IDs of cards to play (can be empty)
+}
+
+// DefenseCardRequestPayload notifies the defender that an attack is incoming
+// and they should select defense cards.
+type DefenseCardRequestPayload struct {
+	BattleID          string `json:"battle_id"`
+	AttackerID        string `json:"attacker_id"`
+	AttackerName      string `json:"attacker_name"`
+	TargetTerritory   string `json:"target_territory"`
+	TerritoryName     string `json:"territory_name"`
+	BaseAttackStr     int    `json:"base_attack_strength"`
+	BaseDefenseStr    int    `json:"base_defense_strength"`
+	AttackerCardCount int    `json:"attacker_card_count"` // How many cards attacker committed (hidden)
+}
+
+// CardRevealPayload is sent to both players after cards are resolved.
+type CardRevealPayload struct {
+	EventID            string     `json:"event_id"`
+	AttackerCards      []CardInfo `json:"attacker_cards"`       // Cards the attacker played
+	DefenderCards      []CardInfo `json:"defender_cards"`       // Cards the defender played
+	NegatedCards       []CardInfo `json:"negated_cards"`        // Attack cards negated by Shield Wall
+	BaseAttackStr      int        `json:"base_attack_strength"`
+	BaseDefenseStr     int        `json:"base_defense_strength"`
+	FinalAttackStr     int        `json:"final_attack_strength"`
+	FinalDefenseStr    int        `json:"final_defense_strength"`
+	AttackerWins       bool       `json:"attacker_wins"`
+	BribeActivated     bool       `json:"bribe_activated"`
+	SabotageCount      int        `json:"sabotage_count"`       // Weapons negated by Sabotage
+	CounterAttackTerr  string     `json:"counter_attack_territory,omitempty"`
+	SafeRetreat        bool       `json:"safe_retreat"`
+	BlitzReturnCount   int        `json:"blitz_return_count"`   // Number of cards returned by Blitz
+}
+
 // ==================== Synchronization Payloads ====================
 
 // Event types for synchronization
 const (
 	EventCombat      = "combat"       // Combat animation/result
+	EventCardReveal  = "card_reveal"  // Card reveal dialog
 	EventPhaseSkip   = "phase_skip"   // Phase was skipped notification
 	EventPhaseChange = "phase_change" // Phase transition
 	EventTurnChange  = "turn_change"  // Turn changed to new player

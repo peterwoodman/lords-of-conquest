@@ -16,5 +16,6 @@ var (
 	ErrGameNotStarted        = errors.New("game has not started")
 	ErrGameOver              = errors.New("game is over")
 	ErrPlayerEliminated      = errors.New("player has been eliminated")
+	ErrHandFull              = errors.New("card hand is full")
 )
 

@@ -14,8 +14,8 @@ import (
 )
 
 const (
-	ScreenWidth  = 1280
-	ScreenHeight = 720
+	ScreenWidth  = 1920
+	ScreenHeight = 1080
 )
 
 // Scene represents a game screen/state.
@@ -53,6 +53,12 @@ type Game struct {
 	musicVolumeSlider *Slider
 	musicMuteBtn      *Button
 	musicCloseBtn     *Button
+
+	// Window geometry tracking (saved on cleanup)
+	lastWindowWidth  int
+	lastWindowHeight int
+	lastWindowX      int
+	lastWindowY      int
 }
 
 // NewGame creates a new game instance.
@@ -74,6 +80,9 @@ func NewGame() (*Game, error) {
 
 	// Initialize clipboard for paste support
 	InitClipboard()
+
+	// Initialize TTF font system
+	InitFonts()
 
 	// Initialize audio
 	InitAudio()
@@ -135,6 +144,10 @@ func NewGame() (*Game, error) {
 
 // Update handles game logic.
 func (g *Game) Update() error {
+	// Track window geometry for saving on exit
+	g.lastWindowWidth, g.lastWindowHeight = ebiten.WindowSize()
+	g.lastWindowX, g.lastWindowY = ebiten.WindowPosition()
+
 	// Handle music control dialog (takes priority)
 	if g.showMusicControl {
 		g.musicVolumeSlider.Update()
@@ -277,6 +290,23 @@ func (g *Game) drawMusicControlDialog(screen *ebiten.Image) {
 // Layout returns the game's screen dimensions.
 func (g *Game) Layout(outsideWidth, outsideHeight int) (int, int) {
 	return ScreenWidth, ScreenHeight
+}
+
+// GetConfig returns the game's config for use by the main package.
+func (g *Game) GetConfig() *Config {
+	return g.config
+}
+
+// Cleanup saves final state before the game exits.
+func (g *Game) Cleanup() {
+	// Save last known window geometry to config
+	if g.lastWindowWidth > 0 && g.lastWindowHeight > 0 {
+		g.config.WindowWidth = g.lastWindowWidth
+		g.config.WindowHeight = g.lastWindowHeight
+		g.config.WindowX = g.lastWindowX
+		g.config.WindowY = g.lastWindowY
+		g.config.Save()
+	}
 }
 
 // SetScene transitions to a new scene.
@@ -616,6 +646,42 @@ func (g *Game) ExecuteAttack(targetTerritory string) error {
 	return g.network.SendPayload(protocol.TypeExecuteAttack, payload)
 }
 
+// BuyCard purchases a combat card during the Development phase.
+func (g *Game) BuyCard(cardType, resource string) error {
+	payload := protocol.BuyCardPayload{
+		CardType: cardType,
+		Resource: resource,
+	}
+	return g.network.SendPayload(protocol.TypeBuyCard, payload)
+}
+
+// SelectDefenseCards sends the defender's card selection for card combat.
+func (g *Game) SelectDefenseCards(cardIDs []string) error {
+	payload := protocol.SelectCardsPayload{
+		CardIDs: cardIDs,
+	}
+	return g.network.SendPayload(protocol.TypeSelectDefenseCards, payload)
+}
+
+// ExecuteAttackWithCards executes an attack with card combat card selection.
+func (g *Game) ExecuteAttackWithCards(targetTerritory string, reinforcement *ReinforcementInfo, planID string, attackCardIDs []string) error {
+	payload := protocol.ExecuteAttackPayload{
+		TargetTerritory: targetTerritory,
+		PlanID:          planID,
+		AttackCardIDs:   attackCardIDs,
+	}
+	if reinforcement != nil {
+		payload.BringUnit = reinforcement.UnitType
+		payload.BringFrom = reinforcement.FromTerritory
+		payload.WaterBodyID = reinforcement.WaterBodyID
+		payload.CarryWeapon = reinforcement.CarryWeapon
+		payload.WeaponFrom = reinforcement.WeaponFrom
+		payload.CarryHorse = reinforcement.CarryHorse
+		payload.HorseFrom = reinforcement.HorseFrom
+	}
+	return g.network.SendPayload(protocol.TypeExecuteAttack, payload)
+}
+
 // SetAlliance sets the player's alliance preference.
 func (g *Game) SetAlliance(setting string) error {
 	payload := protocol.SetAlliancePayload{
@@ -790,6 +856,9 @@ func (g *Game) handleMessage(msg *protocol.Message) {
 			result := &CombatResultData{
 				EventID:               payload.EventID,
 				AttackerID:            payload.AttackerID,
+				AttackerName:          payload.AttackerName,
+				DefenderID:            payload.DefenderID,
+				DefenderName:          payload.DefenderName,
 				AttackerWins:          payload.AttackerWins,
 				AttackStrength:        payload.AttackStrength,
 				DefenseStrength:       payload.DefenseStrength,
@@ -954,6 +1023,33 @@ func (g *Game) handleMessage(msg *protocol.Message) {
 		// Update local territory drawing data
 		g.gameplayScene.UpdateTerritoryDrawing(payload.TerritoryID, payload.Drawing)
 		log.Printf("Territory drawing update for %s (%d pixels)", payload.TerritoryID, len(payload.Drawing))
+
+	case protocol.TypeCardDrawn:
+		var payload protocol.CardDrawnPayload
+		if err := msg.ParsePayload(&payload); err != nil {
+			log.Printf("Failed to parse card drawn: %v", err)
+			return
+		}
+		log.Printf("Drew card: %s (%s, %s)", payload.Card.Name, payload.Card.Rarity, payload.Card.CardType)
+		g.gameplayScene.ShowCardDrawn(payload.Card.Name, payload.Card.Description, payload.Card.Rarity, payload.Card.CardType)
+
+	case protocol.TypeDefenseCardRequest:
+		var payload protocol.DefenseCardRequestPayload
+		if err := msg.ParsePayload(&payload); err != nil {
+			log.Printf("Failed to parse defense card request: %v", err)
+			return
+		}
+		log.Printf("Defense card request: %s attacking %s with %d cards", payload.AttackerName, payload.TerritoryName, payload.AttackerCardCount)
+		g.gameplayScene.ShowDefenseCardRequest(payload.BattleID, payload.AttackerName, payload.TerritoryName, payload.AttackerCardCount, payload.BaseAttackStr, payload.BaseDefenseStr)
+
+	case protocol.TypeCardReveal:
+		var payload protocol.CardRevealPayload
+		if err := msg.ParsePayload(&payload); err != nil {
+			log.Printf("Failed to parse card reveal: %v", err)
+			return
+		}
+		log.Printf("Card reveal: Attack %d vs Defense %d, attacker wins: %v", payload.FinalAttackStr, payload.FinalDefenseStr, payload.AttackerWins)
+		g.gameplayScene.ShowCardReveal(&payload)
 
 	case protocol.TypeError:
 		var payload protocol.ErrorPayload

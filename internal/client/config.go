@@ -27,6 +27,12 @@ type Config struct {
 	SoundEnabled bool    `json:"sound_enabled"`
 	MusicVolume  float64 `json:"music_volume"`
 	SFXVolume    float64 `json:"sfx_volume"`
+
+	// Window geometry (remembered between sessions)
+	WindowWidth  int `json:"window_width,omitempty"`
+	WindowHeight int `json:"window_height,omitempty"`
+	WindowX      int `json:"window_x,omitempty"`
+	WindowY      int `json:"window_y,omitempty"`
 }
 
 // DefaultConfig returns a config with default values.
@@ -97,4 +103,3 @@ func configPath() (string, error) {
 
 	return filepath.Join(configDir, "lords-of-conquest", filename), nil
 }
-

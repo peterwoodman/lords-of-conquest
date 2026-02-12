@@ -612,6 +612,7 @@ func (s *GameplayScene) completeSendTradeOffer() {
 	s.pendingHorseSelection = ""
 	s.pendingHorseCount = 0
 	s.waitingForTrade = true
+	s.showBottomBarNotification("Waiting for trade response...", "", nil)
 }
 
 // acceptTrade accepts an incoming trade proposal.
@@ -622,7 +623,7 @@ func (s *GameplayScene) acceptTrade() {
 
 	// If receiving horses (OfferHorses) and not enough destinations selected, enter map selection mode
 	if s.tradeProposal.OfferHorses > 0 && len(s.tradeHorseDestTerrs) < s.tradeProposal.OfferHorses {
-		s.showTradeIncoming = false
+		s.clearBottomBarMedium()
 		s.pendingHorseSelection = "receive"
 		s.pendingHorseCount = s.tradeProposal.OfferHorses
 		s.tradeHorseDestTerrs = nil // Reset selection
@@ -631,7 +632,7 @@ func (s *GameplayScene) acceptTrade() {
 
 	// If giving horses (RequestHorses) and not enough sources selected, enter map selection mode
 	if s.tradeProposal.RequestHorses > 0 && len(s.tradeHorseSourceTerrs) < s.tradeProposal.RequestHorses {
-		s.showTradeIncoming = false
+		s.clearBottomBarMedium()
 		s.pendingHorseSelection = "give"
 		s.pendingHorseCount = s.tradeProposal.RequestHorses
 		s.tradeHorseSourceTerrs = nil // Reset selection
@@ -661,7 +662,7 @@ func (s *GameplayScene) completeAcceptTrade() {
 
 	log.Printf("Accepting trade %s", s.tradeProposal.TradeID)
 	s.game.RespondTrade(s.tradeProposal.TradeID, true, horseDests, horseSources)
-	s.showTradeIncoming = false
+	s.clearBottomBarMedium()
 	s.pendingHorseSelection = ""
 	s.pendingHorseCount = 0
 	s.tradeProposal = nil
@@ -675,7 +676,7 @@ func (s *GameplayScene) rejectTrade() {
 
 	log.Printf("Rejecting trade %s", s.tradeProposal.TradeID)
 	s.game.RespondTrade(s.tradeProposal.TradeID, false, nil, nil)
-	s.showTradeIncoming = false
+	s.clearBottomBarMedium()
 	s.tradeProposal = nil
 }
 
@@ -696,16 +697,42 @@ func (s *GameplayScene) ShowTradeProposal(payload *protocol.TradeProposalPayload
 		RequestTimber:  payload.RequestTimber,
 		RequestHorses:  payload.RequestHorses,
 	}
-	s.showTradeIncoming = true
 	s.tradeHorseDestTerrs = nil // Reset horse destinations
+
+	// Show as bottom bar medium interaction
+	offerText := s.formatTradeResources(payload.OfferCoal, payload.OfferGold,
+		payload.OfferIron, payload.OfferTimber, payload.OfferHorses)
+	requestText := s.formatTradeResources(payload.RequestCoal, payload.RequestGold,
+		payload.RequestIron, payload.RequestTimber, payload.RequestHorses)
+	subtext := fmt.Sprintf("Offers: %s  |  Wants: %s", offerText, requestText)
+	if payload.OfferHorses > 0 {
+		subtext += "  (Horse destinations selected on map after accepting)"
+	}
+
+	s.showBottomBarMedium("trade_incoming",
+		fmt.Sprintf("Trade from %s", payload.FromPlayerName),
+		subtext,
+		[]*Button{
+			{Text: "Accept", W: 100, H: 35, Primary: true,
+				OnClick: func() { s.acceptTrade() },
+			},
+			{Text: "Reject", W: 100, H: 35,
+				OnClick: func() { s.rejectTrade() },
+			},
+		},
+	)
 }
 
-// ShowTradeResult shows the result of a trade proposal.
+// ShowTradeResult shows the result of a trade proposal as a bottom bar notification.
 func (s *GameplayScene) ShowTradeResult(payload *protocol.TradeResultPayload) {
-	s.tradeResultAccepted = payload.Accepted
-	s.tradeResultMessage = payload.Message
-	s.showTradeResult = true
 	s.waitingForTrade = false // Clear waiting indicator
+	var msg string
+	if payload.Accepted {
+		msg = "Trade Accepted! " + payload.Message
+	} else {
+		msg = "Trade Declined. " + payload.Message
+	}
+	s.showBottomBarNotification(msg, "OK", nil)
 }
 
 // getOnlinePlayers returns a list of online player IDs (excluding self and AI).

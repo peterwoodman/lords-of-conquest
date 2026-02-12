@@ -20,11 +20,26 @@ func main() {
 		log.Fatalf("Failed to create game: %v", err)
 	}
 
-	ebiten.SetWindowSize(client.ScreenWidth, client.ScreenHeight)
+	// Restore window size from config, or use default
+	cfg := game.GetConfig()
+	if cfg.WindowWidth > 0 && cfg.WindowHeight > 0 {
+		ebiten.SetWindowSize(cfg.WindowWidth, cfg.WindowHeight)
+	} else {
+		ebiten.SetWindowSize(client.ScreenWidth, client.ScreenHeight)
+	}
+
+	// Restore window position from config
+	if cfg.WindowWidth > 0 {
+		ebiten.SetWindowPosition(cfg.WindowX, cfg.WindowY)
+	}
+
 	ebiten.SetWindowTitle("Lords of Conquest")
 	ebiten.SetWindowResizingMode(ebiten.WindowResizingModeEnabled)
 
 	if err := ebiten.RunGame(game); err != nil {
 		log.Fatal(err)
 	}
+
+	// Save window geometry before exiting
+	game.Cleanup()
 }

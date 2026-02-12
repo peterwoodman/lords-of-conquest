@@ -1138,6 +1138,7 @@ type WaitingScene struct {
 	// Settings dialog
 	showSettings        bool
 	chanceLevelBtns     [3]*Button // Low, Medium, High
+	combatModeBtns      [2]*Button // Classic, Cards
 	victoryCitiesSlider *Slider
 	maxPlayersSlider    *Slider
 	settingsCloseBtn    *Button
@@ -1228,6 +1229,19 @@ func NewWaitingScene(game *Game) *WaitingScene {
 		}
 	}
 
+	// Combat mode buttons
+	combatModes := []string{"classic", "cards"}
+	combatModeLabels := []string{"Classic", "Cards"}
+	for i, label := range combatModeLabels {
+		idx := i
+		s.combatModeBtns[i] = &Button{
+			Text: label,
+			OnClick: func() {
+				s.game.UpdateGameSettings("combatMode", combatModes[idx])
+			},
+		}
+	}
+
 	s.victoryCitiesSlider = &Slider{
 		Min:   protocol.MinVictoryCities,
 		Max:   protocol.MaxVictoryCities,
@@ -1273,6 +1287,9 @@ func (s *WaitingScene) Update() error {
 	// Handle settings dialog
 	if s.showSettings {
 		for _, btn := range s.chanceLevelBtns {
+			btn.Update()
+		}
+		for _, btn := range s.combatModeBtns {
 			btn.Update()
 		}
 		s.victoryCitiesSlider.Update()
@@ -1425,7 +1442,7 @@ func (s *WaitingScene) drawSettingsDialog(screen *ebiten.Image, lobby *protocol.
 
 	// Dialog panel
 	dialogW := 400
-	dialogH := 300
+	dialogH := 400
 	dialogX := (ScreenWidth - dialogW) / 2
 	dialogY := (ScreenHeight - dialogH) / 2
 
@@ -1444,6 +1461,23 @@ func (s *WaitingScene) drawSettingsDialog(screen *ebiten.Image, lobby *protocol.
 		btn.W = btnW
 		btn.H = btnH
 		btn.Primary = strings.EqualFold(lobby.Settings.ChanceLevel, btn.Text)
+		btn.Draw(screen)
+	}
+
+	y += 55
+	// Combat Mode
+	DrawText(screen, "Combat Mode:", dialogX+20, y, ColorText)
+	y += 25
+	combatModeSetting := lobby.Settings.CombatMode
+	if combatModeSetting == "" {
+		combatModeSetting = "classic"
+	}
+	for i, btn := range s.combatModeBtns {
+		btn.X = dialogX + 20 + i*(btnW+10)
+		btn.Y = y
+		btn.W = btnW
+		btn.H = btnH
+		btn.Primary = strings.EqualFold(combatModeSetting, btn.Text)
 		btn.Draw(screen)
 	}
 

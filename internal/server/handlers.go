@@ -91,6 +91,10 @@ func (h *Handlers) Handle(client *Client, msg *protocol.Message) {
 		err = h.handleRenameTerritory(client, msg)
 	case protocol.TypeDrawTerritory:
 		err = h.handleDrawTerritory(client, msg)
+	case protocol.TypeBuyCard:
+		err = h.handleBuyCard(client, msg)
+	case protocol.TypeSelectDefenseCards:
+		err = h.handleSelectDefenseCards(client, msg)
 	default:
 		err = errors.New("unknown message type")
 	}
@@ -227,6 +231,7 @@ func (h *Handlers) handleCreateGame(client *Client, msg *protocol.Message) error
 		ChanceLevel:   payload.Settings.ChanceLevel,
 		VictoryCities: payload.Settings.VictoryCities,
 		MapID:         payload.Settings.MapID,
+		CombatMode:    payload.Settings.CombatMode,
 	}
 	if settings.MaxPlayers == 0 {
 		settings.MaxPlayers = protocol.DefaultMaxPlayers
@@ -236,6 +241,9 @@ func (h *Handlers) handleCreateGame(client *Client, msg *protocol.Message) error
 	}
 	if settings.ChanceLevel == "" {
 		settings.ChanceLevel = protocol.DefaultChanceLevel
+	}
+	if settings.CombatMode == "" {
+		settings.CombatMode = "classic"
 	}
 
 	game, err := h.hub.server.db.CreateGame(payload.Name, client.PlayerID, settings, payload.IsPublic, mapJSON)
@@ -465,6 +473,10 @@ func (h *Handlers) handleUpdateSettings(client *Client, msg *protocol.Message) e
 		}
 	case "maxPlayers":
 		if err := h.hub.server.db.UpdateGameSetting(client.GameID, "max_players", payload.Value); err != nil {
+			return err
+		}
+	case "combatMode":
+		if err := h.hub.server.db.UpdateGameSetting(client.GameID, "combat_mode", payload.Value); err != nil {
 			return err
 		}
 	default:
@@ -765,6 +777,7 @@ func (h *Handlers) sendLobbyState(client *Client, gameID string) {
 			ChanceLevel:   game.Settings.ChanceLevel,
 			VictoryCities: game.Settings.VictoryCities,
 			MapID:         game.Settings.MapID,
+			CombatMode:    game.Settings.CombatMode,
 		},
 		Players: lobbyPlayers,
 	}
@@ -863,6 +876,7 @@ func (h *Handlers) initializeGameState(gameID string, dbGame *database.Game, dbP
 		VictoryCities: dbGame.Settings.VictoryCities,
 		MapID:         dbGame.Settings.MapID,
 		MaxPlayers:    dbGame.Settings.MaxPlayers,
+		CombatMode:    game.ParseCombatMode(dbGame.Settings.CombatMode),
 	}
 
 	// Initialize game state
@@ -1156,6 +1170,12 @@ func createStatePayload(state *game.GameState, mapData *maps.Map) map[string]int
 			}
 		}
 
+		// Include combat cards if card mode is active
+		if state.Settings.CombatMode == game.CombatModeCards {
+			playerData["attackCards"] = p.AttackCards
+			playerData["defenseCards"] = p.DefenseCards
+		}
+
 		players[id] = playerData
 	}
 
@@ -1190,6 +1210,11 @@ func createStatePayload(state *game.GameState, mapData *maps.Map) map[string]int
 		"players":                   players,
 		"map":                       mapInfo,
 		"stockpilePlacementPending": state.StockpilePlacementPending,
+		"settings": map[string]interface{}{
+			"combatMode":    int(state.Settings.CombatMode),
+			"chanceLevel":   int(state.Settings.ChanceLevel),
+			"victoryCities": state.Settings.VictoryCities,
+		},
 	}
 }
 
@@ -1894,7 +1919,24 @@ func (h *Handlers) aiConquest(gameID string, state *game.GameState) {
 			playerName = p.Name
 		}
 
+		// Look up defender before attack (owner may change)
+		aiDefenderID := ""
+		aiDefenderName := ""
+		if terr, ok := state.Territories[bestTarget]; ok {
+			aiDefenderID = terr.Owner
+			if dp, ok := state.Players[terr.Owner]; ok {
+				aiDefenderName = dp.Name
+			}
+		}
+
 		log.Printf("AI: Attacking %s (odds: %.2f)", bestTarget, bestOdds)
+
+		// Card combat mode: route through card combat flow
+		if state.Settings.CombatMode == game.CombatModeCards {
+			h.aiCardAttack(gameID, state, attackerID, playerName, bestTarget, terrName)
+			return
+		}
+
 		result, err := state.Attack(attackerID, bestTarget, nil)
 		if err != nil {
 			log.Printf("AI: Attack failed: %v", err)
@@ -1936,6 +1978,9 @@ func (h *Handlers) aiConquest(gameID string, state *game.GameState) {
 				EventID:         eventID,
 				Success:         true,
 				AttackerID:      attackerID,
+				AttackerName:    playerName,
+				DefenderID:      aiDefenderID,
+				DefenderName:    aiDefenderName,
 				AttackerWins:    result.AttackerWins,
 				AttackStrength:  result.AttackStrength,
 				DefenseStrength: result.DefenseStrength,
@@ -1992,6 +2037,165 @@ func (h *Handlers) aiConquest(gameID string, state *game.GameState) {
 	// Save state
 	if !h.saveAndBroadcastAIState(gameID, state) {
 		go h.checkAndTriggerAI(gameID)
+	}
+}
+
+// aiCardAttack handles an AI player's attack in card combat mode.
+// It selects attack cards, handles the defender (AI or human), and resolves combat.
+func (h *Handlers) aiCardAttack(gameID string, state *game.GameState, attackerID, playerName, targetID, terrName string) {
+	attacker := state.Players[attackerID]
+	if attacker == nil {
+		return
+	}
+
+	// AI selects attack cards: play all available attack cards
+	var attackCards []game.CombatCard
+	if len(attacker.AttackCards) > 0 {
+		attackCards = make([]game.CombatCard, len(attacker.AttackCards))
+		copy(attackCards, attacker.AttackCards)
+		attacker.AttackCards = []game.CombatCard{} // Remove from hand
+	}
+
+	log.Printf("AI Card Combat: %s attacking %s with %d cards", playerName, terrName, len(attackCards))
+
+	// Find the defender
+	target := state.Territories[targetID]
+	if target == nil {
+		log.Printf("AI Card Combat: target territory %s not found", targetID)
+		return
+	}
+	defenderID := target.Owner
+	defenderName := defenderID
+	if dp := state.Players[defenderID]; dp != nil {
+		defenderName = dp.Name
+	}
+
+	// Calculate base strengths
+	baseAttack := state.CalculateAttackWithAllies(attackerID, target, nil, nil)
+	baseDefense := state.CalculateDefenseWithAllies(target, nil)
+
+	// Create a synthetic client for the AI attacker (used by resolveCardCombat/finishAttack)
+	aiClient := &Client{
+		hub:      h.hub,
+		PlayerID: attackerID,
+		GameID:   gameID,
+		Name:     playerName,
+	}
+	payload := &protocol.ExecuteAttackPayload{
+		TargetTerritory: targetID,
+	}
+
+	// Determine defender's cards
+	var defenseCards []game.CombatCard
+	defender := state.Players[defenderID]
+
+	if defenderID == "" || defender == nil || defender.IsAI {
+		// AI defender: play all defense cards
+		if defender != nil && len(defender.DefenseCards) > 0 {
+			defenseCards = make([]game.CombatCard, len(defender.DefenseCards))
+			copy(defenseCards, defender.DefenseCards)
+			defender.DefenseCards = []game.CombatCard{}
+		}
+
+		// Resolve immediately
+		err := h.resolveCardCombat(aiClient, state, payload, nil, nil, nil, attackCards, defenseCards, terrName, defenderID, defenderName)
+		if err != nil {
+			log.Printf("AI Card Combat: resolve error: %v", err)
+			state.EndConquest(attackerID)
+			if !h.saveAndBroadcastAIState(gameID, state) {
+				go h.checkAndTriggerAI(gameID)
+			}
+		}
+		return
+	}
+
+	// Human defender: save state, send defense card request, wait for response
+	stateJSON, err := json.Marshal(state)
+	if err != nil {
+		log.Printf("AI Card Combat: marshal error: %v", err)
+		return
+	}
+	if err := h.hub.server.db.SaveGameState(gameID, string(stateJSON),
+		state.CurrentPlayerID, state.Round, state.Phase.String()); err != nil {
+		log.Printf("AI Card Combat: save error: %v", err)
+		return
+	}
+
+	// Create pending card battle
+	battleID := fmt.Sprintf("card-battle-%s-%d", gameID, time.Now().UnixNano())
+	pendingBattle := &PendingCardBattle{
+		ID:               battleID,
+		GameID:           gameID,
+		AttackerID:       attackerID,
+		DefenderID:       defenderID,
+		TargetTerritory:  targetID,
+		BroughtUnit:      nil,
+		AttackerAllies:   nil,
+		DefenderAllies:   nil,
+		AttackCards:      attackCards,
+		DefenseCardsChan: make(chan []string, 1),
+	}
+
+	h.hub.mu.Lock()
+	h.hub.pendingCardBattles[battleID] = pendingBattle
+	h.hub.mu.Unlock()
+
+	// Send defense card request to human defender
+	request := protocol.DefenseCardRequestPayload{
+		BattleID:          battleID,
+		AttackerID:        attackerID,
+		AttackerName:      playerName,
+		TargetTerritory:   targetID,
+		TerritoryName:     terrName,
+		BaseAttackStr:     baseAttack,
+		BaseDefenseStr:    baseDefense,
+		AttackerCardCount: len(attackCards),
+	}
+	h.hub.sendToPlayer(defenderID, protocol.TypeDefenseCardRequest, request)
+
+	log.Printf("AI Card Combat: Waiting for defender %s to select defense cards (battle %s)", defenderID, battleID)
+
+	// Wait for defender's card selection (no timeout)
+	defenseCardIDs := <-pendingBattle.DefenseCardsChan
+
+	// Clean up pending battle
+	h.hub.mu.Lock()
+	delete(h.hub.pendingCardBattles, battleID)
+	h.hub.mu.Unlock()
+
+	// Re-load state (may have changed while waiting)
+	stateJSON2, err := h.hub.server.db.GetGameState(gameID)
+	if err != nil {
+		log.Printf("AI Card Combat: reload state error: %v", err)
+		return
+	}
+	var freshState game.GameState
+	if err := json.Unmarshal([]byte(stateJSON2), &freshState); err != nil {
+		log.Printf("AI Card Combat: unmarshal error: %v", err)
+		return
+	}
+
+	// Remove defender's selected defense cards from hand
+	defenderPlayer := freshState.Players[defenderID]
+	if defenderPlayer != nil {
+		removed := defenderPlayer.RemoveCardsFromHand(defenseCardIDs)
+		for _, c := range removed {
+			if c.CardType == game.CardTypeDefense {
+				defenseCards = append(defenseCards, c)
+			}
+		}
+	}
+
+	log.Printf("AI Card Combat: Defender %s selected %d defense cards", defenderID, len(defenseCards))
+
+	// Resolve using freshState
+	err = h.resolveCardCombat(aiClient, &freshState, payload, nil, nil, nil, attackCards, defenseCards, terrName, defenderID, defenderName)
+	if err != nil {
+		log.Printf("AI Card Combat: resolve error: %v", err)
+		freshState.EndConquest(attackerID)
+		if !h.saveAndBroadcastAIState(gameID, &freshState) {
+			go h.checkAndTriggerAI(gameID)
+		}
 	}
 }
 
@@ -2068,12 +2272,82 @@ func (h *Handlers) aiDevelopment(gameID string, state *game.GameState) {
 		log.Printf("AI: Nothing to build, ending development")
 	}
 
+	// Card combat: AI tries to buy cards with remaining resources
+	if state.Settings.CombatMode == game.CombatModeCards {
+		h.aiBuyCards(state, player)
+	}
+
 	// End development phase
 	state.EndDevelopment(state.CurrentPlayerID)
 
 	// Save state
 	if !h.saveAndBroadcastAIState(gameID, state) {
 		go h.checkAndTriggerAI(gameID)
+	}
+}
+
+// aiBuyCards has AI buy combat cards with remaining resources.
+func (h *Handlers) aiBuyCards(state *game.GameState, player *game.Player) {
+	// AI card purchasing strategy:
+	// - Prefer attack cards if aggressive personality, defense if defensive
+	// - Buy up to 2 cards per turn if affordable
+	// - Use the most abundant resource
+	cardsBought := 0
+	maxCardsToBuy := 2
+
+	for cardsBought < maxCardsToBuy {
+		// Find the best resource to spend (most abundant, >= 2)
+		bestResource := game.ResourceNone
+		bestAmount := 0
+		resources := []game.ResourceType{game.ResourceCoal, game.ResourceGold, game.ResourceIron, game.ResourceTimber}
+		for _, res := range resources {
+			amount := player.Stockpile.Get(res)
+			if amount >= game.CardBuyCost && amount > bestAmount {
+				bestAmount = amount
+				bestResource = res
+			}
+		}
+
+		if bestResource == game.ResourceNone {
+			break // Can't afford any cards
+		}
+
+		// Decide attack or defense
+		cardType := game.CardTypeAttack
+		if player.AIPersonality == game.AIDefensive {
+			// Defensive AI prefers defense cards
+			if len(player.DefenseCards) < game.MaxDefenseCards {
+				cardType = game.CardTypeDefense
+			}
+		} else {
+			// Aggressive/balanced: prefer attack cards
+			if len(player.AttackCards) >= game.MaxAttackCards && len(player.DefenseCards) < game.MaxDefenseCards {
+				cardType = game.CardTypeDefense
+			}
+		}
+
+		// Check hand limits
+		if cardType == game.CardTypeAttack && len(player.AttackCards) >= game.MaxAttackCards {
+			if len(player.DefenseCards) < game.MaxDefenseCards {
+				cardType = game.CardTypeDefense
+			} else {
+				break // Both hands full
+			}
+		}
+		if cardType == game.CardTypeDefense && len(player.DefenseCards) >= game.MaxDefenseCards {
+			if len(player.AttackCards) < game.MaxAttackCards {
+				cardType = game.CardTypeAttack
+			} else {
+				break // Both hands full
+			}
+		}
+
+		card, err := state.BuyCard(state.CurrentPlayerID, cardType, bestResource)
+		if err != nil {
+			break
+		}
+		log.Printf("AI: Bought %s card: %s (%s)", cardType, card.Name, card.Rarity)
+		cardsBought++
 	}
 }
 
@@ -3068,6 +3342,10 @@ func (h *Handlers) handleExecuteAttack(client *Client, msg *protocol.Message) er
 	}
 	terrName := target.Name
 	defenderID := target.Owner
+	defenderName := defenderID
+	if dp := state.Players[defenderID]; dp != nil {
+		defenderName = dp.Name
+	}
 
 	// Collect allies based on alliance settings
 	// If we have a cached plan, use pre-resolved allies instead of re-asking
@@ -3234,12 +3512,24 @@ func (h *Handlers) handleExecuteAttack(client *Client, msg *protocol.Message) er
 		return err
 	}
 
-	// Execute attack with ally information
+	// Branch on combat mode: card combat or classic
+	if state.Settings.CombatMode == game.CombatModeCards && len(payload.AttackCardIDs) >= 0 {
+		// === CARD COMBAT MODE ===
+		return h.executeCardAttack(client, &state, &payload, brought, attackerAllies, defenderAllies, terrName, defenderID, defenderName)
+	}
+
+	// === CLASSIC COMBAT MODE ===
 	result, err := state.AttackWithAllies(client.PlayerID, payload.TargetTerritory, brought, attackerAllies, defenderAllies)
 	if err != nil {
 		return err
 	}
 
+	h.finishAttack(client, &state, result, &payload, terrName, defenderID, defenderName)
+	return nil
+}
+
+// finishAttack handles the common post-combat logic for both classic and card combat.
+func (h *Handlers) finishAttack(client *Client, state *game.GameState, result *game.CombatResult, payload *protocol.ExecuteAttackPayload, terrName, defenderID, defenderName string) {
 	// Log history event
 	if result.AttackerWins {
 		h.logHistory(client.GameID, state.Round, state.Phase.String(), client.PlayerID, client.Name,
@@ -3252,12 +3542,14 @@ func (h *Handlers) handleExecuteAttack(client *Client, msg *protocol.Message) er
 	// Save updated state
 	stateJSON2, err := json.Marshal(state)
 	if err != nil {
-		return err
+		log.Printf("Error marshaling state after attack: %v", err)
+		return
 	}
 
 	if err := h.hub.server.db.SaveGameState(client.GameID, string(stateJSON2),
 		state.CurrentPlayerID, state.Round, state.Phase.String()); err != nil {
-		return err
+		log.Printf("Error saving state after attack: %v", err)
+		return
 	}
 
 	// Convert result to protocol format
@@ -3270,21 +3562,23 @@ func (h *Handlers) handleExecuteAttack(client *Client, msg *protocol.Message) er
 		unitsCaptured = append(unitsCaptured, u.TerritoryID)
 	}
 
+	attackerName := client.Name
+
 	if result.AttackerWins {
 		log.Printf("Player %s conquered %s", client.Name, payload.TargetTerritory)
 	} else {
 		log.Printf("Player %s failed to conquer %s", client.Name, payload.TargetTerritory)
 	}
 
-	// Check for elimination victory ONLY during combat (city victory waits for end of round)
-	// This handles the case where a player is eliminated by losing all territories
-	if state.IsEliminationVictory() {
-		// Still show combat result, but no AI trigger needed
-		eventID := fmt.Sprintf("combat-%s-%d", client.GameID, time.Now().UnixNano())
-		combatResult := protocol.CombatResultPayload{
+	// Build shared combat result payload
+	buildCombatResult := func(eventID string) protocol.CombatResultPayload {
+		cr := protocol.CombatResultPayload{
 			EventID:         eventID,
 			Success:         true,
 			AttackerID:      client.PlayerID,
+			AttackerName:    attackerName,
+			DefenderID:      defenderID,
+			DefenderName:    defenderName,
 			AttackerWins:    result.AttackerWins,
 			AttackStrength:  result.AttackStrength,
 			DefenseStrength: result.DefenseStrength,
@@ -3292,51 +3586,366 @@ func (h *Handlers) handleExecuteAttack(client *Client, msg *protocol.Message) er
 			UnitsDestroyed:  unitsDestroyed,
 			UnitsCaptured:   unitsCaptured,
 		}
-		// Add stockpile capture info if applicable
 		if result.StockpileCaptured != nil {
-			combatResult.StockpileCaptured = true
-			combatResult.CapturedCoal = result.StockpileCaptured.Coal
-			combatResult.CapturedGold = result.StockpileCaptured.Gold
-			combatResult.CapturedIron = result.StockpileCaptured.Iron
-			combatResult.CapturedTimber = result.StockpileCaptured.Timber
-			combatResult.CapturedFromTerritory = payload.TargetTerritory
+			cr.StockpileCaptured = true
+			cr.CapturedCoal = result.StockpileCaptured.Coal
+			cr.CapturedGold = result.StockpileCaptured.Gold
+			cr.CapturedIron = result.StockpileCaptured.Iron
+			cr.CapturedTimber = result.StockpileCaptured.Timber
+			cr.CapturedFromTerritory = payload.TargetTerritory
 		}
+		return cr
+	}
+
+	// Check for elimination victory
+	if state.IsEliminationVictory() {
+		eventID := fmt.Sprintf("combat-%s-%d", client.GameID, time.Now().UnixNano())
+		combatResult := buildCombatResult(eventID)
 		h.hub.notifyGamePlayers(client.GameID, protocol.TypeActionResult, combatResult)
-		h.handleGameOver(client.GameID, &state)
-		return nil
+		h.handleGameOver(client.GameID, state)
+		return
 	}
 
-	// Broadcast combat result and wait for client acknowledgment before triggering AI
+	// Broadcast combat result and wait for acknowledgment
 	eventID := fmt.Sprintf("combat-%s-%d", client.GameID, time.Now().UnixNano())
-	combatResult := protocol.CombatResultPayload{
-		EventID:         eventID,
-		Success:         true,
-		AttackerID:      client.PlayerID,
-		AttackerWins:    result.AttackerWins,
-		AttackStrength:  result.AttackStrength,
-		DefenseStrength: result.DefenseStrength,
-		TargetTerritory: payload.TargetTerritory,
-		UnitsDestroyed:  unitsDestroyed,
-		UnitsCaptured:   unitsCaptured,
-	}
-	// Add stockpile capture info if applicable
-	if result.StockpileCaptured != nil {
-		combatResult.StockpileCaptured = true
-		combatResult.CapturedCoal = result.StockpileCaptured.Coal
-		combatResult.CapturedGold = result.StockpileCaptured.Gold
-		combatResult.CapturedIron = result.StockpileCaptured.Iron
-		combatResult.CapturedTimber = result.StockpileCaptured.Timber
-		combatResult.CapturedFromTerritory = payload.TargetTerritory
-	}
+	combatResult := buildCombatResult(eventID)
 
-	// Capture gameID for the closure
 	gameID := client.GameID
 	h.broadcastWithAck(gameID, eventID, protocol.EventCombat, protocol.TypeActionResult, combatResult, func() {
-		// Called after all clients acknowledge (or timeout)
 		if !h.broadcastGameState(gameID) {
 			go h.checkAndTriggerAI(gameID)
 		}
 	})
+}
+
+// executeCardAttack handles card combat mode attacks.
+// It validates and removes attacker's cards, requests defender's cards, resolves, and finishes.
+func (h *Handlers) executeCardAttack(
+	client *Client,
+	state *game.GameState,
+	payload *protocol.ExecuteAttackPayload,
+	brought *game.BroughtUnit,
+	attackerAllies, defenderAllies []string,
+	terrName, defenderID, defenderName string,
+) error {
+	attacker := state.Players[client.PlayerID]
+	if attacker == nil {
+		return errors.New("attacker not found")
+	}
+
+	// Validate and remove attacker's selected attack cards from hand
+	attackCards := attacker.RemoveCardsFromHand(payload.AttackCardIDs)
+	// Verify all requested cards were found and are attack cards
+	validAttackCards := make([]game.CombatCard, 0, len(attackCards))
+	for _, c := range attackCards {
+		if c.CardType == game.CardTypeAttack {
+			validAttackCards = append(validAttackCards, c)
+		}
+	}
+
+	log.Printf("Card combat: %s attacking %s with %d cards", client.Name, terrName, len(validAttackCards))
+
+	// Calculate base strengths for preview
+	target := state.Territories[payload.TargetTerritory]
+	baseAttack := state.CalculateAttackWithAllies(client.PlayerID, target, brought, attackerAllies)
+	baseDefense := state.CalculateDefenseWithAllies(target, defenderAllies)
+
+	// If defender is unclaimed or AI, resolve immediately with no defense cards
+	defender := state.Players[defenderID]
+	if defenderID == "" || defender == nil || defender.IsAI {
+		// AI card defense: simple heuristic - play all defense cards if under threat
+		var defenseCards []game.CombatCard
+		if defender != nil && defender.IsAI && len(defender.DefenseCards) > 0 {
+			// AI plays all defense cards
+			defenseCards = make([]game.CombatCard, len(defender.DefenseCards))
+			copy(defenseCards, defender.DefenseCards)
+			defender.DefenseCards = []game.CombatCard{} // Remove all from hand
+		}
+
+		return h.resolveCardCombat(client, state, payload, brought, attackerAllies, defenderAllies, validAttackCards, defenseCards, terrName, defenderID, defenderName)
+	}
+
+	// Save state (attacker's cards have been removed from hand)
+	stateJSON, err := json.Marshal(state)
+	if err != nil {
+		return err
+	}
+	if err := h.hub.server.db.SaveGameState(client.GameID, string(stateJSON),
+		state.CurrentPlayerID, state.Round, state.Phase.String()); err != nil {
+		return err
+	}
+
+	// Create pending card battle and wait for defender's cards
+	battleID := fmt.Sprintf("card-battle-%s-%d", client.GameID, time.Now().UnixNano())
+	pendingBattle := &PendingCardBattle{
+		ID:               battleID,
+		GameID:           client.GameID,
+		AttackerID:       client.PlayerID,
+		DefenderID:       defenderID,
+		TargetTerritory:  payload.TargetTerritory,
+		BroughtUnit:      brought,
+		AttackerAllies:   attackerAllies,
+		DefenderAllies:   defenderAllies,
+		AttackCards:      validAttackCards,
+		DefenseCardsChan: make(chan []string, 1),
+	}
+
+	h.hub.mu.Lock()
+	h.hub.pendingCardBattles[battleID] = pendingBattle
+	h.hub.mu.Unlock()
+
+	// Notify defender to select defense cards
+	request := protocol.DefenseCardRequestPayload{
+		BattleID:          battleID,
+		AttackerID:        client.PlayerID,
+		AttackerName:      client.Name,
+		TargetTerritory:   payload.TargetTerritory,
+		TerritoryName:     terrName,
+		BaseAttackStr:     baseAttack,
+		BaseDefenseStr:    baseDefense,
+		AttackerCardCount: len(validAttackCards),
+	}
+	h.hub.sendToPlayer(defenderID, protocol.TypeDefenseCardRequest, request)
+
+	log.Printf("Card combat: Waiting for defender %s to select defense cards (battle %s)", defenderID, battleID)
+
+	// Wait for defender's card selection (no timeout per plan)
+	defenseCardIDs := <-pendingBattle.DefenseCardsChan
+
+	// Clean up pending battle
+	h.hub.mu.Lock()
+	delete(h.hub.pendingCardBattles, battleID)
+	h.hub.mu.Unlock()
+
+	// Re-load state (may have changed)
+	stateJSON2, err := h.hub.server.db.GetGameState(client.GameID)
+	if err != nil {
+		return err
+	}
+	var freshState game.GameState
+	if err := json.Unmarshal([]byte(stateJSON2), &freshState); err != nil {
+		return err
+	}
+
+	// Remove defender's selected defense cards from hand
+	defenderPlayer := freshState.Players[defenderID]
+	var defenseCards []game.CombatCard
+	if defenderPlayer != nil {
+		removed := defenderPlayer.RemoveCardsFromHand(defenseCardIDs)
+		for _, c := range removed {
+			if c.CardType == game.CardTypeDefense {
+				defenseCards = append(defenseCards, c)
+			}
+		}
+	}
+
+	log.Printf("Card combat: Defender %s selected %d defense cards", defenderID, len(defenseCards))
+
+	return h.resolveCardCombat(client, &freshState, payload, brought, attackerAllies, defenderAllies, validAttackCards, defenseCards, terrName, defenderID, defenderName)
+}
+
+// resolveCardCombat resolves a card combat and broadcasts the result.
+func (h *Handlers) resolveCardCombat(
+	client *Client,
+	state *game.GameState,
+	payload *protocol.ExecuteAttackPayload,
+	brought *game.BroughtUnit,
+	attackerAllies, defenderAllies []string,
+	attackCards, defenseCards []game.CombatCard,
+	terrName, defenderID, defenderName string,
+) error {
+	// Validate attack (phase, turn, etc.) - the attack must still be valid
+	attacker := state.Players[client.PlayerID]
+	if attacker == nil || attacker.AttacksRemaining <= 0 {
+		return errors.New("no attacks remaining")
+	}
+
+	if state.Phase != game.PhaseConquest {
+		return game.ErrInvalidAction
+	}
+
+	// Execute card combat
+	plan := &game.AttackPlan{
+		TargetTerritory: payload.TargetTerritory,
+		BroughtUnit:     brought,
+	}
+	result, cardResult := state.ExecuteCardAttackWithAllies(client.PlayerID, plan, attackerAllies, defenderAllies, attackCards, defenseCards)
+
+	// Decrease attacks remaining (same rules as classic)
+	attacker.AttacksRemaining--
+	if !result.AttackerWins && attacker.AttacksRemaining == 1 {
+		attacker.AttacksRemaining = 0
+	}
+	if attacker.AttacksRemaining <= 0 {
+		state.AdvanceConquestTurn()
+	}
+
+	// Build card reveal payload
+	cardRevealEventID := fmt.Sprintf("card-reveal-%s-%d", client.GameID, time.Now().UnixNano())
+	cardReveal := protocol.CardRevealPayload{
+		EventID:         cardRevealEventID,
+		AttackerCards:    convertCardsToProtocol(attackCards),
+		DefenderCards:    convertCardsToProtocol(defenseCards),
+		NegatedCards:     convertCardsToProtocol(cardResult.NegatedCards),
+		BaseAttackStr:    cardResult.FinalAttack,  // Will be overwritten below
+		BaseDefenseStr:   cardResult.FinalDefense, // Will be overwritten below
+		FinalAttackStr:   cardResult.FinalAttack,
+		FinalDefenseStr:  cardResult.FinalDefense,
+		AttackerWins:     cardResult.AttackerWins,
+		BribeActivated:   cardResult.BribeActivated,
+		SabotageCount:    cardResult.SabotageCount,
+		CounterAttackTerr: cardResult.CounterAttackTerr,
+		SafeRetreat:      cardResult.SafeRetreat,
+		BlitzReturnCount: len(cardResult.BlitzReturn),
+	}
+
+	// Send card reveal synchronously - wait for all human players to ack before proceeding
+	// Use a channel to block until the card reveal is acknowledged
+	if len(cardReveal.AttackerCards) > 0 || len(cardReveal.DefenderCards) > 0 {
+		revealDone := make(chan struct{})
+		h.broadcastWithAck(client.GameID, cardRevealEventID, protocol.EventCardReveal, protocol.TypeCardReveal, cardReveal, func() {
+			close(revealDone)
+		})
+		<-revealDone // Block until all players have dismissed the card reveal
+	}
+
+	// Now finish the attack with the standard flow (save state, broadcast combat result, etc.)
+	h.finishAttack(client, state, result, payload, terrName, defenderID, defenderName)
+
+	return nil
+}
+
+// convertCardsToProtocol converts game cards to protocol card info.
+func convertCardsToProtocol(cards []game.CombatCard) []protocol.CardInfo {
+	result := make([]protocol.CardInfo, len(cards))
+	for i, c := range cards {
+		result[i] = protocol.CardInfo{
+			ID:          c.ID,
+			Name:        c.Name,
+			Description: c.Description,
+			CardType:    string(c.CardType),
+			Rarity:      string(c.Rarity),
+			Effect:      string(c.Effect),
+			Value:       c.Value,
+		}
+	}
+	return result
+}
+
+// handleBuyCard handles purchasing a combat card during Development.
+func (h *Handlers) handleBuyCard(client *Client, msg *protocol.Message) error {
+	if client.GameID == "" {
+		return errors.New("not in a game")
+	}
+
+	var payload protocol.BuyCardPayload
+	if err := msg.ParsePayload(&payload); err != nil {
+		return err
+	}
+
+	// Load game state
+	stateJSON, err := h.hub.server.db.GetGameState(client.GameID)
+	if err != nil {
+		return err
+	}
+
+	var state game.GameState
+	if err := json.Unmarshal([]byte(stateJSON), &state); err != nil {
+		return err
+	}
+
+	// Parse card type
+	var cardType game.CardType
+	switch payload.CardType {
+	case "attack":
+		cardType = game.CardTypeAttack
+	case "defense":
+		cardType = game.CardTypeDefense
+	default:
+		return errors.New("invalid card type: " + payload.CardType)
+	}
+
+	// Parse resource
+	var resource game.ResourceType
+	switch payload.Resource {
+	case "coal":
+		resource = game.ResourceCoal
+	case "gold":
+		resource = game.ResourceGold
+	case "iron":
+		resource = game.ResourceIron
+	case "timber":
+		resource = game.ResourceTimber
+	default:
+		return errors.New("invalid resource: " + payload.Resource)
+	}
+
+	// Buy the card
+	card, err := state.BuyCard(client.PlayerID, cardType, resource)
+	if err != nil {
+		return err
+	}
+
+	// Save state
+	stateJSON2, err := json.Marshal(state)
+	if err != nil {
+		return err
+	}
+	if err := h.hub.server.db.SaveGameState(client.GameID, string(stateJSON2),
+		state.CurrentPlayerID, state.Round, state.Phase.String()); err != nil {
+		return err
+	}
+
+	// Send the drawn card back to the player
+	cardDrawn := protocol.CardDrawnPayload{
+		Card: protocol.CardInfo{
+			ID:          card.ID,
+			Name:        card.Name,
+			Description: card.Description,
+			CardType:    string(card.CardType),
+			Rarity:      string(card.Rarity),
+			Effect:      string(card.Effect),
+			Value:       card.Value,
+		},
+	}
+	respMsg, _ := protocol.NewMessage(protocol.TypeCardDrawn, cardDrawn)
+	respMsg.ID = msg.ID
+	client.Send(respMsg)
+
+	log.Printf("Player %s bought %s card: %s (%s)", client.Name, cardType, card.Name, card.Rarity)
+
+	// Broadcast updated game state
+	h.broadcastGameState(client.GameID)
+
+	return nil
+}
+
+// handleSelectDefenseCards handles the defender's card selection during card combat.
+func (h *Handlers) handleSelectDefenseCards(client *Client, msg *protocol.Message) error {
+	var payload protocol.SelectCardsPayload
+	if err := msg.ParsePayload(&payload); err != nil {
+		return err
+	}
+
+	// Find the pending card battle for this defender
+	h.hub.mu.Lock()
+	var battle *PendingCardBattle
+	for _, b := range h.hub.pendingCardBattles {
+		if b.DefenderID == client.PlayerID && b.GameID == client.GameID {
+			battle = b
+			break
+		}
+	}
+	h.hub.mu.Unlock()
+
+	if battle == nil {
+		return errors.New("no pending card battle found")
+	}
+
+	log.Printf("Defender %s selected %d defense cards for battle %s", client.Name, len(payload.CardIDs), battle.ID)
+
+	// Send the card IDs through the channel to unblock the attacker's goroutine
+	battle.DefenseCardsChan <- payload.CardIDs
 
 	return nil
 }

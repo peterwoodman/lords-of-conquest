@@ -866,12 +866,16 @@ func (g *Generator) assignResources(raw *RawMap) {
 	// Always include at least one of each critical resource
 	guaranteed := []string{"coal", "gold", "iron", "timber", "grassland"}
 
-	// On island maps (level 4-5), add extra timber and gold for boat building
-	islandLevel := clamp(g.options.Islands, 1, 5)
-	if islandLevel >= 4 {
-		guaranteed = append(guaranteed, "timber", "gold", "timber") // Extra boat resources
-	} else if islandLevel >= 3 {
-		guaranteed = append(guaranteed, "timber", "gold") // Some extra
+	// Count the actual number of land masses on the generated map.
+	// The island *setting* may not reflect reality — e.g. a small map packed
+	// with territories can end up as one continent even with islands set to max.
+	// Extra timber and gold are only warranted when there really are multiple
+	// land masses that require boats to traverse.
+	landMasses := g.countLandMasses()
+	if landMasses >= 10 {
+		guaranteed = append(guaranteed, "timber", "gold", "timber") // Many islands — extra boat resources
+	} else if landMasses >= 5 {
+		guaranteed = append(guaranteed, "timber", "gold") // A few islands — some extra
 	}
 
 	// Assign resources and names
@@ -894,6 +898,45 @@ func (g *Generator) assignResources(raw *RawMap) {
 			Resource: res,
 		}
 	}
+}
+
+// countLandMasses counts distinct connected groups of land cells on the grid
+// using flood fill. Two land cells belong to the same land mass if they are
+// connected orthogonally (cardinal directions only).
+func (g *Generator) countLandMasses() int {
+	visited := make([][]bool, g.height)
+	for y := range visited {
+		visited[y] = make([]bool, g.width)
+	}
+
+	dirs := [4][2]int{{0, -1}, {0, 1}, {-1, 0}, {1, 0}}
+	count := 0
+
+	for y := 0; y < g.height; y++ {
+		for x := 0; x < g.width; x++ {
+			if g.grid[y][x] == 0 || visited[y][x] {
+				continue
+			}
+			// Found an unvisited land cell — flood fill to mark the whole land mass
+			count++
+			queue := [][2]int{{x, y}}
+			visited[y][x] = true
+			for len(queue) > 0 {
+				cell := queue[0]
+				queue = queue[1:]
+				for _, d := range dirs {
+					nx, ny := cell[0]+d[0], cell[1]+d[1]
+					if nx >= 0 && nx < g.width && ny >= 0 && ny < g.height &&
+						g.grid[ny][nx] != 0 && !visited[ny][nx] {
+						visited[ny][nx] = true
+						queue = append(queue, [2]int{nx, ny})
+					}
+				}
+			}
+		}
+	}
+
+	return count
 }
 
 // isCoastalTerritory checks whether any cell of the given territory borders
