@@ -542,5 +542,6 @@ func (g *GameState) checkElimination(playerID string) {
 	}
 	if player := g.Players[playerID]; player != nil {
 		player.Eliminated = true
+		g.removeFromPlayerOrder(playerID)
 	}
 }

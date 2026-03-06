@@ -212,7 +212,40 @@ func (g *GameState) Surrender(surrenderPlayerID, targetPlayerID string) int {
 	// Mark player as eliminated
 	surrenderPlayer.Eliminated = true
 
+	// Remove from player order so they no longer appear in the turn rotation or player list
+	wasCurrentPlayer := g.CurrentPlayerID == surrenderPlayerID
+	removedIdx := -1
+	newOrder := make([]string, 0, len(g.PlayerOrder))
+	for i, pid := range g.PlayerOrder {
+		if pid == surrenderPlayerID {
+			removedIdx = i
+		} else {
+			newOrder = append(newOrder, pid)
+		}
+	}
+	g.PlayerOrder = newOrder
+
+	// If the surrendered player was the current player, advance to the next player
+	if wasCurrentPlayer && len(g.PlayerOrder) > 0 && removedIdx >= 0 {
+		nextIdx := removedIdx
+		if nextIdx >= len(g.PlayerOrder) {
+			nextIdx = 0
+		}
+		g.CurrentPlayerID = g.PlayerOrder[nextIdx]
+	}
+
 	return territoriesTransferred
+}
+
+// removeFromPlayerOrder removes a player from the PlayerOrder slice.
+func (g *GameState) removeFromPlayerOrder(playerID string) {
+	newOrder := make([]string, 0, len(g.PlayerOrder))
+	for _, pid := range g.PlayerOrder {
+		if pid != playerID {
+			newOrder = append(newOrder, pid)
+		}
+	}
+	g.PlayerOrder = newOrder
 }
 
 // MaxTerritoryNameLength is the maximum allowed length for a territory name.

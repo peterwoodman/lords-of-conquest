@@ -422,6 +422,16 @@ func (g *GameState) advanceTradeTurn() {
 
 	nextIdx := (currentIdx + 1) % len(g.PlayerOrder)
 
+	// Skip eliminated players (safety net, matching shipment/conquest/development)
+	iterations := 0
+	for g.Players[g.PlayerOrder[nextIdx]] != nil && g.Players[g.PlayerOrder[nextIdx]].Eliminated {
+		nextIdx = (nextIdx + 1) % len(g.PlayerOrder)
+		iterations++
+		if nextIdx == 0 || iterations >= len(g.PlayerOrder) {
+			break
+		}
+	}
+
 	// If we've completed all players, move to shipment phase
 	if nextIdx == 0 {
 		// Check for shipment skip
