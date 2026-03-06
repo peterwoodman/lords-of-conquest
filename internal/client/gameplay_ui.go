@@ -10,14 +10,6 @@ import (
 	"github.com/hajimehoshi/ebiten/v2/vector"
 )
 
-func (s *GameplayScene) drawPlayerIdentityPanel(screen *ebiten.Image) {
-	// Deprecated - now part of drawLeftSidebar
-}
-
-func (s *GameplayScene) drawInfoPanel(screen *ebiten.Image) {
-	// Deprecated - now part of drawBottomBar
-}
-
 // drawLeftSidebar draws player identity and players list.
 func (s *GameplayScene) drawLeftSidebar(screen *ebiten.Image) {
 	sidebarX := 10
@@ -208,76 +200,6 @@ func (s *GameplayScene) drawLeftSidebar(screen *ebiten.Image) {
 	// History panel - below Year & Phase
 	historyY := phaseY + phasePanelH + 5
 	s.drawHistoryPanel(screen, sidebarX, historyY, sidebarW)
-}
-
-// drawResourcesPanel draws the player's resources
-func (s *GameplayScene) drawResourcesPanel(screen *ebiten.Image, x, y, w int) {
-	myPlayer, ok := s.players[s.game.config.PlayerID]
-	if !ok {
-		return
-	}
-
-	player := myPlayer.(map[string]interface{})
-	panelH := 170
-
-	DrawFancyPanel(screen, x, y, w, panelH, "Resources")
-
-	// Get stockpile data
-	stockpile, hasStockpile := player["stockpile"]
-	if hasStockpile {
-		stockpileData := stockpile.(map[string]interface{})
-
-		resY := y + 40
-		resources := []struct {
-			name    string
-			key     string
-			iconKey string
-		}{
-			{"Coal", "coal", "coal"},
-			{"Gold", "gold", "gold"},
-			{"Iron", "iron", "iron"},
-			{"Wood", "timber", "timber"},
-		}
-
-		for _, res := range resources {
-			count := 0
-			if val, ok := stockpileData[res.key]; ok {
-				count = int(val.(float64))
-			}
-
-			// Resource icon with light background for visibility
-			iconSize := 16
-			if icon := GetIcon(res.iconKey); icon != nil {
-				// Draw light background behind black icon
-				iconX := float32(x + 11)
-				iconY := float32(resY)
-				vector.DrawFilledRect(screen, iconX-1, iconY-1, float32(iconSize+2), float32(iconSize+2),
-					color.RGBA{180, 180, 180, 255}, false)
-				vector.StrokeRect(screen, iconX-1, iconY-1, float32(iconSize+2), float32(iconSize+2),
-					1, color.RGBA{100, 100, 100, 255}, false)
-
-				op := &ebiten.DrawImageOptions{}
-				op.GeoM.Translate(float64(iconX), float64(iconY))
-				screen.DrawImage(icon, op)
-			}
-
-			text := fmt.Sprintf("%s: %d", res.name, count)
-			DrawText(screen, text, x+11+iconSize+6, resY, ColorText)
-			resY += 24
-		}
-
-		// Stockpile location
-		if stockpileTerr, ok := player["stockpileTerritory"]; ok && stockpileTerr != nil && stockpileTerr != "" {
-			terrID := stockpileTerr.(string)
-			if terr, ok := s.territories[terrID]; ok {
-				terrData := terr.(map[string]interface{})
-				terrName := terrData["name"].(string)
-				DrawText(screen, "At: "+terrName, x+12, resY+5, ColorTextMuted)
-			}
-		}
-	} else {
-		DrawText(screen, "No stockpile yet", x+12, y+45, ColorTextMuted)
-	}
 }
 
 // drawYearPhasePanel draws the year and phase indicator in the sidebar.
@@ -1260,14 +1182,6 @@ func (s *GameplayScene) drawDevelopmentControls(screen *ebiten.Image, startX, ba
 		}
 		s.devBuyDefenseCardBtn.Draw(screen)
 	}
-}
-
-func (s *GameplayScene) drawPlayersPanel(screen *ebiten.Image) {
-	// Deprecated - now part of drawLeftSidebar
-}
-
-func (s *GameplayScene) drawResourcePanel(screen *ebiten.Image) {
-	// Deprecated - now part of drawRightSidebar
 }
 
 func (s *GameplayScene) drawHoverInfo(screen *ebiten.Image) {

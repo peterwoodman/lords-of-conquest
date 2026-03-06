@@ -150,20 +150,6 @@ func floodFillWater(m *Map, startX, startY int, visited [][]bool) [][2]int {
 	return cells
 }
 
-// getOrthogonalNeighbors returns the 4 orthogonal neighbors (up, down, left, right).
-func getOrthogonalNeighbors(m *Map, x, y int) []int {
-	neighbors := make([]int, 0, 4)
-	dirs := [][2]int{{0, -1}, {0, 1}, {-1, 0}, {1, 0}}
-
-	for _, d := range dirs {
-		nx, ny := x+d[0], y+d[1]
-		if nx >= 0 && nx < m.Width && ny >= 0 && ny < m.Height {
-			neighbors = append(neighbors, m.Grid[ny][nx])
-		}
-	}
-	return neighbors
-}
-
 // findMajority returns the most common value in the counts map.
 func findMajority(counts map[int]int) int {
 	maxCount := 0

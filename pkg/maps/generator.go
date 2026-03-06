@@ -1129,13 +1129,3 @@ func (g *Generator) pickBaseName(resource string, coastal bool, rng *rand.Rand) 
 	}
 }
 
-// DefaultOptions returns default generator options.
-func DefaultOptions() GeneratorOptions {
-	return GeneratorOptions{
-		Width:       30, // Medium width
-		Territories: 40, // Moderate territory count
-		WaterBorder: true,
-		Islands:     3,  // Medium islands (1-5 scale)
-		Resources:   45, // 45% resource coverage
-	}
-}

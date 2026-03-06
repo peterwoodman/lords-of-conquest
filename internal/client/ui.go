@@ -757,11 +757,6 @@ func DrawIconInverted(screen *ebiten.Image, icon *ebiten.Image, x, y, size int) 
 	screen.DrawImage(cachedIcon, opFinal)
 }
 
-// DrawTitle draws a title (alias for DrawLargeText).
-func DrawTitle(screen *ebiten.Image, text string, x, y int) {
-	DrawLargeText(screen, text, x, y, ColorText)
-}
-
 // ListItem represents an item in a list.
 type ListItem struct {
 	ID       string
@@ -939,11 +934,6 @@ func (l *List) GetSelectedID() string {
 // ClearSelection clears the current selection.
 func (l *List) ClearSelection() {
 	l.selectedIdx = -1
-}
-
-// Contains checks if a string contains a substring (case insensitive).
-func Contains(s, substr string) bool {
-	return strings.Contains(strings.ToLower(s), strings.ToLower(substr))
 }
 
 // MapGenDialog is a reusable map generation dialog component.

@@ -102,45 +102,6 @@ type PhaseSkipInfo struct {
 	Reason string
 }
 
-// CheckPhaseSkips checks which phases should be skipped from the current phase.
-// Returns a list of phases that will be skipped and the resulting phase.
-func CheckPhaseSkips(currentPhase Phase, nextPhase Phase, numPlayers int, chanceLevel ChanceLevel) ([]PhaseSkipInfo, Phase) {
-	skipped := []PhaseSkipInfo{}
-	resultPhase := nextPhase
-
-	// Check if the next phase should be skipped
-	for {
-		if !ShouldSkipPhase(resultPhase, chanceLevel) {
-			break
-		}
-
-		// Record the skip
-		skipped = append(skipped, PhaseSkipInfo{
-			Phase:  resultPhase,
-			Reason: GetSkipReason(resultPhase),
-		})
-
-		// Move to the next phase
-		switch resultPhase {
-		case PhaseProduction:
-			if numPlayers >= 3 {
-				resultPhase = PhaseTrade
-			} else {
-				resultPhase = PhaseShipment
-			}
-		case PhaseTrade:
-			resultPhase = PhaseShipment
-		case PhaseShipment:
-			resultPhase = PhaseConquest
-		default:
-			// Can't skip further
-			break
-		}
-	}
-
-	return skipped, resultPhase
-}
-
 // NextPhase advances to the next phase.
 // Phase order: Development (skipped Year 1) → Production → Trade → Shipment → Conquest
 // End-game is checked after Conquest, then round increments.
@@ -303,59 +264,6 @@ func (pm *PhaseManager) resetPlayerTurns() {
 	}
 }
 
-// ProcessProduction generates resources for all players.
-func (pm *PhaseManager) ProcessProduction() {
-	log.Printf("ProcessProduction: Starting production for round %d", pm.State.Round)
-
-	// Debug: Log territory resources
-	resourceCount := 0
-	for id, t := range pm.State.Territories {
-		if t.Resource != ResourceNone {
-			resourceCount++
-			log.Printf("ProcessProduction: Territory %s (%s) has resource %s, owner=%s",
-				id, t.Name, t.Resource.String(), t.Owner)
-		}
-	}
-	log.Printf("ProcessProduction: Found %d territories with resources", resourceCount)
-
-	for _, player := range pm.State.Players {
-		if player.Eliminated {
-			continue
-		}
-
-		produced := 0
-		for _, territory := range pm.State.Territories {
-			if territory.Owner != player.ID {
-				continue
-			}
-			if territory.Resource == ResourceNone {
-				continue
-			}
-
-			// Grassland produces horses that spread on the map
-			if territory.Resource == ResourceGrassland {
-				pm.spreadHorses(player.ID, territory)
-				continue
-			}
-
-			// Calculate production amount
-			amount := 1
-			if pm.hasAdjacentCity(territory, player.ID) {
-				amount = 2
-			}
-
-			player.Stockpile.Add(territory.Resource, amount)
-			produced += amount
-			log.Printf("ProcessProduction: Player %s produced %d %s from %s",
-				player.Name, amount, territory.Resource.String(), territory.Name)
-		}
-
-		log.Printf("ProcessProduction: Player %s total stockpile - Coal:%d Gold:%d Iron:%d Timber:%d",
-			player.Name, player.Stockpile.Coal, player.Stockpile.Gold,
-			player.Stockpile.Iron, player.Stockpile.Timber)
-	}
-}
-
 // hasAdjacentCity checks if a territory has an adjacent city.
 func (pm *PhaseManager) hasAdjacentCity(t *Territory, playerID string) bool {
 	if t.HasCity {
@@ -368,30 +276,6 @@ func (pm *PhaseManager) hasAdjacentCity(t *Territory, playerID string) bool {
 		}
 	}
 	return false
-}
-
-// spreadHorses places a horse in an adjacent territory if possible.
-func (pm *PhaseManager) spreadHorses(playerID string, source *Territory) {
-	// If source doesn't have a horse yet, place one there
-	if !source.HasHorse {
-		source.HasHorse = true
-		return
-	}
-
-	// Find an adjacent territory without a horse
-	candidates := []string{}
-	for _, adjID := range source.Adjacent {
-		adj := pm.State.Territories[adjID]
-		if adj.Owner == playerID && !adj.HasHorse {
-			candidates = append(candidates, adjID)
-		}
-	}
-
-	if len(candidates) > 0 {
-		// Randomly choose one
-		chosen := candidates[rand.Intn(len(candidates))]
-		pm.State.Territories[chosen].HasHorse = true
-	}
 }
 
 // ProductionResult describes a single production event for animation.
@@ -506,61 +390,6 @@ func (pm *PhaseManager) ApplyProductionResults(playerID string, results []Produc
 				player.Name, result.Amount, result.Resource.String(), result.TerritoryName)
 		}
 	}
-}
-
-// ValidateAction checks if an action is valid for the current phase.
-func (pm *PhaseManager) ValidateAction(playerID string, action interface{}) error {
-	if pm.State.CurrentPlayerID != playerID {
-		return ErrNotYourTurn
-	}
-
-	switch pm.State.Phase {
-	case PhaseTerritorySelection:
-		return pm.validateTerritorySelection(action)
-	case PhaseProduction:
-		return pm.validateProduction(action)
-	case PhaseTrade:
-		return pm.validateTrade(action)
-	case PhaseShipment:
-		return pm.validateShipment(action)
-	case PhaseConquest:
-		return pm.validateConquest(action)
-	case PhaseDevelopment:
-		return pm.validateDevelopment(action)
-	}
-
-	return ErrInvalidAction
-}
-
-// Validation stubs - to be implemented
-func (pm *PhaseManager) validateTerritorySelection(action interface{}) error {
-	// TODO: Implement
-	return nil
-}
-
-func (pm *PhaseManager) validateProduction(action interface{}) error {
-	// TODO: Implement
-	return nil
-}
-
-func (pm *PhaseManager) validateTrade(action interface{}) error {
-	// TODO: Implement
-	return nil
-}
-
-func (pm *PhaseManager) validateShipment(action interface{}) error {
-	// TODO: Implement
-	return nil
-}
-
-func (pm *PhaseManager) validateConquest(action interface{}) error {
-	// TODO: Implement
-	return nil
-}
-
-func (pm *PhaseManager) validateDevelopment(action interface{}) error {
-	// TODO: Implement
-	return nil
 }
 
 // SkipTrade allows a player to pass the trade phase without trading.

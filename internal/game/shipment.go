@@ -381,18 +381,6 @@ func isAdjacent(t *Territory, targetID string) bool {
 	return false
 }
 
-// shareWaterBody checks if two territories share a water body.
-func (g *GameState) shareWaterBody(t1, t2 *Territory) bool {
-	for _, w1 := range t1.WaterBodies {
-		for _, w2 := range t2.WaterBodies {
-			if w1 == w2 {
-				return true
-			}
-		}
-	}
-	return false
-}
-
 // GetValidStockpileDestinations returns territories the stockpile can move to.
 func (g *GameState) GetValidStockpileDestinations(playerID string) []string {
 	player := g.Players[playerID]

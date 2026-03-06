@@ -757,23 +757,6 @@ func (s *GameplayScene) getOnlinePlayers() []string {
 	return players
 }
 
-// getPlayerHorseTerritories returns territories where the player has horses.
-func (s *GameplayScene) getPlayerHorseTerritories() []string {
-	terrs := make([]string, 0)
-	for id, tData := range s.territories {
-		terr := tData.(map[string]interface{})
-		owner, _ := terr["owner"].(string)
-		if owner != s.game.config.PlayerID {
-			continue
-		}
-		hasHorse, _ := terr["hasHorse"].(bool)
-		if hasHorse {
-			terrs = append(terrs, id)
-		}
-	}
-	return terrs
-}
-
 // getMyStockpile returns the current player's stockpile resources.
 func (s *GameplayScene) getMyStockpile() (coal, gold, iron, timber int) {
 	if myPlayer, ok := s.players[s.game.config.PlayerID]; ok {
@@ -833,23 +816,6 @@ func (s *GameplayScene) countPlayerHorses(playerID string) int {
 		}
 	}
 	return count
-}
-
-// getTerritoriesWithoutHorses returns territories owned by the player that don't have horses.
-func (s *GameplayScene) getTerritoriesWithoutHorses() []string {
-	terrs := make([]string, 0)
-	for id, tData := range s.territories {
-		terr := tData.(map[string]interface{})
-		owner, _ := terr["owner"].(string)
-		if owner != s.game.config.PlayerID {
-			continue
-		}
-		hasHorse, _ := terr["hasHorse"].(bool)
-		if !hasHorse {
-			terrs = append(terrs, id)
-		}
-	}
-	return terrs
 }
 
 // getTerritoryAt returns the territory ID at the given grid coordinates, or empty string if none.

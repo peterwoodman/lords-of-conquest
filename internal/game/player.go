@@ -13,19 +13,6 @@ const (
 	ColorBlue   PlayerColor = "blue"
 )
 
-// AllColors returns all available player colors.
-func AllColors() []PlayerColor {
-	return []PlayerColor{
-		ColorOrange,
-		ColorCyan,
-		ColorGreen,
-		ColorYellow,
-		ColorPurple,
-		ColorRed,
-		ColorBlue,
-	}
-}
-
 // AllianceSetting represents a player's alliance preference.
 type AllianceSetting string
 
@@ -89,24 +76,6 @@ func NewPlayer(id, name string, color PlayerColor) *Player {
 		Eliminated:       false,
 		Alliance:         AllianceAsk, // Default to ask
 		IsOnline:         true,
-		AttackCards:      []CombatCard{},
-		DefenseCards:     []CombatCard{},
-	}
-}
-
-// NewAIPlayer creates a new AI player.
-func NewAIPlayer(id, name string, color PlayerColor, personality AIPersonality) *Player {
-	return &Player{
-		ID:               id,
-		Name:             name,
-		Color:            color,
-		IsAI:             true,
-		AIPersonality:    personality,
-		Stockpile:        NewStockpile(),
-		AttacksRemaining: 2,
-		Eliminated:       false,
-		Alliance:         AllianceNeutral, // AI is neutral by default
-		IsOnline:         true,            // AI is always "online"
 		AttackCards:      []CombatCard{},
 		DefenseCards:     []CombatCard{},
 	}

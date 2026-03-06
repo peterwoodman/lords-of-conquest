@@ -95,38 +95,6 @@ func shufflePlayerOrder(state *GameState) {
 	}
 }
 
-// rotatePlayerOrder moves the first player to the end of the order.
-// Used for Year 2+ to give each player a fair chance to go first.
-func rotatePlayerOrder(state *GameState) {
-	if len(state.PlayerOrder) <= 1 {
-		return
-	}
-
-	// Remove eliminated players from consideration
-	activeOrder := make([]string, 0, len(state.PlayerOrder))
-	for _, pid := range state.PlayerOrder {
-		if p := state.Players[pid]; p != nil && !p.Eliminated {
-			activeOrder = append(activeOrder, pid)
-		}
-	}
-
-	if len(activeOrder) <= 1 {
-		state.PlayerOrder = activeOrder
-		if len(activeOrder) > 0 {
-			state.CurrentPlayerID = activeOrder[0]
-		}
-		return
-	}
-
-	// Rotate: move first player to end
-	rotated := make([]string, len(activeOrder))
-	copy(rotated, activeOrder[1:])
-	rotated[len(rotated)-1] = activeOrder[0]
-
-	state.PlayerOrder = rotated
-	state.CurrentPlayerID = rotated[0]
-}
-
 // randomInt returns a random integer from 0 to n-1.
 func randomInt(n int) int {
 	if n <= 0 {

@@ -178,34 +178,6 @@ func (s *TitleScene) Draw(screen *ebiten.Image) {
 	DrawTextCentered(screen, "Press any key to skip", int(screenW)/2, int(screenH)-30, ColorTextMuted)
 }
 
-func (s *TitleScene) drawImageFullScreen(screen *ebiten.Image, img *ebiten.Image) {
-	if img == nil {
-		return
-	}
-
-	imgW := float64(img.Bounds().Dx())
-	imgH := float64(img.Bounds().Dy())
-	screenW := float64(ScreenWidth)
-	screenH := float64(ScreenHeight)
-
-	// Scale to cover screen
-	scaleX := screenW / imgW
-	scaleY := screenH / imgH
-	scale := scaleX
-	if scaleY > scaleX {
-		scale = scaleY
-	}
-
-	// Center the image
-	offsetX := (screenW - imgW*scale) / 2
-	offsetY := (screenH - imgH*scale) / 2
-
-	op := &ebiten.DrawImageOptions{}
-	op.GeoM.Scale(scale, scale)
-	op.GeoM.Translate(offsetX, offsetY)
-	screen.DrawImage(img, op)
-}
-
 func (s *TitleScene) drawImageFullScreenWithAlpha(screen *ebiten.Image, img *ebiten.Image, alpha float64) {
 	if img == nil {
 		return

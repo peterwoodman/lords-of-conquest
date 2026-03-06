@@ -6,7 +6,6 @@ import (
 	"image"
 	"image/color"
 	"image/gif"
-	"io"
 	_ "image/png"
 	"log"
 	"math/rand"
@@ -488,19 +487,4 @@ func PlayBridgeSound() {
 // IsBridgeMusicPlaying returns true if bridge music is playing
 func IsBridgeMusicPlaying() bool {
 	return bridgeMusic != nil && bridgeMusic.IsPlaying()
-}
-
-// audioLoopReader wraps a reader to loop infinitely
-type audioLoopReader struct {
-	src    io.ReadSeeker
-	length int64
-}
-
-func (r *audioLoopReader) Read(p []byte) (n int, err error) {
-	n, err = r.src.Read(p)
-	if err == io.EOF {
-		r.src.Seek(0, io.SeekStart)
-		return r.Read(p)
-	}
-	return n, err
 }

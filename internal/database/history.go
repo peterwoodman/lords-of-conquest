@@ -63,33 +63,3 @@ func (db *DB) GetGameHistory(gameID string) ([]*HistoryEvent, error) {
 	}
 	return events, rows.Err()
 }
-
-// GetGameHistorySince retrieves history events after a given ID (for incremental updates).
-func (db *DB) GetGameHistorySince(gameID string, afterID int64) ([]*HistoryEvent, error) {
-	rows, err := db.conn.Query(`
-		SELECT id, game_id, round, phase, player_id, player_name, event_type, message, created_at
-		FROM game_history
-		WHERE game_id = ? AND id > ?
-		ORDER BY id ASC
-	`, gameID, afterID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var events []*HistoryEvent
-	for rows.Next() {
-		e := &HistoryEvent{}
-		if err := rows.Scan(&e.ID, &e.GameID, &e.Round, &e.Phase, &e.PlayerID, &e.PlayerName, &e.EventType, &e.Message, &e.CreatedAt); err != nil {
-			return nil, err
-		}
-		events = append(events, e)
-	}
-	return events, rows.Err()
-}
-
-// ClearGameHistory deletes all history for a game (used when game is deleted).
-func (db *DB) ClearGameHistory(gameID string) error {
-	_, err := db.conn.Exec(`DELETE FROM game_history WHERE game_id = ?`, gameID)
-	return err
-}

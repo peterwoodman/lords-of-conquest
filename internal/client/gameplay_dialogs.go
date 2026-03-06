@@ -15,75 +15,6 @@ import (
 	"github.com/hajimehoshi/ebiten/v2/vector"
 )
 
-// drawCombatResult draws the combat result popup
-func (s *GameplayScene) drawCombatResult(screen *ebiten.Image) {
-	if s.combatResult == nil {
-		return
-	}
-
-	// Semi-transparent overlay
-	vector.DrawFilledRect(screen, 0, 0, float32(ScreenWidth), float32(ScreenHeight),
-		color.RGBA{0, 0, 0, 200}, false)
-
-	// Result panel
-	panelW := 380
-	panelH := 240
-	panelX := ScreenWidth/2 - panelW/2
-	panelY := ScreenHeight/2 - panelH/2
-
-	// Panel title based on result
-	if s.combatResult.AttackerWins {
-		DrawFancyPanel(screen, panelX, panelY, panelW, panelH, "VICTORY!")
-	} else {
-		DrawFancyPanel(screen, panelX, panelY, panelW, panelH, "DEFEAT")
-	}
-
-	// Attacker vs Defender line
-	attackerLabel := s.combatResult.AttackerName
-	if attackerLabel == "" {
-		attackerLabel = "Unknown"
-	}
-	defenderLabel := s.combatResult.DefenderName
-	if defenderLabel == "" {
-		defenderLabel = "Unclaimed"
-	}
-	vsText := fmt.Sprintf("%s  vs  %s", attackerLabel, defenderLabel)
-	DrawTextCentered(screen, vsText, ScreenWidth/2, panelY+48, ColorText)
-
-	// Territory name
-	DrawTextCentered(screen, s.combatResult.TargetName, ScreenWidth/2, panelY+68, ColorTextMuted)
-
-	// Strength comparison
-	strengthText := fmt.Sprintf("Attack %d  vs  Defense %d", s.combatResult.AttackStrength, s.combatResult.DefenseStrength)
-	DrawTextCentered(screen, strengthText, ScreenWidth/2, panelY+95, ColorText)
-
-	// Result text
-	var resultText string
-	var resultColor color.RGBA
-	if s.combatResult.AttackerWins {
-		resultText = "Attack Successful!"
-		resultColor = ColorSuccess
-	} else {
-		resultText = "Attack Repulsed!"
-		resultColor = ColorDanger
-	}
-	DrawLargeTextCentered(screen, resultText, ScreenWidth/2, panelY+125, resultColor)
-
-	// Outcome description
-	var outcomeText string
-	if s.combatResult.AttackerWins {
-		outcomeText = fmt.Sprintf("%s captured %s!", attackerLabel, s.combatResult.TargetName)
-	} else {
-		outcomeText = fmt.Sprintf("%s defended %s.", defenderLabel, s.combatResult.TargetName)
-	}
-	DrawTextCentered(screen, outcomeText, ScreenWidth/2, panelY+150, ColorTextMuted)
-
-	// OK button
-	s.dismissResultBtn.X = ScreenWidth/2 - 60
-	s.dismissResultBtn.Y = panelY + panelH - 55
-	s.dismissResultBtn.Draw(screen)
-}
-
 // drawWaterBodySelect draws the water body selection UI for boat placement
 func (s *GameplayScene) drawWaterBodySelect(screen *ebiten.Image) {
 	// Semi-transparent overlay (less opaque so map is visible)
@@ -966,62 +897,6 @@ func (s *GameplayScene) setAlliance(setting string) {
 	s.showAllyMenu = false
 }
 
-// drawAllyRequest draws the alliance request popup
-func (s *GameplayScene) drawAllyRequest(screen *ebiten.Image) {
-	if s.allyRequest == nil {
-		return
-	}
-
-	// Semi-transparent overlay
-	vector.DrawFilledRect(screen, 0, 0, float32(ScreenWidth), float32(ScreenHeight),
-		color.RGBA{0, 0, 0, 200}, false)
-
-	// Popup panel
-	panelW := 400
-	panelH := 220
-	panelX := ScreenWidth/2 - panelW/2
-	panelY := ScreenHeight/2 - panelH/2
-
-	DrawFancyPanel(screen, panelX, panelY, panelW, panelH, "Alliance Request")
-
-	// Battle info
-	y := panelY + 40
-	DrawText(screen, fmt.Sprintf("%s is attacking %s", s.allyRequest.AttackerName, s.allyRequest.DefenderName),
-		panelX+20, y, ColorText)
-	y += 25
-	DrawText(screen, fmt.Sprintf("at %s", s.allyRequest.TerritoryName),
-		panelX+20, y, ColorTextMuted)
-	y += 30
-	DrawText(screen, fmt.Sprintf("Your adjacent strength: %d", s.allyRequest.YourStrength),
-		panelX+20, y, ColorText)
-	y += 30
-
-	// Countdown
-	secondsLeft := s.allyRequestCountdown / 60 // Assuming 60fps
-	DrawText(screen, fmt.Sprintf("Time remaining: %d seconds", secondsLeft),
-		panelX+20, y, ColorTextMuted)
-
-	// Buttons
-	btnY := panelY + panelH - 60
-	btnW := 120
-	spacing := 10
-
-	s.supportAttackerBtn.X = panelX + 20
-	s.supportAttackerBtn.Y = btnY
-	s.supportAttackerBtn.W = btnW
-	s.supportAttackerBtn.Draw(screen)
-
-	s.stayNeutralBtn.X = panelX + 20 + btnW + spacing
-	s.stayNeutralBtn.Y = btnY
-	s.stayNeutralBtn.W = btnW
-	s.stayNeutralBtn.Draw(screen)
-
-	s.supportDefenderBtn.X = panelX + 20 + 2*(btnW+spacing)
-	s.supportDefenderBtn.Y = btnY
-	s.supportDefenderBtn.W = btnW
-	s.supportDefenderBtn.Draw(screen)
-}
-
 // ShowAllianceRequest displays the alliance request popup
 func (s *GameplayScene) ShowAllianceRequest(payload *protocol.AllianceRequestPayload) {
 	s.allyRequest = &AllianceRequestData{
@@ -1119,68 +994,6 @@ func (s *GameplayScene) showNextPhaseSkip() {
 	s.showBottomBarNotification(msg, "OK", func() {
 		s.showNextPhaseSkip()
 	})
-}
-
-// drawPhaseSkip draws the phase skip popup.
-func (s *GameplayScene) drawPhaseSkip(screen *ebiten.Image) {
-	// Semi-transparent overlay
-	vector.DrawFilledRect(screen, 0, 0, float32(ScreenWidth), float32(ScreenHeight),
-		color.RGBA{0, 0, 0, 180}, false)
-
-	// Popup panel
-	panelW := 450
-	panelH := 180
-	panelX := ScreenWidth/2 - panelW/2
-	panelY := ScreenHeight/2 - panelH/2
-
-	DrawFancyPanel(screen, panelX, panelY, panelW, panelH, s.phaseSkipPhase+" Skipped!")
-
-	// Reason text (may need to wrap)
-	reason := s.phaseSkipReason
-	y := panelY + 50
-
-	// Word wrap the reason if too long
-	maxCharsPerLine := 50
-	if len(reason) > maxCharsPerLine {
-		// Simple word wrap
-		words := []string{}
-		start := 0
-		for i := 0; i < len(reason); i++ {
-			if reason[i] == ' ' {
-				words = append(words, reason[start:i])
-				start = i + 1
-			}
-		}
-		if start < len(reason) {
-			words = append(words, reason[start:])
-		}
-
-		line := ""
-		for _, word := range words {
-			if len(line)+len(word)+1 > maxCharsPerLine {
-				DrawText(screen, line, panelX+20, y, ColorText)
-				y += 20
-				line = word
-			} else {
-				if line != "" {
-					line += " "
-				}
-				line += word
-			}
-		}
-		if line != "" {
-			DrawText(screen, line, panelX+20, y, ColorText)
-			y += 20
-		}
-	} else {
-		DrawText(screen, reason, panelX+20, y, ColorText)
-		y += 20
-	}
-
-	// OK button
-	s.dismissSkipBtn.X = panelX + panelW/2 - 50
-	s.dismissSkipBtn.Y = panelY + panelH - 55
-	s.dismissSkipBtn.Draw(screen)
 }
 
 // ShowVictory displays the victory screen.
@@ -1388,56 +1201,6 @@ func (s *GameplayScene) drawResourceAdjuster(screen *ebiten.Image, x, y int, lab
 	DrawTextCentered(screen, "+", plusBtnX+10, minusBtnY+3, ColorText)
 }
 
-// drawTradeIncoming draws the popup for an incoming trade proposal.
-func (s *GameplayScene) drawTradeIncoming(screen *ebiten.Image) {
-	if s.tradeProposal == nil {
-		return
-	}
-
-	needsHorseDest := s.tradeProposal.OfferHorses > 0
-	panelH := 320
-	panelW := 400
-	centerX, centerY := ScreenWidth/2, ScreenHeight/2
-	panelX, panelY := centerX-panelW/2, centerY-panelH/2
-
-	DrawFancyPanel(screen, panelX, panelY, panelW, panelH, "Trade Proposal")
-
-	y := panelY + 50
-	DrawTextCentered(screen, fmt.Sprintf("%s wants to trade with you", s.tradeProposal.FromPlayerName), centerX, y, ColorText)
-
-	y += 40
-	DrawText(screen, "They Offer:", panelX+20, y, ColorSuccess)
-	y += 20
-	offerText := s.formatTradeResources(s.tradeProposal.OfferCoal, s.tradeProposal.OfferGold,
-		s.tradeProposal.OfferIron, s.tradeProposal.OfferTimber, s.tradeProposal.OfferHorses)
-	DrawText(screen, offerText, panelX+30, y, ColorText)
-
-	y += 40
-	DrawText(screen, "They Want:", panelX+20, y, ColorWarning)
-	y += 20
-	requestText := s.formatTradeResources(s.tradeProposal.RequestCoal, s.tradeProposal.RequestGold,
-		s.tradeProposal.RequestIron, s.tradeProposal.RequestTimber, s.tradeProposal.RequestHorses)
-	DrawText(screen, requestText, panelX+30, y, ColorText)
-
-	// Note about horse selection (if receiving horses)
-	if needsHorseDest {
-		y += 40
-		DrawText(screen, "(Horse destinations selected on map after clicking Accept)", panelX+20, y, ColorTextMuted)
-	}
-
-	// Buttons - always allow clicking Accept, will prompt for horse selection after
-	canAccept := true
-
-	s.tradeAcceptBtn.X = centerX - 110
-	s.tradeAcceptBtn.Y = panelY + panelH - 60
-	s.tradeAcceptBtn.Disabled = !canAccept
-	s.tradeAcceptBtn.Draw(screen)
-
-	s.tradeRejectBtn.X = centerX + 10
-	s.tradeRejectBtn.Y = panelY + panelH - 60
-	s.tradeRejectBtn.Draw(screen)
-}
-
 // formatTradeResources formats trade resources for display.
 func (s *GameplayScene) formatTradeResources(coal, gold, iron, timber, horses int) string {
 	parts := make([]string, 0)
@@ -1467,42 +1230,6 @@ func (s *GameplayScene) formatTradeResources(coal, gold, iron, timber, horses in
 		result += p
 	}
 	return result
-}
-
-// drawTradeResult draws the trade result popup.
-func (s *GameplayScene) drawTradeResult(screen *ebiten.Image) {
-	panelW, panelH := 300, 150
-	centerX, centerY := ScreenWidth/2, ScreenHeight/2
-	panelX, panelY := centerX-panelW/2, centerY-panelH/2
-
-	title := "Trade Result"
-	DrawFancyPanel(screen, panelX, panelY, panelW, panelH, title)
-
-	y := panelY + 60
-	if s.tradeResultAccepted {
-		DrawTextCentered(screen, "Trade Accepted!", centerX, y, ColorSuccess)
-	} else {
-		DrawTextCentered(screen, "Trade Declined", centerX, y, ColorWarning)
-	}
-
-	if s.tradeResultMessage != "" {
-		DrawTextCentered(screen, s.tradeResultMessage, centerX, y+25, ColorTextMuted)
-	}
-
-	s.tradeResultOkBtn.X = centerX - 50
-	s.tradeResultOkBtn.Y = panelY + panelH - 50
-	s.tradeResultOkBtn.Draw(screen)
-}
-
-// drawTradeWaiting draws the waiting for trade response indicator.
-func (s *GameplayScene) drawTradeWaiting(screen *ebiten.Image) {
-	panelW, panelH := 300, 100
-	centerX, centerY := ScreenWidth/2, ScreenHeight/2
-	panelX, panelY := centerX-panelW/2, centerY-panelH/2
-
-	DrawFancyPanel(screen, panelX, panelY, panelW, panelH, "")
-	DrawTextCentered(screen, "Waiting for response...", centerX, centerY-10, ColorText)
-	DrawTextCentered(screen, "(60 second timeout)", centerX, centerY+15, ColorTextMuted)
 }
 
 // ==================== Production Animation ====================
@@ -2019,23 +1746,6 @@ func (s *GameplayScene) ShowAttackConfirmation(payload *protocol.AttackPlanResol
 			{TerritoryID: payload.TargetTerritory, Color: color.RGBA{255, 80, 80, 255}},
 		})
 	}
-}
-
-// drawWaitingForAlliance draws the waiting overlay while alliances are being resolved.
-func (s *GameplayScene) drawWaitingForAlliance(screen *ebiten.Image) {
-	// Semi-transparent overlay
-	vector.DrawFilledRect(screen, 0, 0, float32(ScreenWidth), float32(ScreenHeight),
-		color.RGBA{0, 0, 0, 200}, false)
-
-	// Simple centered message
-	panelW, panelH := 350, 120
-	panelX := ScreenWidth/2 - panelW/2
-	panelY := ScreenHeight/2 - panelH/2
-
-	DrawFancyPanel(screen, panelX, panelY, panelW, panelH, "Planning Attack")
-
-	DrawTextCentered(screen, "Waiting for alliance decisions...", ScreenWidth/2, panelY+55, ColorText)
-	DrawTextCentered(screen, "(This may take up to 60 seconds)", ScreenWidth/2, panelY+80, ColorTextMuted)
 }
 
 // drawAttackConfirmation draws the confirmation inside the expanded bottom bar.

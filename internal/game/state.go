@@ -73,18 +73,6 @@ func (p Phase) String() string {
 	}
 }
 
-// NewGame creates a new game with the given settings.
-func NewGame(settings Settings, territories map[string]*Territory, waterBodies map[string]*WaterBody) *GameState {
-	return &GameState{
-		Settings:    settings,
-		Round:       0,
-		Phase:       PhaseTerritorySelection,
-		Players:     make(map[string]*Player),
-		Territories: territories,
-		WaterBodies: waterBodies,
-	}
-}
-
 // AddPlayer adds a player to the game.
 func (g *GameState) AddPlayer(player *Player) {
 	g.Players[player.ID] = player

@@ -373,19 +373,6 @@ func (db *DB) SetAllianceSetting(gameID, playerID, setting string) error {
 	return err
 }
 
-// GetAllianceSetting gets a player's alliance preference.
-func (db *DB) GetAllianceSetting(gameID, playerID string) (string, error) {
-	var setting string
-	err := db.conn.QueryRow(`
-		SELECT COALESCE(alliance_setting, 'ask') FROM game_players 
-		WHERE game_id = ? AND player_id = ?
-	`, gameID, playerID).Scan(&setting)
-	if err != nil {
-		return "ask", err
-	}
-	return setting, nil
-}
-
 // AddAIPlayer adds an AI player to a game.
 func (db *DB) AddAIPlayer(gameID, color, personality string) error {
 	game, err := db.GetGame(gameID)
@@ -498,15 +485,6 @@ func (db *DB) UpdateGameMap(gameID, mapJSON string) error {
 	_, err := db.conn.Exec(`
 		UPDATE games SET map_json = ? WHERE id = ?
 	`, mapJSON, gameID)
-	return err
-}
-
-// LogAction logs a game action.
-func (db *DB) LogAction(gameID, playerID, actionType, actionJSON, resultJSON string) error {
-	_, err := db.conn.Exec(`
-		INSERT INTO game_actions (game_id, player_id, action_type, action_json, result_json)
-		VALUES (?, ?, ?, ?, ?)
-	`, gameID, playerID, actionType, actionJSON, resultJSON)
 	return err
 }
 
