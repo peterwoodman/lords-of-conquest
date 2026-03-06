@@ -20,19 +20,26 @@ func CanSkipPhase(phase Phase, chanceLevel ChanceLevel) bool {
 	if chanceLevel == ChanceLow {
 		return false
 	}
-	return phase == PhaseProduction || phase == PhaseShipment || phase == PhaseTrade
+	return phase == PhaseProduction
 }
 
-// ShouldSkipPhase randomly determines if a phase should be skipped.
+// ShouldSkipPhase randomly determines if a phase should be skipped (25% chance).
 func ShouldSkipPhase(phase Phase, chanceLevel ChanceLevel) bool {
 	if !CanSkipPhase(phase, chanceLevel) {
 		return false
 	}
-	// 25% chance to skip production, shipment, or trade
 	return rand.Float32() < 0.25
 }
 
-// PhaseSkipReasons contains funny/weird reasons for skipping each phase type.
+// ShouldSkipCommerceSubPhase randomly determines if a commerce sub-phase should be skipped.
+func ShouldSkipCommerceSubPhase(subPhase CommerceSubPhase, chanceLevel ChanceLevel) bool {
+	if chanceLevel == ChanceLow {
+		return false
+	}
+	return rand.Float32() < 0.25
+}
+
+// PhaseSkipReasons contains funny/weird reasons for skipping the production phase.
 var PhaseSkipReasons = map[Phase][]string{
 	PhaseProduction: {
 		"A series of snafus prevents production",
@@ -51,7 +58,11 @@ var PhaseSkipReasons = map[Phase][]string{
 		"Superstition halts production",
 		"Fear of the unknown stops work",
 	},
-	PhaseShipment: {
+}
+
+// CommerceSkipReasons contains reasons for skipping commerce sub-phases.
+var CommerceSkipReasons = map[CommerceSubPhase][]string{
+	SubPhaseShipment: {
 		"Glorification of ignorance prevents shipment",
 		"All roads mysteriously blocked",
 		"Horses refuse to move",
@@ -68,7 +79,7 @@ var PhaseSkipReasons = map[Phase][]string{
 		"Maps have been eaten by goats",
 		"Wheels invented in wrong shape",
 	},
-	PhaseTrade: {
+	SubPhaseTrade: {
 		"Merchants refuse to negotiate",
 		"Currency has become worthless",
 		"Everyone forgot how to count",
@@ -96,88 +107,176 @@ func GetSkipReason(phase Phase) string {
 	return reasons[rand.Intn(len(reasons))]
 }
 
-// PhaseSkipInfo contains information about a skipped phase.
+// GetCommerceSkipReason returns a random reason for skipping a commerce sub-phase.
+func GetCommerceSkipReason(subPhase CommerceSubPhase) string {
+	reasons, ok := CommerceSkipReasons[subPhase]
+	if !ok || len(reasons) == 0 {
+		return "Unknown circumstances prevent progress"
+	}
+	return reasons[rand.Intn(len(reasons))]
+}
+
+// PhaseSkipInfo contains information about a skipped phase or commerce sub-phase.
 type PhaseSkipInfo struct {
-	Phase  Phase
-	Reason string
+	Phase    Phase
+	SubPhase string // "Trade" or "Shipment" for commerce sub-phase skips
+	Reason   string
 }
 
 // NextPhase advances to the next phase.
-// Phase order: Development (skipped Year 1) → Production → Trade → Shipment → Conquest
+// Phase order: Development (skipped Year 1) → Production → Commerce → Conquest
 // End-game is checked after Conquest, then round increments.
 func (pm *PhaseManager) NextPhase() (Phase, bool) {
 	s := pm.State
 
 	switch s.Phase {
 	case PhaseTerritorySelection:
-		// Check if all territories are claimed
 		if pm.allTerritoriesClaimed() {
-			// Year 1 starts - skip Development, go straight to Production
 			s.Phase = PhaseProduction
 			s.Round = 1
 			pm.shufflePlayerOrder()
 			return s.Phase, false
 		}
-		// Advance to next player for selection
 		pm.advancePlayerOrder()
 		return s.Phase, false
 
 	case PhaseDevelopment:
-		// Development → Production transition is handled by transitionToProduction()
-		// This case should not be called directly; advanceDevelopmentTurn handles it
 		log.Printf("WARNING: NextPhase called for Development - use advanceDevelopmentTurn instead")
 		s.Phase = PhaseProduction
 		return s.Phase, false
 
 	case PhaseProduction:
-		// After Production → Trade (if 3+ players) or Shipment
-		if len(s.Players) >= 3 {
-			s.Phase = PhaseTrade
-		} else {
-			s.Phase = PhaseShipment
-			// Check for skip
-			if ShouldSkipPhase(PhaseShipment, s.Settings.ChanceLevel) {
-				s.Phase = PhaseConquest
-				return s.Phase, true // skipped
-			}
-		}
-		return s.Phase, false
-
-	case PhaseTrade:
-		s.Phase = PhaseShipment
-		// Check for skip
-		if ShouldSkipPhase(PhaseShipment, s.Settings.ChanceLevel) {
+		if s.InitCommercePhase() {
 			s.Phase = PhaseConquest
-			return s.Phase, true // skipped
+			return s.Phase, true
 		}
 		return s.Phase, false
 
-	case PhaseShipment:
+	case PhaseCommerce:
 		s.Phase = PhaseConquest
 		return s.Phase, false
 
 	case PhaseConquest:
-		// End of round - check for victory BEFORE advancing
-		// Victory conditions are checked at end of round so all players have equal chances
 		if s.IsGameOver() {
 			log.Printf("NextPhase: Game is over at end of round %d - not advancing to next round", s.Round)
-			// Don't change phase - keep in Conquest, game is over
 			return s.Phase, false
 		}
 
-		// Game continues - increment round and go to Development
 		s.Round++
 		log.Printf("NextPhase: Advancing to round %d, Development phase", s.Round)
-		pm.rotatePlayerOrder() // Rotate instead of shuffle for Year 2+
+		pm.rotatePlayerOrder()
 		pm.resetPlayerTurns()
 
-		// Always go to Development first (Year 2+)
-		// Stockpile placement will be handled when Production phase starts
 		s.Phase = PhaseDevelopment
 		return s.Phase, false
 	}
 
 	return s.Phase, false
+}
+
+// InitCommercePhase sets up the Commerce phase, rolling for sub-phase skips.
+// Returns true if the entire phase was skipped (both trade and shipment skipped).
+func (g *GameState) InitCommercePhase() bool {
+	// Trade requires 3+ players; otherwise always skipped
+	if len(g.Players) < 3 {
+		g.CommerceTradeSkipped = true
+	} else {
+		g.CommerceTradeSkipped = ShouldSkipCommerceSubPhase(SubPhaseTrade, g.Settings.ChanceLevel)
+		if g.CommerceTradeSkipped {
+			g.SkippedPhases = append(g.SkippedPhases, PhaseSkipInfo{
+				Phase:    PhaseCommerce,
+				SubPhase: "Trade",
+				Reason:   GetCommerceSkipReason(SubPhaseTrade),
+			})
+			log.Printf("InitCommercePhase: Skipping trade - %s", g.SkippedPhases[len(g.SkippedPhases)-1].Reason)
+		}
+	}
+
+	g.CommerceShipmentSkipped = ShouldSkipCommerceSubPhase(SubPhaseShipment, g.Settings.ChanceLevel)
+	if g.CommerceShipmentSkipped {
+		g.SkippedPhases = append(g.SkippedPhases, PhaseSkipInfo{
+			Phase:    PhaseCommerce,
+			SubPhase: "Shipment",
+			Reason:   GetCommerceSkipReason(SubPhaseShipment),
+		})
+		log.Printf("InitCommercePhase: Skipping shipment - %s", g.SkippedPhases[len(g.SkippedPhases)-1].Reason)
+	}
+
+	if g.CommerceTradeSkipped && g.CommerceShipmentSkipped {
+		log.Printf("InitCommercePhase: Both trade and shipment skipped, skipping Commerce entirely")
+		return true
+	}
+
+	g.Phase = PhaseCommerce
+	g.CurrentPlayerID = g.PlayerOrder[0]
+
+	if !g.CommerceTradeSkipped {
+		g.CommerceSubPhase = SubPhaseTrade
+	} else {
+		g.CommerceSubPhase = SubPhaseShipment
+	}
+
+	log.Printf("InitCommercePhase: Entering Commerce phase, sub-phase=%s, player=%s",
+		g.CommerceSubPhase.String(), g.CurrentPlayerID)
+	return false
+}
+
+// advanceCommerceTurn handles turn advancement within the combined Commerce phase.
+// Each player does trade (if not skipped) then shipment (if not skipped) before
+// advancing to the next player.
+func (g *GameState) advanceCommerceTurn() {
+	// If currently in trade, move to shipment for the same player (unless skipped)
+	if g.CommerceSubPhase == SubPhaseTrade && !g.CommerceShipmentSkipped {
+		g.CommerceSubPhase = SubPhaseShipment
+		log.Printf("advanceCommerceTurn: Player %s moving from trade to shipment", g.CurrentPlayerID)
+		return
+	}
+
+	// Advance to next player
+	currentIdx := -1
+	for i, pid := range g.PlayerOrder {
+		if pid == g.CurrentPlayerID {
+			currentIdx = i
+			break
+		}
+	}
+
+	if currentIdx == -1 || len(g.PlayerOrder) == 0 {
+		return
+	}
+
+	nextIdx := (currentIdx + 1) % len(g.PlayerOrder)
+
+	// Skip eliminated players
+	iterations := 0
+	for g.Players[g.PlayerOrder[nextIdx]] != nil && g.Players[g.PlayerOrder[nextIdx]].Eliminated {
+		nextIdx = (nextIdx + 1) % len(g.PlayerOrder)
+		iterations++
+		if nextIdx == 0 || iterations >= len(g.PlayerOrder) {
+			break
+		}
+	}
+
+	// All players done → transition to Conquest
+	if nextIdx == 0 {
+		g.Phase = PhaseConquest
+		g.CurrentPlayerID = g.PlayerOrder[0]
+		for _, p := range g.Players {
+			p.AttacksRemaining = 2
+		}
+		log.Printf("advanceCommerceTurn: All players done, moving to Conquest")
+		return
+	}
+
+	// Move to next player's first active sub-phase
+	g.CurrentPlayerID = g.PlayerOrder[nextIdx]
+	if !g.CommerceTradeSkipped {
+		g.CommerceSubPhase = SubPhaseTrade
+	} else {
+		g.CommerceSubPhase = SubPhaseShipment
+	}
+	log.Printf("advanceCommerceTurn: Advancing to player %s, sub-phase=%s",
+		g.CurrentPlayerID, g.CommerceSubPhase.String())
 }
 
 // allTerritoriesClaimed checks if territory selection is complete.
@@ -392,9 +491,9 @@ func (pm *PhaseManager) ApplyProductionResults(playerID string, results []Produc
 	}
 }
 
-// SkipTrade allows a player to pass the trade phase without trading.
+// SkipTrade allows a player to pass the trade sub-phase without trading.
 func (g *GameState) SkipTrade(playerID string) error {
-	if g.Phase != PhaseTrade {
+	if g.Phase != PhaseCommerce || g.CommerceSubPhase != SubPhaseTrade {
 		return ErrInvalidAction
 	}
 
@@ -402,53 +501,6 @@ func (g *GameState) SkipTrade(playerID string) error {
 		return ErrNotYourTurn
 	}
 
-	g.advanceTradeTurn()
+	g.advanceCommerceTurn()
 	return nil
-}
-
-// advanceTradeTurn moves to the next player or next phase.
-func (g *GameState) advanceTradeTurn() {
-	currentIdx := -1
-	for i, pid := range g.PlayerOrder {
-		if pid == g.CurrentPlayerID {
-			currentIdx = i
-			break
-		}
-	}
-
-	if currentIdx == -1 || len(g.PlayerOrder) == 0 {
-		return
-	}
-
-	nextIdx := (currentIdx + 1) % len(g.PlayerOrder)
-
-	// Skip eliminated players (safety net, matching shipment/conquest/development)
-	iterations := 0
-	for g.Players[g.PlayerOrder[nextIdx]] != nil && g.Players[g.PlayerOrder[nextIdx]].Eliminated {
-		nextIdx = (nextIdx + 1) % len(g.PlayerOrder)
-		iterations++
-		if nextIdx == 0 || iterations >= len(g.PlayerOrder) {
-			break
-		}
-	}
-
-	// If we've completed all players, move to shipment phase
-	if nextIdx == 0 {
-		// Check for shipment skip
-		if ShouldSkipPhase(PhaseShipment, g.Settings.ChanceLevel) {
-			g.SkippedPhases = append(g.SkippedPhases, PhaseSkipInfo{
-				Phase:  PhaseShipment,
-				Reason: GetSkipReason(PhaseShipment),
-			})
-			log.Printf("Trade phase complete, skipping Shipment - %s", g.SkippedPhases[len(g.SkippedPhases)-1].Reason)
-			g.Phase = PhaseConquest
-		} else {
-			g.Phase = PhaseShipment
-			log.Printf("Trade phase complete, moving to Shipment phase")
-		}
-		g.CurrentPlayerID = g.PlayerOrder[0]
-	} else {
-		g.CurrentPlayerID = g.PlayerOrder[nextIdx]
-		log.Printf("Trade turn advancing to player %s", g.CurrentPlayerID)
-	}
 }

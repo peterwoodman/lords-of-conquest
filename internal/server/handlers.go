@@ -1082,12 +1082,17 @@ func (h *Handlers) broadcastPhaseSkipsWithAck(gameID string, skips []game.PhaseS
 	skip := skips[index]
 	eventID := fmt.Sprintf("skip-%s-%d-%d", gameID, time.Now().UnixNano(), index)
 	skipPayload := protocol.PhaseSkippedPayload{
-		EventID: eventID,
-		Phase:   skip.Phase.String(),
-		Reason:  skip.Reason,
+		EventID:  eventID,
+		Phase:    skip.Phase.String(),
+		SubPhase: skip.SubPhase,
+		Reason:   skip.Reason,
 	}
 
-	log.Printf("Broadcasting phase skip %d/%d: %s - %s", index+1, len(skips), skip.Phase.String(), skip.Reason)
+	displayPhase := skip.Phase.String()
+	if skip.SubPhase != "" {
+		displayPhase = skip.SubPhase
+	}
+	log.Printf("Broadcasting phase skip %d/%d: %s - %s", index+1, len(skips), displayPhase, skip.Reason)
 
 	// Broadcast with ack, then proceed to next skip
 	h.broadcastWithAck(gameID, eventID, protocol.EventPhaseSkip, protocol.TypePhaseSkipped, skipPayload, func() {
@@ -1200,7 +1205,7 @@ func createStatePayload(state *game.GameState, mapData *maps.Map) map[string]int
 		"waterBodies": waterBodies,
 	}
 
-	return map[string]interface{}{
+	result := map[string]interface{}{
 		"gameId":                    state.ID,
 		"round":                     state.Round,
 		"phase":                     state.Phase.String(),
@@ -1216,6 +1221,14 @@ func createStatePayload(state *game.GameState, mapData *maps.Map) map[string]int
 			"victoryCities": state.Settings.VictoryCities,
 		},
 	}
+
+	if state.Phase == game.PhaseCommerce {
+		result["commerceSubPhase"] = state.CommerceSubPhase.String()
+		result["commerceTradeSkipped"] = state.CommerceTradeSkipped
+		result["commerceShipmentSkipped"] = state.CommerceShipmentSkipped
+	}
+
+	return result
 }
 
 // handleSelectTerritory handles territory selection during the initial phase.
@@ -1636,11 +1649,12 @@ func (h *Handlers) checkAndTriggerAI(gameID string) {
 	case game.PhaseProduction:
 		// After round 1, production is automatic - just advance
 		log.Printf("AI: Production is automatic, skipping")
-	case game.PhaseTrade:
-		// AI doesn't trade for now, just skip
-		h.aiSkipTrade(gameID, &state)
-	case game.PhaseShipment:
-		h.aiShipment(gameID, &state)
+	case game.PhaseCommerce:
+		if state.CommerceSubPhase == game.SubPhaseTrade {
+			h.aiSkipTrade(gameID, &state)
+		} else {
+			h.aiShipment(gameID, &state)
+		}
 	case game.PhaseConquest:
 		h.aiConquest(gameID, &state)
 	case game.PhaseDevelopment:
@@ -2513,8 +2527,8 @@ func (h *Handlers) handleProposeTrade(client *Client, msg *protocol.Message) err
 		return err
 	}
 
-	// Check it's trade phase and player's turn
-	if state.Phase != game.PhaseTrade {
+	// Check it's commerce/trade sub-phase and player's turn
+	if state.Phase != game.PhaseCommerce || state.CommerceSubPhase != game.SubPhaseTrade {
 		return game.ErrInvalidAction
 	}
 	if state.CurrentPlayerID != client.PlayerID {
@@ -2777,13 +2791,15 @@ func (h *Handlers) handleEndPhase(client *Client, msg *protocol.Message) error {
 
 	// Handle based on current phase
 	switch state.Phase {
-	case game.PhaseTrade:
-		if err := state.SkipTrade(client.PlayerID); err != nil {
-			return err
-		}
-	case game.PhaseShipment:
-		if err := state.SkipShipment(client.PlayerID); err != nil {
-			return err
+	case game.PhaseCommerce:
+		if state.CommerceSubPhase == game.SubPhaseTrade {
+			if err := state.SkipTrade(client.PlayerID); err != nil {
+				return err
+			}
+		} else {
+			if err := state.SkipShipment(client.PlayerID); err != nil {
+				return err
+			}
 		}
 	case game.PhaseConquest:
 		// End conquest phase for this player

@@ -969,10 +969,8 @@ func (s *LobbyScene) SetYourGames(games []protocol.GameListItem) {
 			switch g.Phase {
 			case "production":
 				phaseName = "Production"
-			case "trade":
-				phaseName = "Trade"
-			case "shipment":
-				phaseName = "Shipment"
+			case "commerce":
+				phaseName = "Commerce"
 			case "conquest":
 				phaseName = "Conquest"
 			case "development":

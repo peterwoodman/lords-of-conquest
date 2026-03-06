@@ -305,37 +305,10 @@ func (g *GameState) transitionToProduction() {
 	log.Printf("transitionToProduction: Production pending, waiting for animation")
 }
 
-// skipToAfterProduction advances past production, checking for additional skips.
+// skipToAfterProduction advances past production, checking for Commerce sub-phase skips.
 func (g *GameState) skipToAfterProduction() {
-	if len(g.Players) >= 3 {
-		if ShouldSkipPhase(PhaseTrade, g.Settings.ChanceLevel) {
-			g.SkippedPhases = append(g.SkippedPhases, PhaseSkipInfo{
-				Phase:  PhaseTrade,
-				Reason: GetSkipReason(PhaseTrade),
-			})
-			log.Printf("skipToAfterProduction: Skipping trade - %s", g.SkippedPhases[len(g.SkippedPhases)-1].Reason)
-			g.Phase = PhaseShipment
-			if ShouldSkipPhase(PhaseShipment, g.Settings.ChanceLevel) {
-				g.SkippedPhases = append(g.SkippedPhases, PhaseSkipInfo{
-					Phase:  PhaseShipment,
-					Reason: GetSkipReason(PhaseShipment),
-				})
-				log.Printf("skipToAfterProduction: Skipping shipment - %s", g.SkippedPhases[len(g.SkippedPhases)-1].Reason)
-				g.Phase = PhaseConquest
-			}
-		} else {
-			g.Phase = PhaseTrade
-		}
-	} else {
-		g.Phase = PhaseShipment
-		if ShouldSkipPhase(PhaseShipment, g.Settings.ChanceLevel) {
-			g.SkippedPhases = append(g.SkippedPhases, PhaseSkipInfo{
-				Phase:  PhaseShipment,
-				Reason: GetSkipReason(PhaseShipment),
-			})
-			log.Printf("skipToAfterProduction: Skipping shipment - %s", g.SkippedPhases[len(g.SkippedPhases)-1].Reason)
-			g.Phase = PhaseConquest
-		}
+	if g.InitCommercePhase() {
+		g.Phase = PhaseConquest
 	}
 }
 
@@ -344,38 +317,8 @@ func (g *GameState) skipToAfterProduction() {
 func (g *GameState) CompleteProduction() {
 	g.ProductionPending = false
 
-	// Advance to next phase after production
-	if len(g.Players) >= 3 {
-		// Check if trade should be skipped
-		if ShouldSkipPhase(PhaseTrade, g.Settings.ChanceLevel) {
-			g.SkippedPhases = append(g.SkippedPhases, PhaseSkipInfo{
-				Phase:  PhaseTrade,
-				Reason: GetSkipReason(PhaseTrade),
-			})
-			log.Printf("CompleteProduction: Skipping trade phase - %s", g.SkippedPhases[len(g.SkippedPhases)-1].Reason)
-			g.Phase = PhaseShipment
-			// Check shipment skip too
-			if ShouldSkipPhase(PhaseShipment, g.Settings.ChanceLevel) {
-				g.SkippedPhases = append(g.SkippedPhases, PhaseSkipInfo{
-					Phase:  PhaseShipment,
-					Reason: GetSkipReason(PhaseShipment),
-				})
-				log.Printf("CompleteProduction: Skipping shipment phase - %s", g.SkippedPhases[len(g.SkippedPhases)-1].Reason)
-				g.Phase = PhaseConquest
-			}
-		} else {
-			g.Phase = PhaseTrade
-		}
-	} else {
-		g.Phase = PhaseShipment
-		if ShouldSkipPhase(PhaseShipment, g.Settings.ChanceLevel) {
-			g.SkippedPhases = append(g.SkippedPhases, PhaseSkipInfo{
-				Phase:  PhaseShipment,
-				Reason: GetSkipReason(PhaseShipment),
-			})
-			log.Printf("CompleteProduction: Skipping shipment phase - %s", g.SkippedPhases[len(g.SkippedPhases)-1].Reason)
-			g.Phase = PhaseConquest
-		}
+	if g.InitCommercePhase() {
+		g.Phase = PhaseConquest
 	}
 
 	log.Printf("CompleteProduction: Advanced to phase %s", g.Phase.String())

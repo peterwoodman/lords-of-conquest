@@ -3,7 +3,7 @@ package game
 // MoveStockpile moves a player's stockpile to an adjacent owned territory.
 func (g *GameState) MoveStockpile(playerID, destinationID string) error {
 	// Validate phase
-	if g.Phase != PhaseShipment {
+	if g.Phase != PhaseCommerce || g.CommerceSubPhase != SubPhaseShipment {
 		return ErrInvalidAction
 	}
 
@@ -35,7 +35,7 @@ func (g *GameState) MoveStockpile(playerID, destinationID string) error {
 
 	// Can stay in same territory (effectively a pass)
 	if player.StockpileTerritory == destinationID {
-		g.advanceShipmentTurn()
+		g.advanceCommerceTurn()
 		return nil
 	}
 
@@ -48,7 +48,7 @@ func (g *GameState) MoveStockpile(playerID, destinationID string) error {
 	player.StockpileTerritory = destinationID
 
 	// Advance to next player
-	g.advanceShipmentTurn()
+	g.advanceCommerceTurn()
 
 	return nil
 }
@@ -56,7 +56,7 @@ func (g *GameState) MoveStockpile(playerID, destinationID string) error {
 // MoveUnit moves a unit from one territory to another.
 func (g *GameState) MoveUnit(playerID, unitType, fromID, toID, waterBodyID string, carryHorse, carryWeapon bool) error {
 	// Validate phase
-	if g.Phase != PhaseShipment {
+	if g.Phase != PhaseCommerce || g.CommerceSubPhase != SubPhaseShipment {
 		return ErrInvalidAction
 	}
 
@@ -124,7 +124,7 @@ func (g *GameState) moveHorse(player *Player, from, to *Territory, carryWeapon b
 		to.HasWeapon = true
 	}
 
-	g.advanceShipmentTurn()
+	g.advanceCommerceTurn()
 	return nil
 }
 
@@ -148,7 +148,7 @@ func (g *GameState) moveWeapon(player *Player, from, to *Territory) error {
 	from.HasWeapon = false
 	to.HasWeapon = true
 
-	g.advanceShipmentTurn()
+	g.advanceCommerceTurn()
 	return nil
 }
 
@@ -232,14 +232,14 @@ func (g *GameState) moveBoat(player *Player, from, to *Territory, waterBodyID st
 		// If destination already has weapon, the carried one is lost
 	}
 
-	g.advanceShipmentTurn()
+	g.advanceCommerceTurn()
 	return nil
 }
 
 // SkipShipment allows a player to pass without moving anything.
 func (g *GameState) SkipShipment(playerID string) error {
 	// Validate phase
-	if g.Phase != PhaseShipment {
+	if g.Phase != PhaseCommerce || g.CommerceSubPhase != SubPhaseShipment {
 		return ErrInvalidAction
 	}
 
@@ -248,53 +248,8 @@ func (g *GameState) SkipShipment(playerID string) error {
 		return ErrNotYourTurn
 	}
 
-	g.advanceShipmentTurn()
+	g.advanceCommerceTurn()
 	return nil
-}
-
-// advanceShipmentTurn moves to the next player or next phase.
-func (g *GameState) advanceShipmentTurn() {
-	// Find next player
-	currentIdx := -1
-	for i, pid := range g.PlayerOrder {
-		if pid == g.CurrentPlayerID {
-			currentIdx = i
-			break
-		}
-	}
-
-	if currentIdx == -1 || len(g.PlayerOrder) == 0 {
-		return
-	}
-
-	// Check if all players have gone (we're back at the start)
-	nextIdx := (currentIdx + 1) % len(g.PlayerOrder)
-
-	// If we've completed all players, move to conquest phase
-	if nextIdx == 0 {
-		g.Phase = PhaseConquest
-		g.CurrentPlayerID = g.PlayerOrder[0]
-		// Reset attacks for all players
-		for _, p := range g.Players {
-			p.AttacksRemaining = 2
-		}
-	} else {
-		// Skip eliminated players (with safety counter to prevent infinite loop)
-		iterations := 0
-		for g.Players[g.PlayerOrder[nextIdx]] != nil && g.Players[g.PlayerOrder[nextIdx]].Eliminated {
-			nextIdx = (nextIdx + 1) % len(g.PlayerOrder)
-			iterations++
-			if nextIdx == 0 || iterations >= len(g.PlayerOrder) {
-				g.Phase = PhaseConquest
-				g.CurrentPlayerID = g.PlayerOrder[0]
-				for _, p := range g.Players {
-					p.AttacksRemaining = 2
-				}
-				return
-			}
-		}
-		g.CurrentPlayerID = g.PlayerOrder[nextIdx]
-	}
 }
 
 // canReachTerritory checks if a territory is reachable from another for stockpile movement.

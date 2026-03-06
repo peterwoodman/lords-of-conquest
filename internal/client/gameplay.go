@@ -38,6 +38,7 @@ type GameplayScene struct {
 	players            map[string]interface{}
 	playerOrder        []interface{}
 	currentPhase       string
+	commerceSubPhase   string // "Trade" or "Shipment" during Commerce phase
 	currentTurn        string
 	round              int
 	territoryQueue     []string // Client-side queue of territory IDs for auto-selection
@@ -1232,8 +1233,8 @@ func (s *GameplayScene) Update() error {
 
 	// Alliance request countdown is now handled in the bottomBarMediumMode block above
 
-	// Handle shipment phase controls (no blocking - controls are in status bar)
-	if s.currentPhase == "Shipment" && s.currentTurn == s.game.config.PlayerID {
+	// Handle shipment controls during Commerce/Shipment sub-phase
+	if s.currentPhase == "Commerce" && s.commerceSubPhase == "Shipment" && s.currentTurn == s.game.config.PlayerID {
 		s.moveStockpileBtn.Update()
 		s.moveHorseBtn.Update()
 		s.moveBoatBtn.Update()
@@ -1255,8 +1256,8 @@ func (s *GameplayScene) Update() error {
 		s.endPhaseBtn.Update()
 	}
 
-	// Update trade button during trade phase
-	if isMyTurn && s.currentPhase == "Trade" {
+	// Update trade button during Commerce/Trade sub-phase
+	if isMyTurn && s.currentPhase == "Commerce" && s.commerceSubPhase == "Trade" {
 		s.proposeTradeBtn.Update()
 	}
 
@@ -1312,7 +1313,7 @@ func (s *GameplayScene) Update() error {
 
 // isActionPhase returns true if we're in a phase where the player can take actions and end their turn.
 func (s *GameplayScene) isActionPhase() bool {
-	return s.currentPhase == "Trade" || s.currentPhase == "Shipment" || s.currentPhase == "Conquest" || s.currentPhase == "Development"
+	return s.currentPhase == "Commerce" || s.currentPhase == "Conquest" || s.currentPhase == "Development"
 }
 
 // isMouseOverUI returns true if the mouse cursor is over a UI element

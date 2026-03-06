@@ -206,7 +206,7 @@ func (s *GameplayScene) drawLeftSidebar(screen *ebiten.Image) {
 // Returns the panel height so the caller can position subsequent panels.
 func (s *GameplayScene) drawYearPhasePanel(screen *ebiten.Image, x, y, w int) int {
 	lineHeight := 17
-	phases := []string{"Development", "Production", "Trade", "Shipment", "Conquest"}
+	phases := []string{"Development", "Production", "Commerce", "Conquest"}
 
 	// Calculate height up front
 	panelH := 10 + len(phases)*lineHeight + 8
@@ -236,7 +236,11 @@ func (s *GameplayScene) drawYearPhasePanel(screen *ebiten.Image, x, y, w int) in
 
 			if phase == s.currentPhase {
 				textColor = ColorSuccess
-				displayText = "> " + phase
+				label := phase
+				if phase == "Commerce" && s.commerceSubPhase != "" {
+					label = "Commerce (" + s.commerceSubPhase + ")"
+				}
+				displayText = "> " + label
 				vector.DrawFilledRect(screen, float32(phaseX-2), float32(phaseY-2),
 					float32(int(MeasureText(displayText, FontSizeBody))+4), float32(lineHeight), color.RGBA{40, 80, 40, 255}, false)
 			}
@@ -730,22 +734,21 @@ func (s *GameplayScene) drawBottomBar(screen *ebiten.Image) {
 		// Normal production (stockpile already placed)
 		instruction = "Resources are being produced automatically"
 
-	case "Trade":
-		if isMyTurn {
-			// Draw trade-specific controls
-			s.drawTradeControls(screen, rightX, barY, barX+barW)
-			return // Exit early - we draw our own instructions and buttons
+	case "Commerce":
+		if s.commerceSubPhase == "Trade" {
+			if isMyTurn {
+				s.drawTradeControls(screen, rightX, barY, barX+barW)
+				return
+			} else {
+				instruction = "Waiting for other player to trade..."
+			}
 		} else {
-			instruction = "Waiting for other player to trade..."
-		}
-
-	case "Shipment":
-		if isMyTurn {
-			// Shipment controls are drawn separately
-			s.drawShipmentControls(screen, rightX, barY, barX+barW)
-			return // Exit early - we draw our own instructions
-		} else {
-			instruction = "Waiting for other player to move units..."
+			if isMyTurn {
+				s.drawShipmentControls(screen, rightX, barY, barX+barW)
+				return
+			} else {
+				instruction = "Waiting for other player to move units..."
+			}
 		}
 
 	case "Conquest":
@@ -1544,5 +1547,8 @@ func (s *GameplayScene) drawTurnToast(screen *ebiten.Image) {
 
 	// Draw phase name below - smaller, muted
 	phaseText := s.currentPhase
+	if s.currentPhase == "Commerce" && s.commerceSubPhase != "" {
+		phaseText = "Commerce (" + s.commerceSubPhase + ")"
+	}
 	DrawTextCentered(screen, phaseText, toastX+toastW/2, toastY+42, ColorTextMuted)
 }

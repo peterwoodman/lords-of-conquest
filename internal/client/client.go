@@ -980,9 +980,13 @@ func (g *Game) handleMessage(msg *protocol.Message) {
 			log.Printf("Failed to parse phase skipped: %v", err)
 			return
 		}
-		// Show phase skip popup in gameplay scene
-		g.gameplayScene.ShowPhaseSkipped(payload.EventID, payload.Phase, payload.Reason)
-		log.Printf("Phase skipped: %s - %s (event: %s)", payload.Phase, payload.Reason, payload.EventID)
+		// For commerce sub-phase skips, show the sub-phase name instead of "Commerce"
+		displayPhase := payload.Phase
+		if payload.SubPhase != "" {
+			displayPhase = payload.SubPhase
+		}
+		g.gameplayScene.ShowPhaseSkipped(payload.EventID, displayPhase, payload.Reason)
+		log.Printf("Phase skipped: %s - %s (event: %s)", displayPhase, payload.Reason, payload.EventID)
 
 	case protocol.TypeProductionResults:
 		var payload protocol.ProductionResultsPayload

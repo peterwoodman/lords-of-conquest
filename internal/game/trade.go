@@ -20,7 +20,7 @@ type TradeOffer struct {
 // ValidateTrade checks if a trade offer is valid (proposer has resources).
 func (g *GameState) ValidateTrade(offer *TradeOffer) error {
 	// Validate phase
-	if g.Phase != PhaseTrade {
+	if g.Phase != PhaseCommerce || g.CommerceSubPhase != SubPhaseTrade {
 		return ErrInvalidAction
 	}
 

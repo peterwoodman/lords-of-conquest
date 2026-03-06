@@ -197,6 +197,7 @@ type GameStartedPayload struct {
 // PhaseChangedPayload is sent when the phase changes.
 type PhaseChangedPayload struct {
 	Phase         string `json:"phase"`
+	SubPhase      string `json:"sub_phase,omitempty"` // "Trade" or "Shipment" during Commerce phase
 	Round         int    `json:"round"`
 	Skipped       bool   `json:"skipped"`
 	CurrentPlayer string `json:"current_player"`
@@ -247,9 +248,10 @@ type GameEndedPayload struct {
 
 // PhaseSkippedPayload is sent when a phase is skipped due to chance.
 type PhaseSkippedPayload struct {
-	EventID string `json:"event_id"` // For sync acknowledgment
-	Phase   string `json:"phase"`    // The phase that was skipped
-	Reason  string `json:"reason"`   // Funny reason for skipping
+	EventID  string `json:"event_id"`            // For sync acknowledgment
+	Phase    string `json:"phase"`               // The phase that was skipped
+	SubPhase string `json:"sub_phase,omitempty"` // "Trade" or "Shipment" for Commerce sub-phase skips
+	Reason   string `json:"reason"`              // Funny reason for skipping
 }
 
 // ==================== Action Payloads ====================

@@ -37,10 +37,12 @@ func (s *GameplayScene) handleCellClick(x, y int) {
 		s.handleTerritorySelection(tid)
 	case "Production":
 		s.handleStockpilePlacement(tid)
-	case "Trade":
-		s.handleTrade(tid)
-	case "Shipment":
-		s.handleShipment(tid)
+	case "Commerce":
+		if s.commerceSubPhase == "Trade" {
+			s.handleTrade(tid)
+		} else {
+			s.handleShipment(tid)
+		}
 	case "Conquest":
 		s.handleConquest(tid)
 	case "Development":

@@ -70,8 +70,15 @@ func (s *GameplayScene) applyGameState(state map[string]interface{}) {
 	}
 
 	if phase, ok := state["phase"].(string); ok {
-		// Clear selection and close menus when phase changes
-		if s.currentPhase != phase {
+		newSubPhase := ""
+		if phase == "Commerce" {
+			if sp, ok := state["commerceSubPhase"].(string); ok {
+				newSubPhase = sp
+			}
+		}
+
+		// Clear selection and close menus when phase or sub-phase changes
+		if s.currentPhase != phase || s.commerceSubPhase != newSubPhase {
 			s.selectedTerritory = ""
 			s.shipmentMode = ""
 			s.shipmentFromTerritory = ""
@@ -83,14 +90,17 @@ func (s *GameplayScene) applyGameState(state map[string]interface{}) {
 				s.territoryQueue = nil
 			}
 
-			// Reset development phase UI state when entering Development phase
 			if phase == "Development" {
 				s.buildUseGold = false
 				s.selectedBuildType = ""
 			}
 		}
 		s.currentPhase = phase
+		s.commerceSubPhase = newSubPhase
 		log.Printf("Phase: %s", phase)
+		if newSubPhase != "" {
+			log.Printf("Commerce sub-phase: %s", newSubPhase)
+		}
 	}
 
 	if turn, ok := state["currentPlayerId"].(string); ok {

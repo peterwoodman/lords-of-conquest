@@ -75,10 +75,11 @@ A modern client/server implementation of the classic 1986 strategy game "Lords o
 
 ### Game Phases (per Round)
 1. **Production** (25% chance to skip) - Resources generated based on controlled territories
-2. **Trade** (3+ players only) - Negotiate resource exchanges
-3. **Shipment** (25% chance to skip) - Move stockpile OR one unit
-4. **Conquest** - Up to 2 attacks; failing first attack ends phase
-5. **Development** - Purchase cities, weapons, boats
+2. **Commerce** - Combined trade and shipment phase; each player trades then ships before the next player goes
+   - *Trade sub-phase* (3+ players only, 25% chance to skip) - Negotiate resource exchanges
+   - *Shipment sub-phase* (25% chance to skip) - Move stockpile OR one unit
+3. **Conquest** - Up to 2 attacks; failing first attack ends phase
+4. **Development** - Purchase cities, weapons, boats
 
 ### Combat System
 - **Attack Strength**: Sum of adjacent owned territories + unit bonuses

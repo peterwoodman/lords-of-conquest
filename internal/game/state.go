@@ -21,6 +21,9 @@ type GameState struct {
 	SkippedPhases             []PhaseSkipInfo       `json:"skippedPhases,omitempty"`             // Phases skipped in last transition
 	ProductionPending         bool                  `json:"productionPending,omitempty"`         // True when production animation should play
 	StockpilePlacementPending bool                  `json:"stockpilePlacementPending,omitempty"` // True when players need to place stockpiles
+	CommerceSubPhase          CommerceSubPhase      `json:"commerceSubPhase,omitempty"`          // Current sub-phase within Commerce
+	CommerceTradeSkipped      bool                  `json:"commerceTradeSkipped,omitempty"`      // True if trade was skipped this round
+	CommerceShipmentSkipped   bool                  `json:"commerceShipmentSkipped,omitempty"`   // True if shipment was skipped this round
 }
 
 // Settings contains the configurable game parameters.
@@ -48,9 +51,8 @@ const (
 	PhaseTerritorySelection Phase = iota
 	PhaseDevelopment              // First in year (but skipped in Year 1)
 	PhaseProduction
-	PhaseTrade
-	PhaseShipment
-	PhaseConquest // Last in year - end-game checked after this
+	PhaseCommerce  // Combined trade + shipment phase
+	PhaseConquest  // Last in year - end-game checked after this
 )
 
 // String returns the phase name.
@@ -60,14 +62,32 @@ func (p Phase) String() string {
 		return "Territory Selection"
 	case PhaseProduction:
 		return "Production"
-	case PhaseTrade:
-		return "Trade"
-	case PhaseShipment:
-		return "Shipment"
+	case PhaseCommerce:
+		return "Commerce"
 	case PhaseConquest:
 		return "Conquest"
 	case PhaseDevelopment:
 		return "Development"
+	default:
+		return "Unknown"
+	}
+}
+
+// CommerceSubPhase tracks which part of the Commerce phase a player is in.
+type CommerceSubPhase int
+
+const (
+	SubPhaseTrade    CommerceSubPhase = iota
+	SubPhaseShipment
+)
+
+// String returns the sub-phase name.
+func (sp CommerceSubPhase) String() string {
+	switch sp {
+	case SubPhaseTrade:
+		return "Trade"
+	case SubPhaseShipment:
+		return "Shipment"
 	default:
 		return "Unknown"
 	}
