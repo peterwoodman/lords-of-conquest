@@ -2007,17 +2007,13 @@ func (h *Handlers) aiConquest(gameID string, state *game.GameState) {
 				return
 			}
 
-			// Use broadcastWithAck to wait for clients before proceeding
-			// Capture state for the closure
-			stateCopy := state
-			h.broadcastWithAck(gameID, eventID, protocol.EventCombat, protocol.TypeActionResult, combatResult, func() {
-				// Called after all clients acknowledge (or timeout)
-				if !h.saveAndBroadcastAIState(gameID, stateCopy) {
-					go h.checkAndTriggerAI(gameID)
-				}
-			})
+			// Broadcast combat result and immediately proceed
+			h.hub.notifyGamePlayers(gameID, protocol.TypeActionResult, combatResult)
+			if !h.saveAndBroadcastAIState(gameID, state) {
+				go h.checkAndTriggerAI(gameID)
+			}
 		}
-		return // Don't fall through - we're waiting for ack
+		return
 	}
 
 	// No favorable attacks - end conquest
@@ -3606,16 +3602,15 @@ func (h *Handlers) finishAttack(client *Client, state *game.GameState, result *g
 		return
 	}
 
-	// Broadcast combat result and wait for acknowledgment
+	// Broadcast combat result and immediately proceed
 	eventID := fmt.Sprintf("combat-%s-%d", client.GameID, time.Now().UnixNano())
 	combatResult := buildCombatResult(eventID)
 
 	gameID := client.GameID
-	h.broadcastWithAck(gameID, eventID, protocol.EventCombat, protocol.TypeActionResult, combatResult, func() {
-		if !h.broadcastGameState(gameID) {
-			go h.checkAndTriggerAI(gameID)
-		}
-	})
+	h.hub.notifyGamePlayers(gameID, protocol.TypeActionResult, combatResult)
+	if !h.broadcastGameState(gameID) {
+		go h.checkAndTriggerAI(gameID)
+	}
 }
 
 // executeCardAttack handles card combat mode attacks.

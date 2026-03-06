@@ -474,6 +474,7 @@ func (s *GameplayScene) startCombatAnimation(result *CombatResultData) {
 }
 
 // showCombatResultAsNotification shows the combat result in the bottom bar notification.
+// The notification auto-dismisses and does not block input.
 func (s *GameplayScene) showCombatResultAsNotification() {
 	if s.combatResult == nil {
 		return
@@ -485,18 +486,14 @@ func (s *GameplayScene) showCombatResultAsNotification() {
 	} else {
 		msg = fmt.Sprintf("ATTACK REPULSED! %s defended %s -- Atk: %d vs Def: %d", r.DefenderName, r.TargetName, r.AttackStrength, r.DefenseStrength)
 	}
-	s.showBottomBarNotification(msg, "OK", func() {
+	s.showBottomBarNotification(msg, "", func() {
 		s.dismissCombatResult()
 	})
+	s.bottomBarNotifAutoTimer = 240 // 4 seconds at 60fps
 }
 
-// dismissCombatResult dismisses the combat result and sends ack to the server.
+// dismissCombatResult dismisses the combat result notification.
 func (s *GameplayScene) dismissCombatResult() {
-	// Send acknowledgment for this combat result
-	if s.combatResult != nil && s.combatResult.EventID != "" {
-		s.game.SendClientReady(s.combatResult.EventID, protocol.EventCombat)
-	}
-
 	s.showCombatResult = false
 	s.combatResult = nil
 	s.ClearHighlightedTerritories()

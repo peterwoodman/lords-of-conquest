@@ -472,6 +472,7 @@ func (s *GameplayScene) dismissBottomBarNotification() {
 	s.bottomBarNotification = ""
 	s.bottomBarNotifAction = nil
 	s.bottomBarNotifBtnText = ""
+	s.bottomBarNotifAutoTimer = 0
 	s.ResetBarHeight()
 }
 
@@ -483,6 +484,11 @@ func (s *GameplayScene) drawBottomBarNotification(screen *ebiten.Image) {
 
 	// Draw the notification text
 	DrawLargeText(screen, s.bottomBarNotification, barX+20, barY+15, ColorText)
+
+	// Skip button for auto-dismissing notifications
+	if s.bottomBarNotifAutoTimer > 0 {
+		return
+	}
 
 	// Draw dismiss button
 	btnText := s.bottomBarNotifBtnText

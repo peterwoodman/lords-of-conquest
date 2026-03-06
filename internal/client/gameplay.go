@@ -329,6 +329,7 @@ type GameplayScene struct {
 	bottomBarNotifAction     func() // Action for the OK/dismiss button
 	bottomBarNotifBtnText    string // Text for the dismiss button (default "OK")
 	bottomBarNotifDismissBtn *Button
+	bottomBarNotifAutoTimer  int // When > 0, auto-dismiss after this many frames (non-blocking)
 
 	// Bottom bar medium interaction mode (replaces medium modal dialogs)
 	// These have inline action buttons but stay at 100px height
@@ -946,11 +947,18 @@ func (s *GameplayScene) Update() error {
 
 	// Handle bottom bar notification (replaces combat result, card drawn, phase skip, trade result popups)
 	if s.bottomBarNotification != "" {
-		s.bottomBarNotifDismissBtn.Update()
-		if inpututil.IsKeyJustPressed(ebiten.KeyEscape) || inpututil.IsKeyJustPressed(ebiten.KeyEnter) {
-			s.dismissBottomBarNotification()
+		if s.bottomBarNotifAutoTimer > 0 {
+			s.bottomBarNotifAutoTimer--
+			if s.bottomBarNotifAutoTimer <= 0 {
+				s.dismissBottomBarNotification()
+			}
+		} else {
+			s.bottomBarNotifDismissBtn.Update()
+			if inpututil.IsKeyJustPressed(ebiten.KeyEscape) || inpututil.IsKeyJustPressed(ebiten.KeyEnter) {
+				s.dismissBottomBarNotification()
+			}
+			return nil // Block other input while showing notification
 		}
-		return nil // Block other input while showing notification
 	}
 
 	// Handle bottom bar medium interaction (replaces alliance request, trade incoming popups)
