@@ -90,6 +90,13 @@ func (s *GameplayScene) drawMap(screen *ebiten.Image) {
 				cellColor.B = min(cellColor.B+60, 255)
 			}
 
+			// Tint queued territories with a blue-ish highlight
+			if s.currentPhase == "Territory Selection" && s.territoryQueueIndex(tid) >= 0 {
+				cellColor.R = min(cellColor.R+20, 255)
+				cellColor.G = min(cellColor.G+30, 255)
+				cellColor.B = min(cellColor.B+70, 255)
+			}
+
 			// Calculate insets based on borders with different territories
 			leftInset := float32(0)
 			topInset := float32(0)
@@ -219,6 +226,9 @@ func (s *GameplayScene) drawMap(screen *ebiten.Image) {
 
 	// Draw pulsing highlights on selected territories
 	s.drawTerritoryHighlights(screen, width, height, grid)
+
+	// Draw queue numbers on pre-selected territories
+	s.drawTerritoryQueueNumbers(screen)
 }
 
 // drawTerritoryBoundaries draws lines between different territories with rounded corners
@@ -866,6 +876,47 @@ func (s *GameplayScene) SetHighlightedTerritories(highlights []TerritoryHighligh
 // ClearHighlightedTerritories removes all territory highlights.
 func (s *GameplayScene) ClearHighlightedTerritories() {
 	s.highlightedTerritories = nil
+}
+
+// drawTerritoryQueueNumbers renders numbered badges on territories in the pre-selection queue.
+func (s *GameplayScene) drawTerritoryQueueNumbers(screen *ebiten.Image) {
+	if len(s.territoryQueue) == 0 || s.currentPhase != "Territory Selection" {
+		return
+	}
+	if s.mapData == nil {
+		return
+	}
+
+	grid := s.mapData["grid"].([]interface{})
+
+	for i, terrID := range s.territoryQueue {
+		cells := s.findTerritoryCells(terrID, grid)
+		if len(cells) == 0 {
+			continue
+		}
+		cell := cells[0]
+		sx, sy := s.gridToScreen(cell[0], cell[1])
+		cx := float32(sx + s.cellSize/2)
+		cy := float32(sy + s.cellSize/2)
+
+		radius := float32(s.cellSize) * 0.38
+		if radius < 6 {
+			radius = 6
+		}
+
+		vector.DrawFilledCircle(screen, cx, cy, radius+1, color.RGBA{0, 0, 0, 180}, false)
+		vector.DrawFilledCircle(screen, cx, cy, radius, color.RGBA{30, 90, 200, 220}, false)
+
+		numStr := fmt.Sprintf("%d", i+1)
+		fontSize := float64(s.cellSize) * 0.55
+		if fontSize < 8 {
+			fontSize = 8
+		}
+		if fontSize > 18 {
+			fontSize = 18
+		}
+		drawTextTTF(screen, numStr, int(cx), int(cy-float32(fontSize)/2), fontSize, color.RGBA{255, 255, 255, 255}, true)
+	}
 }
 
 // AutoPanToTerritory smoothly pans the map to center a territory in the visible area.

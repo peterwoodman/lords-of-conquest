@@ -717,9 +717,13 @@ func (s *GameplayScene) drawBottomBar(screen *ebiten.Image) {
 	switch s.currentPhase {
 	case "Territory Selection":
 		if isMyTurn {
-			instruction = "Click an unclaimed territory to claim it"
+			if len(s.territoryQueue) > 0 {
+				instruction = "Auto-selecting from queue..."
+			} else {
+				instruction = "Click an unclaimed territory to claim it"
+			}
 		} else {
-			instruction = "Waiting for other player to select..."
+			instruction = "Click territories to queue your next picks"
 		}
 
 	case "Production":

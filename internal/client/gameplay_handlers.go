@@ -51,18 +51,47 @@ func (s *GameplayScene) handleCellClick(x, y int) {
 }
 
 func (s *GameplayScene) handleTerritorySelection(territoryID string) {
-	// Check if it's our turn
-	if s.currentTurn != s.game.config.PlayerID {
+	terr, ok := s.territories[territoryID].(map[string]interface{})
+	if !ok {
+		return
+	}
+	owner := terr["owner"].(string)
+	if owner != "" {
 		return
 	}
 
-	if terr, ok := s.territories[territoryID].(map[string]interface{}); ok {
-		owner := terr["owner"].(string)
-		if owner == "" {
-			// Unclaimed, we can select it
-			s.game.SelectTerritory(territoryID)
+	// Toggle: if already queued, remove it; otherwise append it
+	if idx := s.territoryQueueIndex(territoryID); idx >= 0 {
+		s.territoryQueue = append(s.territoryQueue[:idx], s.territoryQueue[idx+1:]...)
+		return
+	}
+	s.territoryQueue = append(s.territoryQueue, territoryID)
+
+	s.tryAutoSubmitTerritory()
+}
+
+func (s *GameplayScene) territoryQueueIndex(territoryID string) int {
+	for i, id := range s.territoryQueue {
+		if id == territoryID {
+			return i
 		}
 	}
+	return -1
+}
+
+func (s *GameplayScene) tryAutoSubmitTerritory() {
+	if s.currentPhase != "Territory Selection" {
+		return
+	}
+	if s.currentTurn != s.game.config.PlayerID {
+		return
+	}
+	if len(s.territoryQueue) == 0 {
+		return
+	}
+	pick := s.territoryQueue[0]
+	s.territoryQueue = s.territoryQueue[1:]
+	s.game.SelectTerritory(pick)
 }
 
 func (s *GameplayScene) handleStockpilePlacement(territoryID string) {

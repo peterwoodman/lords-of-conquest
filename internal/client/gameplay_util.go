@@ -47,6 +47,10 @@ func (s *GameplayScene) applyGameState(state map[string]interface{}) {
 		s.territories = territories
 		s.missingTerritories = nil // Reset for new state
 		log.Printf("Loaded %d territories", len(territories))
+
+		// Prune territory queue: if an opponent claimed a queued territory,
+		// truncate from that point so the player can re-plan.
+		s.pruneTerritoryQueue()
 	} else {
 		log.Println("No territories in state")
 	}
@@ -75,6 +79,10 @@ func (s *GameplayScene) applyGameState(state map[string]interface{}) {
 			s.shipmentCarryWeapon = false
 			s.shipmentWaterBodyID = ""
 
+			if phase != "Territory Selection" {
+				s.territoryQueue = nil
+			}
+
 			// Reset development phase UI state when entering Development phase
 			if phase == "Development" {
 				s.buildUseGold = false
@@ -101,6 +109,8 @@ func (s *GameplayScene) applyGameState(state map[string]interface{}) {
 		}
 		s.currentTurn = turn
 		log.Printf("Current turn: %s", turn)
+
+		s.tryAutoSubmitTerritory()
 	}
 
 	// After first state load, clear the initial load flag
@@ -193,6 +203,23 @@ func min(a, b uint8) uint8 {
 		return a
 	}
 	return b
+}
+
+// pruneTerritoryQueue removes territories from the queue that have been claimed.
+// If a queued territory is now owned, it and all entries after it are removed
+// so the player can re-plan their strategy.
+func (s *GameplayScene) pruneTerritoryQueue() {
+	for i, tid := range s.territoryQueue {
+		if terr, ok := s.territories[tid].(map[string]interface{}); ok {
+			if owner, _ := terr["owner"].(string); owner != "" {
+				s.territoryQueue = s.territoryQueue[:i]
+				return
+			}
+		} else {
+			s.territoryQueue = s.territoryQueue[:i]
+			return
+		}
+	}
 }
 
 // UpdateTerritoryDrawing updates the drawing data for a specific territory from a server broadcast.

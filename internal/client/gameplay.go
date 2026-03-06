@@ -40,6 +40,7 @@ type GameplayScene struct {
 	currentPhase       string
 	currentTurn        string
 	round              int
+	territoryQueue     []string // Client-side queue of territory IDs for auto-selection
 
 	// Game history
 	history            []HistoryEntry
