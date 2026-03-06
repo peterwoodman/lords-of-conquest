@@ -80,7 +80,10 @@ func (c *NetworkClient) Connect(serverAddr string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	conn, _, err := websocket.Dial(ctx, url, nil)
+	conn, _, err := websocket.Dial(ctx, url, &websocket.DialOptions{
+		CompressionMode:      websocket.CompressionContextTakeover,
+		CompressionThreshold: 512,
+	})
 	if err != nil {
 		log.Printf("WebSocket dial failed: %v", err)
 		return err
@@ -168,7 +171,7 @@ func (c *NetworkClient) readPump() {
 		}
 	}()
 
-	c.conn.SetReadLimit(65536)
+	c.conn.SetReadLimit(2 * 1024 * 1024) // 2MB to accommodate territory drawings
 
 	for {
 		select {

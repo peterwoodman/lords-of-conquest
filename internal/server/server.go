@@ -101,8 +101,9 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 
 	// Accept WebSocket connection with options
 	opts := &websocket.AcceptOptions{
-		CompressionMode: websocket.CompressionDisabled,
-		OriginPatterns:  []string{"*"}, // Allow all origins for now
+		CompressionMode:      websocket.CompressionContextTakeover,
+		CompressionThreshold: 512,
+		OriginPatterns:       []string{"*"}, // Allow all origins for now
 	}
 
 	conn, err := websocket.Accept(w, r, opts)
@@ -590,7 +591,7 @@ const (
 	pongWait       = 60 * time.Second
 	pingPeriod     = 25 * time.Second // Ping every 25s (well under most cloud timeouts)
 	readTimeout    = 20 * time.Minute // Players may be idle for a while thinking about their turn
-	maxMessageSize = 65536
+	maxMessageSize = 2 * 1024 * 1024 // 2MB to accommodate territory drawings
 )
 
 // NewClient creates a new client.
