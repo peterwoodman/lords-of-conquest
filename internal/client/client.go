@@ -35,6 +35,9 @@ type Game struct {
 	currentScene Scene
 	nextScene    Scene
 
+	// Work posted from background goroutines, run on the game loop
+	tasks chan func()
+
 	// Scenes
 	titleScene    *TitleScene
 	connectScene  *ConnectScene
@@ -91,6 +94,7 @@ func NewGame() (*Game, error) {
 	g := &Game{
 		config:  config,
 		network: NewNetworkClient(),
+		tasks:   make(chan func(), 16),
 	}
 
 	// Initialize music volume from config
@@ -135,15 +139,52 @@ func NewGame() (*Game, error) {
 	g.currentScene = g.titleScene
 	g.currentScene.OnEnter()
 
-	// Set up network callbacks
-	g.network.OnMessage = g.handleMessage
-	g.network.OnDisconnect = g.handleDisconnect
-
 	return g, nil
+}
+
+// post queues fn to run on the game loop. Safe to call from any goroutine.
+func (g *Game) post(fn func()) {
+	g.tasks <- fn
+}
+
+// processBackgroundEvents runs posted tasks and handles received network messages.
+// Scene changes take effect after each message so a scene's OnEnter can't discard
+// state delivered by the messages that follow it.
+func (g *Game) processBackgroundEvents() {
+	for {
+		select {
+		case fn := <-g.tasks:
+			fn()
+		case ev := <-g.network.Events():
+			if ev.Disconnected {
+				g.handleDisconnect(nil)
+			} else {
+				g.handleMessage(ev.Message)
+			}
+		default:
+			return
+		}
+		g.applySceneTransition()
+	}
+}
+
+// applySceneTransition switches to the scene requested by SetScene, if any.
+func (g *Game) applySceneTransition() {
+	if g.nextScene == nil {
+		return
+	}
+	if g.currentScene != nil {
+		g.currentScene.OnExit()
+	}
+	g.currentScene = g.nextScene
+	g.nextScene = nil
+	g.currentScene.OnEnter()
 }
 
 // Update handles game logic.
 func (g *Game) Update() error {
+	g.processBackgroundEvents()
+
 	// Track window geometry for saving on exit
 	g.lastWindowWidth, g.lastWindowHeight = ebiten.WindowSize()
 	g.lastWindowX, g.lastWindowY = ebiten.WindowPosition()
@@ -170,15 +211,7 @@ func (g *Game) Update() error {
 		}
 	}
 
-	// Process scene transition
-	if g.nextScene != nil {
-		if g.currentScene != nil {
-			g.currentScene.OnExit()
-		}
-		g.currentScene = g.nextScene
-		g.nextScene = nil
-		g.currentScene.OnEnter()
-	}
+	g.applySceneTransition()
 
 	// Update current scene
 	if g.currentScene != nil {
@@ -314,11 +347,15 @@ func (g *Game) SetScene(scene Scene) {
 	g.nextScene = scene
 }
 
-// Connect attempts to connect to the server.
-func (g *Game) Connect(serverAddr string) error {
+// Connect starts connecting to the server in the background and then calls
+// onDone with the result on the game loop.
+func (g *Game) Connect(serverAddr string, onDone func(error)) {
 	g.config.LastServer = serverAddr
 	g.config.Save()
-	return g.network.Connect(serverAddr)
+	go func() {
+		err := g.network.Connect(serverAddr)
+		g.post(func() { onDone(err) })
+	}()
 }
 
 // Authenticate sends authentication to the server.

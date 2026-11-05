@@ -1,5 +1,7 @@
 package game
 
+import "slices"
+
 // CanAttack checks if a player can attack a territory.
 func (g *GameState) CanAttack(attackerID, targetID string) bool {
 	attacker := g.Players[attackerID]
@@ -190,41 +192,86 @@ func (g *GameState) Attack(attackerID, targetID string, brought *BroughtUnit) (*
 	return g.AttackWithAllies(attackerID, targetID, brought, nil, nil)
 }
 
-// AttackWithAllies executes an attack with ally support.
-func (g *GameState) AttackWithAllies(attackerID, targetID string, brought *BroughtUnit, attackerAllies, defenderAllies []string) (*CombatResult, error) {
-	// Validate phase
+// ValidateAttack checks that it is attackerID's turn to attack targetID in the Conquest
+// phase, and that any brought unit is one of the reinforcements GetAttackPlan offers.
+func (g *GameState) ValidateAttack(attackerID, targetID string, brought *BroughtUnit) error {
 	if g.Phase != PhaseConquest {
-		return nil, ErrInvalidAction
+		return ErrInvalidAction
 	}
-
-	// Validate player turn
 	if g.CurrentPlayerID != attackerID {
-		return nil, ErrNotYourTurn
+		return ErrNotYourTurn
 	}
 
 	attacker := g.Players[attackerID]
-	if attacker == nil {
-		return nil, ErrInvalidTarget
+	if attacker == nil || attacker.Eliminated {
+		return ErrInvalidTarget
 	}
-
 	if attacker.AttacksRemaining <= 0 {
-		return nil, ErrNoAttacksRemaining
+		return ErrNoAttacksRemaining
 	}
 
-	// Check if attack is valid - either has adjacent territory OR is bringing a boat
-	canAttack := g.CanAttack(attackerID, targetID)
-	if !canAttack && brought != nil && brought.UnitType == UnitBoat {
-		// Attacking via boat - verify the boat can reach the target
-		from := g.Territories[brought.FromTerritory]
-		if from != nil && from.TotalBoats() > 0 {
-			if g.canBoatReachTargetViaWater(attackerID, brought.FromTerritory, targetID, brought.WaterBodyID) {
-				canAttack = true
-			}
+	target := g.Territories[targetID]
+	if target == nil || target.Owner == attackerID {
+		return ErrInvalidTarget
+	}
+
+	if brought != nil {
+		if !g.isOfferedReinforcement(attackerID, targetID, brought) {
+			return ErrInvalidTarget
+		}
+		// An offered boat can reach the target even without an adjacent territory
+		if brought.UnitType == UnitBoat {
+			return nil
 		}
 	}
-	if !canAttack {
-		return nil, ErrInvalidTarget
+
+	if !g.CanAttack(attackerID, targetID) {
+		return ErrInvalidTarget
 	}
+	return nil
+}
+
+// isOfferedReinforcement reports whether brought matches a reinforcement option for this attack,
+// with any carried units coming from the same territory as the carrier.
+func (g *GameState) isOfferedReinforcement(attackerID, targetID string, brought *BroughtUnit) bool {
+	var unitType string
+	switch brought.UnitType {
+	case UnitHorse:
+		unitType = "horse"
+	case UnitBoat:
+		unitType = "boat"
+	default:
+		return false
+	}
+
+	plan := g.GetAttackPlan(attackerID, targetID)
+	if plan == nil {
+		return false
+	}
+	for _, opt := range plan.Reinforcements {
+		if opt.UnitType != unitType || opt.FromTerritory != brought.FromTerritory {
+			continue
+		}
+		if unitType == "boat" && opt.WaterBodyID != brought.WaterBodyID {
+			continue
+		}
+		if brought.CarryingWeapon && (brought.WeaponFromTerritory != brought.FromTerritory || !slices.Contains(opt.CanCarry, "weapon")) {
+			return false
+		}
+		if brought.CarryingHorse && (brought.HorseFromTerritory != brought.FromTerritory || !slices.Contains(opt.CanCarry, "horse")) {
+			return false
+		}
+		return true
+	}
+	return false
+}
+
+// AttackWithAllies executes an attack with ally support.
+func (g *GameState) AttackWithAllies(attackerID, targetID string, brought *BroughtUnit, attackerAllies, defenderAllies []string) (*CombatResult, error) {
+	if err := g.ValidateAttack(attackerID, targetID, brought); err != nil {
+		return nil, err
+	}
+	attacker := g.Players[attackerID]
 
 	// Execute the attack with allies
 	plan := &AttackPlan{
@@ -243,7 +290,7 @@ func (g *GameState) AttackWithAllies(attackerID, targetID string, brought *Broug
 	}
 
 	// If no attacks remaining, advance to next player
-	if attacker.AttacksRemaining <= 0 {
+	if attacker.AttacksRemaining <= 0 && g.CurrentPlayerID == attackerID {
 		g.AdvanceConquestTurn()
 	}
 

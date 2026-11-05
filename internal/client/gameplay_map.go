@@ -85,16 +85,16 @@ func (s *GameplayScene) drawMap(screen *ebiten.Image) {
 			// Highlight selected territory (for shipment phase)
 			if s.selectedTerritory != "" && tid == s.selectedTerritory {
 				// Selection highlight
-				cellColor.R = min(cellColor.R+60, 255)
-				cellColor.G = min(cellColor.G+80, 255)
-				cellColor.B = min(cellColor.B+60, 255)
+				cellColor.R = addClamped(cellColor.R, 60)
+				cellColor.G = addClamped(cellColor.G, 80)
+				cellColor.B = addClamped(cellColor.B, 60)
 			}
 
 			// Tint queued territories with a blue-ish highlight
 			if s.currentPhase == "Territory Selection" && s.territoryQueueIndex(tid) >= 0 {
-				cellColor.R = min(cellColor.R+20, 255)
-				cellColor.G = min(cellColor.G+30, 255)
-				cellColor.B = min(cellColor.B+70, 255)
+				cellColor.R = addClamped(cellColor.R, 20)
+				cellColor.G = addClamped(cellColor.G, 30)
+				cellColor.B = addClamped(cellColor.B, 70)
 			}
 
 			// Calculate insets based on borders with different territories
@@ -717,9 +717,9 @@ func (s *GameplayScene) drawBoatIconFallbackColored(screen *ebiten.Image, x, y, 
 
 	// Sail - filled triangle in player color (lighter)
 	sailColor := color.RGBA{
-		min(boatColor.R+40, 255),
-		min(boatColor.G+40, 255),
-		min(boatColor.B+40, 255),
+		addClamped(boatColor.R, 40),
+		addClamped(boatColor.G, 40),
+		addClamped(boatColor.B, 40),
 		255,
 	}
 	// Draw sail as filled triangle using lines

@@ -11,6 +11,7 @@ import (
 	"math/rand"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 
 	"github.com/hajimehoshi/ebiten/v2"
@@ -30,7 +31,8 @@ var titleScreenModern *ebiten.Image
 var audioContext *audio.Context
 var winnerMusic *audio.Player
 var winnerMusicBytes []byte
-var introMusic *audio.Player
+var introMusic *audio.Player // guarded by introMu; the fade-out goroutine clears it
+var introMu sync.Mutex
 var introMusicBytes []byte
 var bridgeSounds [][]byte  // bridge1.ogg to bridge5.ogg
 var bridgeMusic *audio.Player // Currently playing bridge sound
@@ -326,29 +328,51 @@ func PlayIntroMusic() {
 		return
 	}
 
+	introMu.Lock()
 	introMusic = player
+	introMu.Unlock()
+
 	// Apply current volume settings
 	effectiveVolume := musicVolume
 	if musicMuted {
 		effectiveVolume = 0
 	}
-	introMusic.SetVolume(effectiveVolume)
-	introMusic.Play()
+	player.SetVolume(effectiveVolume)
+	player.Play()
 	log.Printf("Playing intro music at volume %.0f%%", effectiveVolume*100)
+}
+
+// currentIntroMusic returns the intro music player, or nil if none is playing.
+func currentIntroMusic() *audio.Player {
+	introMu.Lock()
+	defer introMu.Unlock()
+	return introMusic
+}
+
+// stopIntroMusicPlayer stops the intro music if player is still the current one (any player if nil).
+func stopIntroMusicPlayer(player *audio.Player) {
+	introMu.Lock()
+	current := introMusic
+	if current == nil || (player != nil && player != current) {
+		introMu.Unlock()
+		return
+	}
+	introMusic = nil
+	introMu.Unlock()
+
+	current.Close()
+	log.Printf("Stopped intro music")
 }
 
 // StopIntroMusic stops the intro music immediately
 func StopIntroMusic() {
-	if introMusic != nil {
-		introMusic.Close()
-		introMusic = nil
-		log.Printf("Stopped intro music")
-	}
+	stopIntroMusicPlayer(nil)
 }
 
 // FadeOutIntroMusic gradually fades out the intro music over the specified duration
 func FadeOutIntroMusic(durationMs int) {
-	if introMusic == nil || !introMusic.IsPlaying() {
+	player := currentIntroMusic()
+	if player == nil || !player.IsPlaying() {
 		return
 	}
 
@@ -362,17 +386,12 @@ func FadeOutIntroMusic(durationMs int) {
 
 	// Fade out in a goroutine
 	go func() {
-		player := introMusic // Capture reference
-		if player == nil {
-			return
-		}
-
 		steps := 30 // Number of volume steps
 		stepDuration := time.Duration(durationMs/steps) * time.Millisecond
 		volumeStep := startVolume / float64(steps)
 
 		for i := 0; i < steps; i++ {
-			if player != introMusic {
+			if player != currentIntroMusic() {
 				// Player changed (e.g., music restarted), abort fade
 				return
 			}
@@ -385,15 +404,14 @@ func FadeOutIntroMusic(durationMs int) {
 		}
 
 		// Stop the music after fade completes
-		if player == introMusic {
-			StopIntroMusic()
-		}
+		stopIntroMusicPlayer(player)
 	}()
 }
 
 // IsIntroMusicPlaying returns true if intro music is playing
 func IsIntroMusicPlaying() bool {
-	return introMusic != nil && introMusic.IsPlaying()
+	player := currentIntroMusic()
+	return player != nil && player.IsPlaying()
 }
 
 // IsMusicPlaying returns true if any music is currently playing
@@ -421,8 +439,8 @@ func SetMusicVolume(volume float64) {
 	if musicMuted {
 		effectiveVolume = 0
 	}
-	if introMusic != nil {
-		introMusic.SetVolume(effectiveVolume)
+	if player := currentIntroMusic(); player != nil {
+		player.SetVolume(effectiveVolume)
 	}
 	if winnerMusic != nil {
 		winnerMusic.SetVolume(effectiveVolume)

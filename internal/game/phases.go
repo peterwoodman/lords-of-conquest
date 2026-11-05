@@ -178,7 +178,7 @@ func (pm *PhaseManager) NextPhase() (Phase, bool) {
 // Returns true if the entire phase was skipped (both trade and shipment skipped).
 func (g *GameState) InitCommercePhase() bool {
 	// Trade requires 3+ players; otherwise always skipped
-	if len(g.Players) < 3 {
+	if g.ActivePlayerCount() < 3 {
 		g.CommerceTradeSkipped = true
 	} else {
 		g.CommerceTradeSkipped = ShouldSkipCommerceSubPhase(SubPhaseTrade, g.Settings.ChanceLevel)

@@ -574,8 +574,7 @@ func (s *ConnectScene) onConnect() {
 	s.connecting = true
 	s.connectBtn.Disabled = true
 
-	go func() {
-		err := s.game.Connect(server)
+	s.game.Connect(server, func(err error) {
 		if err != nil {
 			s.connecting = false
 			s.connectBtn.Disabled = false
@@ -590,7 +589,7 @@ func (s *ConnectScene) onConnect() {
 
 		// Authenticate
 		s.game.Authenticate(name)
-	}()
+	})
 }
 
 // ==================== Lobby Scene ====================

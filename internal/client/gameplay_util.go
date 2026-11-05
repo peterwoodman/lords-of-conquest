@@ -232,6 +232,14 @@ func (s *GameplayScene) pruneTerritoryQueue() {
 	}
 }
 
+// addClamped adds delta to a color channel, saturating at 255 instead of wrapping.
+func addClamped(channel uint8, delta int) uint8 {
+	if v := int(channel) + delta; v < 255 {
+		return uint8(v)
+	}
+	return 255
+}
+
 // UpdateTerritoryDrawing updates the drawing data for a specific territory from a server broadcast.
 func (s *GameplayScene) UpdateTerritoryDrawing(territoryID string, drawing map[string]int) {
 	if s.territories == nil {

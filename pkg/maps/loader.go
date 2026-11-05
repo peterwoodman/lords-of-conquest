@@ -3,14 +3,19 @@ package maps
 import (
 	"encoding/json"
 	"fmt"
+	"sync"
 )
 
-// Registry holds all loaded maps.
-var Registry = make(map[string]*Map)
+var (
+	registryMu sync.RWMutex
+	registry   = make(map[string]*Map)
+)
 
 // Get retrieves a map from the registry by ID.
 func Get(id string) *Map {
-	return Registry[id]
+	registryMu.RLock()
+	defer registryMu.RUnlock()
+	return registry[id]
 }
 
 // validate checks a raw map for errors.
@@ -52,7 +57,9 @@ func LoadFromJSON(data []byte) (*Map, error) {
 // Register adds a map to the registry.
 func Register(m *Map) {
 	if m != nil && m.ID != "" {
-		Registry[m.ID] = m
+		registryMu.Lock()
+		registry[m.ID] = m
+		registryMu.Unlock()
 	}
 }
 

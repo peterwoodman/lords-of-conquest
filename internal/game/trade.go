@@ -44,6 +44,15 @@ func (g *GameState) ValidateTrade(offer *TradeOffer) error {
 		return ErrInvalidTarget
 	}
 
+	for _, amount := range []int{
+		offer.OfferCoal, offer.OfferGold, offer.OfferIron, offer.OfferTimber, offer.OfferHorses,
+		offer.RequestCoal, offer.RequestGold, offer.RequestIron, offer.RequestTimber, offer.RequestHorses,
+	} {
+		if amount < 0 {
+			return ErrInvalidAction
+		}
+	}
+
 	// Check proposer has the resources to offer
 	if fromPlayer.Stockpile.Coal < offer.OfferCoal ||
 		fromPlayer.Stockpile.Gold < offer.OfferGold ||
@@ -53,16 +62,8 @@ func (g *GameState) ValidateTrade(offer *TradeOffer) error {
 	}
 
 	// Check proposer has horses to offer on specified territories
-	if offer.OfferHorses > 0 {
-		if len(offer.OfferHorseTerrs) != offer.OfferHorses {
-			return ErrInvalidTarget
-		}
-		for _, terrID := range offer.OfferHorseTerrs {
-			terr := g.Territories[terrID]
-			if terr == nil || terr.Owner != offer.FromPlayerID || !terr.HasHorse {
-				return ErrInvalidTarget
-			}
-		}
+	if err := g.validateHorseTerritories(offer.FromPlayerID, offer.OfferHorseTerrs, offer.OfferHorses, true); err != nil {
+		return err
 	}
 
 	// Check target player has the requested resources
@@ -93,13 +94,23 @@ func (g *GameState) ValidateTrade(offer *TradeOffer) error {
 // horseSourceTerrs are the territories from the target player's horses (for RequestHorses).
 // offerHorseDestTerrs are where the target wants received horses placed (for OfferHorses).
 // requestHorseDestTerrs are where the proposer wants received horses placed (for RequestHorses).
+// The offer is re-validated against the current state, since it may have changed since proposal.
 func (g *GameState) ExecuteTrade(offer *TradeOffer, horseSourceTerrs, offerHorseDestTerrs, requestHorseDestTerrs []string) error {
+	if err := g.ValidateTrade(offer); err != nil {
+		return err
+	}
+	if err := g.validateHorseTerritories(offer.ToPlayerID, horseSourceTerrs, offer.RequestHorses, true); err != nil {
+		return err
+	}
+	if err := g.validateHorseTerritories(offer.ToPlayerID, offerHorseDestTerrs, offer.OfferHorses, false); err != nil {
+		return err
+	}
+	if err := g.validateHorseTerritories(offer.FromPlayerID, requestHorseDestTerrs, offer.RequestHorses, false); err != nil {
+		return err
+	}
+
 	fromPlayer := g.Players[offer.FromPlayerID]
 	toPlayer := g.Players[offer.ToPlayerID]
-
-	if fromPlayer == nil || toPlayer == nil {
-		return ErrInvalidTarget
-	}
 
 	// Transfer stockpile resources from proposer to target
 	fromPlayer.Stockpile.Coal -= offer.OfferCoal
@@ -125,32 +136,33 @@ func (g *GameState) ExecuteTrade(offer *TradeOffer, horseSourceTerrs, offerHorse
 
 	// Transfer horses from proposer to target (OfferHorses)
 	for i, terrID := range offer.OfferHorseTerrs {
-		// Remove horse from proposer's source territory
-		if terr := g.Territories[terrID]; terr != nil {
-			terr.HasHorse = false
-		}
-		// Add horse to target's destination territory
-		if i < len(offerHorseDestTerrs) {
-			if destTerr := g.Territories[offerHorseDestTerrs[i]]; destTerr != nil && destTerr.Owner == offer.ToPlayerID {
-				destTerr.HasHorse = true
-			}
-		}
+		g.Territories[terrID].HasHorse = false
+		g.Territories[offerHorseDestTerrs[i]].HasHorse = true
 	}
 
 	// Transfer horses from target to proposer (RequestHorses)
 	for i, terrID := range horseSourceTerrs {
-		// Remove horse from target's source territory
-		if terr := g.Territories[terrID]; terr != nil {
-			terr.HasHorse = false
-		}
-		// Add horse to proposer's destination territory
-		if i < len(requestHorseDestTerrs) {
-			if destTerr := g.Territories[requestHorseDestTerrs[i]]; destTerr != nil && destTerr.Owner == offer.FromPlayerID {
-				destTerr.HasHorse = true
-			}
-		}
+		g.Territories[terrID].HasHorse = false
+		g.Territories[requestHorseDestTerrs[i]].HasHorse = true
 	}
 
+	return nil
+}
+
+// validateHorseTerritories checks that terrIDs lists exactly count distinct territories owned by
+// ownerID, each holding a horse (wantHorse) or each free to receive one (!wantHorse).
+func (g *GameState) validateHorseTerritories(ownerID string, terrIDs []string, count int, wantHorse bool) error {
+	if len(terrIDs) != count {
+		return ErrInvalidTarget
+	}
+	seen := make(map[string]bool, len(terrIDs))
+	for _, id := range terrIDs {
+		terr := g.Territories[id]
+		if terr == nil || terr.Owner != ownerID || terr.HasHorse != wantHorse || seen[id] {
+			return ErrInvalidTarget
+		}
+		seen[id] = true
+	}
 	return nil
 }
 

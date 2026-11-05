@@ -13,6 +13,7 @@ import (
 	"lords-of-conquest/internal/database"
 	game "lords-of-conquest/internal/game"
 	"lords-of-conquest/internal/protocol"
+	"lords-of-conquest/pkg/maps"
 
 	"github.com/coder/websocket"
 )
@@ -226,6 +227,12 @@ type Hub struct {
 	// Pending card battles waiting for defender's card selection
 	pendingCardBattles map[string]*PendingCardBattle
 
+	// Processed maps by game ID (each game stores its own map in the database)
+	gameMaps map[string]*maps.Map
+
+	// Per-game locks serializing load-modify-save of game state
+	gameLocks map[string]*sync.Mutex
+
 	// Register requests
 	register chan *Client
 
@@ -255,6 +262,8 @@ func NewHub(server *Server) *Hub {
 		pendingEvents:      make(map[string]*PendingEvent),
 		pendingAttackPlans: make(map[string]*PendingAttackPlan),
 		pendingCardBattles: make(map[string]*PendingCardBattle),
+		gameMaps:           make(map[string]*maps.Map),
+		gameLocks:          make(map[string]*sync.Mutex),
 		register:           make(chan *Client, 100),
 		unregister:         make(chan *Client, 100),
 		broadcast:          make(chan *ClientMessage, 256),
@@ -328,24 +337,27 @@ func (h *Hub) handleDisconnect(client *Client) {
 
 	delete(h.clients, client)
 
-	// Remove from player mapping
+	// Remove from player mapping, unless the player has already reconnected on a new socket
+	stillCurrent := false
 	if client.PlayerID != "" {
-		delete(h.playerClients, client.PlayerID)
+		if h.playerClients[client.PlayerID] == client {
+			delete(h.playerClients, client.PlayerID)
+			stillCurrent = true
+		}
 
-		// Update connection status in all games
 		if client.GameID != "" {
-			gameID = client.GameID
-			playerID = client.PlayerID
-
-			// Notify other players in the game
 			if gameClients, ok := h.gameClients[client.GameID]; ok {
 				delete(gameClients, client)
+			}
+			if stillCurrent {
+				gameID = client.GameID
+				playerID = client.PlayerID
 				shouldNotify = true
 			}
 		}
 	}
 
-	close(client.send)
+	client.closeSend()
 	h.mu.Unlock()
 
 	// Do database and notification AFTER releasing the lock
@@ -367,16 +379,76 @@ func (h *Hub) handleMessage(cm *ClientMessage) {
 	handlers.Handle(cm.Client, cm.Message)
 }
 
-// notifyGamePlayers sends a message to all players in a game.
-func (h *Hub) notifyGamePlayers(gameID string, msgType protocol.MessageType, payload interface{}) {
+// clientsInGame returns a snapshot of the clients in a game, safe to iterate without the lock.
+func (h *Hub) clientsInGame(gameID string) []*Client {
 	h.mu.RLock()
+	defer h.mu.RUnlock()
+
 	gameClients := h.gameClients[gameID]
-	// Make a slice copy of clients to avoid race conditions during iteration
 	clients := make([]*Client, 0, len(gameClients))
 	for client := range gameClients {
 		clients = append(clients, client)
 	}
-	h.mu.RUnlock()
+	return clients
+}
+
+// gameMutex returns the lock guarding a game's persisted state.
+// Hold it from loading the state until saving it; it is not reentrant, so only
+// top-level entry points (message handlers, AI turns, event callbacks) take it.
+func (h *Hub) gameMutex(gameID string) *sync.Mutex {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	mu, ok := h.gameLocks[gameID]
+	if !ok {
+		mu = &sync.Mutex{}
+		h.gameLocks[gameID] = mu
+	}
+	return mu
+}
+
+// lockGame locks a game's state and returns the unlock function.
+func (h *Hub) lockGame(gameID string) func() {
+	mu := h.gameMutex(gameID)
+	mu.Lock()
+	return mu.Unlock
+}
+
+// hasPendingEvent reports whether a game has an unacknowledged event of the given type.
+func (h *Hub) hasPendingEvent(gameID, eventType string) bool {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	for _, e := range h.pendingEvents {
+		if e.GameID == gameID && e.Type == eventType && !e.completed {
+			return true
+		}
+	}
+	return false
+}
+
+// cachedGameMap returns the processed map for a game, if loaded.
+func (h *Hub) cachedGameMap(gameID string) *maps.Map {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	return h.gameMaps[gameID]
+}
+
+// cacheGameMap stores the processed map for a game.
+func (h *Hub) cacheGameMap(gameID string, m *maps.Map) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.gameMaps[gameID] = m
+}
+
+// forgetGameMap drops a game's cached map (after the map changes or the game is deleted).
+func (h *Hub) forgetGameMap(gameID string) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	delete(h.gameMaps, gameID)
+}
+
+// notifyGamePlayers sends a message to all players in a game.
+func (h *Hub) notifyGamePlayers(gameID string, msgType protocol.MessageType, payload interface{}) {
+	clients := h.clientsInGame(gameID)
 
 	log.Printf("Notifying %d clients in game %s with message type %s", len(clients), gameID, msgType)
 
@@ -413,6 +485,11 @@ func (h *Hub) AddClientToGame(client *Client, gameID string) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
+	if client.GameID != "" && client.GameID != gameID {
+		if previous, ok := h.gameClients[client.GameID]; ok {
+			delete(previous, client)
+		}
+	}
 	if h.gameClients[gameID] == nil {
 		h.gameClients[gameID] = make(map[*Client]bool)
 	}
@@ -581,6 +658,9 @@ type Client struct {
 	conn *websocket.Conn
 	send chan *protocol.Message
 
+	sendMu     sync.Mutex
+	sendClosed bool
+
 	PlayerID string
 	GameID   string
 	Name     string
@@ -604,14 +684,31 @@ func NewClient(hub *Hub, conn *websocket.Conn) *Client {
 }
 
 // Send queues a message to be sent to the client.
+// Messages sent after the client disconnects are dropped.
 func (c *Client) Send(msg *protocol.Message) {
+	c.sendMu.Lock()
+	if c.sendClosed {
+		c.sendMu.Unlock()
+		return
+	}
 	select {
 	case c.send <- msg:
-		// Message queued successfully
+		c.sendMu.Unlock()
 	default:
+		c.sendMu.Unlock()
 		// Channel full, client too slow - disconnect
 		log.Printf("Client send channel full, disconnecting client")
-		c.hub.Unregister(c)
+		go c.hub.Unregister(c)
+	}
+}
+
+// closeSend closes the send channel exactly once.
+func (c *Client) closeSend() {
+	c.sendMu.Lock()
+	defer c.sendMu.Unlock()
+	if !c.sendClosed {
+		c.sendClosed = true
+		close(c.send)
 	}
 }
 

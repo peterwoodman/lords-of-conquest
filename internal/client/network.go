@@ -18,44 +18,58 @@ import (
 // How often to ping the health endpoint to keep cloud instances alive
 const healthPingInterval = 5 * time.Minute
 
+// NetworkEvent is a received message, or a notification that the connection was lost.
+type NetworkEvent struct {
+	Message      *protocol.Message
+	Disconnected bool
+}
+
+// connection is one WebSocket session; its pumps exit when done is closed.
+type connection struct {
+	ws        *websocket.Conn
+	done      chan struct{}
+	closeOnce sync.Once
+}
+
+func (cn *connection) close() {
+	cn.closeOnce.Do(func() {
+		close(cn.done)
+		cn.ws.Close(websocket.StatusNormalClosure, "")
+	})
+}
+
 // NetworkClient handles WebSocket communication with the server.
+// Received messages are delivered on Events() for the game loop to process.
 type NetworkClient struct {
-	conn     *websocket.Conn
+	current  *connection
 	sendChan chan *protocol.Message
-	recvChan chan *protocol.Message
-	done     chan struct{}
+	events   chan NetworkEvent
 	mu       sync.Mutex
-
-	// Base HTTP URL for health pings (e.g., "https://example.onrender.com")
-	healthURL string
-
-	// Callbacks
-	OnMessage    func(*protocol.Message)
-	OnConnect    func()
-	OnDisconnect func(error)
-
-	connected bool
 }
 
 // NewNetworkClient creates a new network client.
 func NewNetworkClient() *NetworkClient {
 	return &NetworkClient{
 		sendChan: make(chan *protocol.Message, 64),
-		recvChan: make(chan *protocol.Message, 64),
-		done:     make(chan struct{}),
+		events:   make(chan NetworkEvent, 256),
 	}
 }
 
-// Connect establishes a connection to the server.
+// Connect establishes a connection to the server, replacing any existing one.
 func (c *NetworkClient) Connect(serverAddr string) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+
+	if c.current != nil {
+		c.current.close()
+		c.current = nil
+	}
 
 	log.Printf("Attempting to connect to: %s", serverAddr)
 
 	// Determine WebSocket URL scheme based on address
 	// Use wss:// for .onrender.com and other cloud hosts, ws:// for localhost
-	var url string
+	var url, healthURL string
 	var isCloud bool
 	if strings.Contains(serverAddr, ".onrender.com") ||
 		strings.Contains(serverAddr, ".herokuapp.com") ||
@@ -68,11 +82,11 @@ func (c *NetworkClient) Connect(serverAddr string) error {
 			host = host[:colonIdx]
 		}
 		url = "wss://" + host + "/ws"
-		c.healthURL = "https://" + host + "/health"
+		healthURL = "https://" + host + "/health"
 		isCloud = true
 	} else {
 		url = "ws://" + serverAddr + "/ws"
-		c.healthURL = "http://" + serverAddr + "/health"
+		healthURL = "http://" + serverAddr + "/health"
 		isCloud = false
 	}
 	log.Printf("Full WebSocket URL: %s", url)
@@ -80,7 +94,7 @@ func (c *NetworkClient) Connect(serverAddr string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	conn, _, err := websocket.Dial(ctx, url, &websocket.DialOptions{
+	ws, _, err := websocket.Dial(ctx, url, &websocket.DialOptions{
 		CompressionMode:      websocket.CompressionContextTakeover,
 		CompressionThreshold: 512,
 	})
@@ -90,40 +104,39 @@ func (c *NetworkClient) Connect(serverAddr string) error {
 	}
 
 	log.Printf("WebSocket connection established")
-	c.conn = conn
-	c.connected = true
-	c.done = make(chan struct{})
 
-	go c.readPump()
-	go c.writePump()
+	// Drop anything queued for the previous connection
+	for drained := false; !drained; {
+		select {
+		case <-c.sendChan:
+		default:
+			drained = true
+		}
+	}
+
+	cn := &connection{ws: ws, done: make(chan struct{})}
+	c.current = cn
+
+	go c.readPump(cn)
+	go c.writePump(cn)
 
 	// Start health pings for cloud deployments to prevent instance spin-down
 	if isCloud {
-		go c.healthPingLoop()
-	}
-
-	if c.OnConnect != nil {
-		c.OnConnect()
+		go healthPingLoop(healthURL, cn.done)
 	}
 
 	return nil
 }
 
-// Disconnect closes the connection.
+// Disconnect closes the connection without raising a disconnect event.
 func (c *NetworkClient) Disconnect() {
 	c.mu.Lock()
-	defer c.mu.Unlock()
+	cn := c.current
+	c.current = nil
+	c.mu.Unlock()
 
-	if !c.connected {
-		return
-	}
-
-	c.connected = false
-	close(c.done)
-
-	if c.conn != nil {
-		c.conn.Close(websocket.StatusNormalClosure, "")
-		c.conn = nil
+	if cn != nil {
+		cn.close()
 	}
 }
 
@@ -131,7 +144,7 @@ func (c *NetworkClient) Disconnect() {
 func (c *NetworkClient) IsConnected() bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	return c.connected
+	return c.current != nil
 }
 
 // Send queues a message to be sent to the server.
@@ -153,37 +166,33 @@ func (c *NetworkClient) SendPayload(msgType protocol.MessageType, payload interf
 	return nil
 }
 
-// RecvChan returns the channel for received messages.
-func (c *NetworkClient) RecvChan() <-chan *protocol.Message {
-	return c.recvChan
+// Events returns the channel of received messages and disconnect notifications.
+func (c *NetworkClient) Events() <-chan NetworkEvent {
+	return c.events
 }
 
 // readPump reads messages from the WebSocket.
-func (c *NetworkClient) readPump() {
+func (c *NetworkClient) readPump(cn *connection) {
 	defer func() {
+		cn.close()
+
 		c.mu.Lock()
-		wasConnected := c.connected
-		c.connected = false
+		wasCurrent := c.current == cn
+		if wasCurrent {
+			c.current = nil
+		}
 		c.mu.Unlock()
 
-		if wasConnected && c.OnDisconnect != nil {
-			c.OnDisconnect(nil)
+		if wasCurrent {
+			c.events <- NetworkEvent{Disconnected: true}
 		}
 	}()
 
-	c.conn.SetReadLimit(2 * 1024 * 1024) // 2MB to accommodate territory drawings
+	cn.ws.SetReadLimit(2 * 1024 * 1024) // 2MB to accommodate territory drawings
 
 	for {
-		select {
-		case <-c.done:
-			return
-		default:
-		}
-
 		// Read with no timeout - rely on ping/pong to detect dead connections
-		ctx := context.Background()
-		msgType, data, err := c.conn.Read(ctx)
-
+		msgType, data, err := cn.ws.Read(context.Background())
 		if err != nil {
 			status := websocket.CloseStatus(err)
 			if status != websocket.StatusNormalClosure && status != websocket.StatusGoingAway {
@@ -203,21 +212,22 @@ func (c *NetworkClient) readPump() {
 			continue
 		}
 
-		// Handle message via callback (recvChan is not used)
-		if c.OnMessage != nil {
-			c.OnMessage(&msg)
+		select {
+		case c.events <- NetworkEvent{Message: &msg}:
+		case <-cn.done:
+			return
 		}
 	}
 }
 
-// writePump writes messages to the WebSocket.
-func (c *NetworkClient) writePump() {
+// writePump writes messages to the WebSocket. A failed write closes the connection.
+func (c *NetworkClient) writePump(cn *connection) {
 	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()
 
 	for {
 		select {
-		case <-c.done:
+		case <-cn.done:
 			return
 
 		case msg := <-c.sendChan:
@@ -230,20 +240,22 @@ func (c *NetworkClient) writePump() {
 				continue
 			}
 
-			err = c.conn.Write(ctx, websocket.MessageText, data)
+			err = cn.ws.Write(ctx, websocket.MessageText, data)
 			cancel()
 
 			if err != nil {
 				log.Printf("WebSocket write error: %v", err)
+				cn.close()
 				return
 			}
 
 		case <-ticker.C:
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-			err := c.conn.Ping(ctx)
+			err := cn.ws.Ping(ctx)
 			cancel()
 
 			if err != nil {
+				cn.close()
 				return
 			}
 		}
@@ -253,31 +265,27 @@ func (c *NetworkClient) writePump() {
 // healthPingLoop periodically pings the server's health endpoint via HTTP.
 // This keeps cloud instances (like Render free tier) from spinning down
 // due to inactivity, since WebSocket ping/pong doesn't count as HTTP traffic.
-func (c *NetworkClient) healthPingLoop() {
+func healthPingLoop(healthURL string, done <-chan struct{}) {
 	ticker := time.NewTicker(healthPingInterval)
 	defer ticker.Stop()
 
 	// Do an initial ping right away
-	c.pingHealth()
+	pingHealth(healthURL)
 
 	for {
 		select {
-		case <-c.done:
+		case <-done:
 			return
 		case <-ticker.C:
-			c.pingHealth()
+			pingHealth(healthURL)
 		}
 	}
 }
 
 // pingHealth makes an HTTP GET request to the health endpoint.
-func (c *NetworkClient) pingHealth() {
-	if c.healthURL == "" {
-		return
-	}
-
+func pingHealth(healthURL string) {
 	client := &http.Client{Timeout: 10 * time.Second}
-	resp, err := client.Get(c.healthURL)
+	resp, err := client.Get(healthURL)
 	if err != nil {
 		log.Printf("Health ping failed: %v", err)
 		return

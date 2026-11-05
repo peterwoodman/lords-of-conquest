@@ -20,6 +20,7 @@ type GameState struct {
 	WaterBodies               map[string]*WaterBody `json:"waterBodies"`
 	SkippedPhases             []PhaseSkipInfo       `json:"skippedPhases,omitempty"`             // Phases skipped in last transition
 	ProductionPending         bool                  `json:"productionPending,omitempty"`         // True when production animation should play
+	ProductionApplied         bool                  `json:"productionApplied,omitempty"`         // True once this round's production has been added to stockpiles
 	StockpilePlacementPending bool                  `json:"stockpilePlacementPending,omitempty"` // True when players need to place stockpiles
 	CommerceSubPhase          CommerceSubPhase      `json:"commerceSubPhase,omitempty"`          // Current sub-phase within Commerce
 	CommerceTradeSkipped      bool                  `json:"commerceTradeSkipped,omitempty"`      // True if trade was skipped this round
@@ -233,28 +234,42 @@ func (g *GameState) Surrender(surrenderPlayerID, targetPlayerID string) int {
 	surrenderPlayer.Eliminated = true
 
 	// Remove from player order so they no longer appear in the turn rotation or player list
-	wasCurrentPlayer := g.CurrentPlayerID == surrenderPlayerID
-	removedIdx := -1
-	newOrder := make([]string, 0, len(g.PlayerOrder))
-	for i, pid := range g.PlayerOrder {
-		if pid == surrenderPlayerID {
-			removedIdx = i
-		} else {
-			newOrder = append(newOrder, pid)
-		}
-	}
-	g.PlayerOrder = newOrder
-
-	// If the surrendered player was the current player, advance to the next player
-	if wasCurrentPlayer && len(g.PlayerOrder) > 0 && removedIdx >= 0 {
-		nextIdx := removedIdx
-		if nextIdx >= len(g.PlayerOrder) {
-			nextIdx = 0
-		}
-		g.CurrentPlayerID = g.PlayerOrder[nextIdx]
-	}
+	g.passTurnOfLeavingPlayer(surrenderPlayerID)
+	g.removeFromPlayerOrder(surrenderPlayerID)
 
 	return territoriesTransferred
+}
+
+// passTurnOfLeavingPlayer ends the current turn if it belongs to a player leaving the rotation,
+// advancing the phase exactly as if they had finished it. Call after marking them eliminated
+// and before removing them from PlayerOrder.
+func (g *GameState) passTurnOfLeavingPlayer(playerID string) {
+	if g.CurrentPlayerID != playerID {
+		return
+	}
+	switch g.Phase {
+	case PhaseTerritorySelection:
+		NewPhaseManager(g).advancePlayerOrder()
+	case PhaseDevelopment:
+		g.advanceDevelopmentTurn()
+	case PhaseCommerce:
+		// Skip any remaining sub-phase so the turn moves to the next player
+		g.CommerceSubPhase = SubPhaseShipment
+		g.advanceCommerceTurn()
+	case PhaseConquest:
+		g.AdvanceConquestTurn()
+	}
+}
+
+// ActivePlayerCount returns the number of players not yet eliminated.
+func (g *GameState) ActivePlayerCount() int {
+	count := 0
+	for _, p := range g.Players {
+		if !p.Eliminated {
+			count++
+		}
+	}
+	return count
 }
 
 // removeFromPlayerOrder removes a player from the PlayerOrder slice.

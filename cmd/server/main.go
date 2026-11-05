@@ -2,8 +2,10 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"log"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
@@ -45,17 +47,22 @@ func main() {
 	done := make(chan os.Signal, 1)
 	signal.Notify(done, os.Interrupt, syscall.SIGTERM)
 
+	startErr := make(chan error, 1)
 	go func() {
-		if err := srv.Start(); err != nil {
-			log.Printf("Server error: %v", err)
-		}
+		startErr <- srv.Start()
 	}()
 
 	log.Printf("Lords of Conquest Server running on %s", cfg.Addr)
 	log.Printf("Database: %s", cfg.DBPath)
 
-	<-done
-	log.Println("Shutting down server...")
+	select {
+	case <-done:
+		log.Println("Shutting down server...")
+	case err := <-startErr:
+		if !errors.Is(err, http.ErrServerClosed) {
+			log.Fatalf("Server error: %v", err)
+		}
+	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()

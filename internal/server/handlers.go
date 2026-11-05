@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"math/rand"
+	"slices"
 	"time"
 
 	"lords-of-conquest/internal/database"
@@ -27,6 +28,10 @@ func NewHandlers(hub *Hub) *Handlers {
 // Handle routes a message to the appropriate handler.
 func (h *Handlers) Handle(client *Client, msg *protocol.Message) {
 	var err error
+
+	if gameID := client.GameID; gameID != "" && locksGameState(msg.Type) {
+		defer h.hub.lockGame(gameID)()
+	}
 
 	switch msg.Type {
 	case protocol.TypeAuthenticate:
@@ -102,6 +107,35 @@ func (h *Handlers) Handle(client *Client, msg *protocol.Message) {
 	if err != nil {
 		h.sendError(client, msg.ID, err)
 	}
+}
+
+// locksGameState reports whether a message handler modifies the client's current game
+// and should hold the game lock for its whole run. Handlers that wait on other players
+// (trade proposals, attacks) lock internally; read-only and signalling handlers don't lock.
+func locksGameState(t protocol.MessageType) bool {
+	switch t {
+	case protocol.TypeLeaveGame,
+		protocol.TypeAddAI,
+		protocol.TypeUpdateSettings,
+		protocol.TypeUpdateMap,
+		protocol.TypePlayerReady,
+		protocol.TypeChangeColor,
+		protocol.TypeStartGame,
+		protocol.TypeSelectTerritory,
+		protocol.TypePlaceStockpile,
+		protocol.TypeMoveStockpile,
+		protocol.TypeMoveUnit,
+		protocol.TypeEndPhase,
+		protocol.TypeBuild,
+		protocol.TypeSetAlliance,
+		protocol.TypeRespondTrade,
+		protocol.TypeSurrender,
+		protocol.TypeRenameTerritory,
+		protocol.TypeDrawTerritory,
+		protocol.TypeBuyCard:
+		return true
+	}
+	return false
 }
 
 // handleAuthenticate handles player authentication/registration.
@@ -216,13 +250,10 @@ func (h *Handlers) handleCreateGame(client *Client, msg *protocol.Message) error
 		if err != nil {
 			return fmt.Errorf("failed to serialize map: %w", err)
 		}
+		if _, err := maps.LoadFromJSON(mapBytes); err != nil {
+			return err
+		}
 		mapJSON = string(mapBytes)
-
-		// Process and register the map in memory
-		processedMap := maps.Process(rawMap)
-		maps.Register(processedMap)
-		log.Printf("Registered generated map: %s (%dx%d, %d territories)",
-			rawMap.ID, rawMap.Width, rawMap.Height, len(rawMap.Territories))
 	}
 
 	// Set defaults
@@ -314,6 +345,8 @@ func (h *Handlers) handleJoinByCode(client *Client, msg *protocol.Message) error
 func (h *Handlers) joinGame(client *Client, msgID string, gameID string, preferredColor string) error {
 	db := h.hub.server.db
 
+	defer h.hub.lockGame(gameID)()
+
 	// Check if already in game
 	players, err := db.GetGamePlayers(gameID)
 	if err != nil {
@@ -342,7 +375,10 @@ func (h *Handlers) joinGame(client *Client, msgID string, gameID string, preferr
 	db.SetPlayerConnected(gameID, client.PlayerID, true)
 
 	// Send success response
-	game, _ := db.GetGame(gameID)
+	game, err := db.GetGame(gameID)
+	if err != nil {
+		return err
+	}
 	response := protocol.JoinedGamePayload{
 		GameID:   gameID,
 		JoinCode: game.JoinCode,
@@ -520,11 +556,15 @@ func (h *Handlers) handleUpdateMap(client *Client, msg *protocol.Message) error 
 	if err != nil {
 		return err
 	}
+	if _, err := maps.LoadFromJSON(mapJSON); err != nil {
+		return err
+	}
 
 	// Update map in database
 	if err := h.hub.server.db.UpdateGameMap(client.GameID, string(mapJSON)); err != nil {
 		return err
 	}
+	h.hub.forgetGameMap(client.GameID)
 
 	log.Printf("Host %s updated map for game %s", client.Name, client.GameID)
 
@@ -796,11 +836,7 @@ func (h *Handlers) sendLobbyState(client *Client, gameID string) {
 
 // broadcastLobbyState sends lobby state to all clients in a game.
 func (h *Handlers) broadcastLobbyState(gameID string) {
-	h.hub.mu.RLock()
-	clients := h.hub.gameClients[gameID]
-	h.hub.mu.RUnlock()
-
-	for client := range clients {
+	for _, client := range h.hub.clientsInGame(gameID) {
 		h.sendLobbyState(client, gameID)
 	}
 }
@@ -1001,23 +1037,14 @@ func (h *Handlers) broadcastGameState(gameID string) bool {
 	}
 
 	// Get the map for rendering info
-	mapData := maps.Get(state.Settings.MapID)
+	mapData := h.gameMap(gameID, state.Settings.MapID)
 	if mapData == nil {
-		// Map not in registry - try to load from database
-		mapData = h.loadMapFromDatabase(gameID, state.Settings.MapID)
-		if mapData == nil {
-			log.Printf("Map not found in registry or database: %s", state.Settings.MapID)
-			return false
-		}
-	}
-
-	// Create payload with state and map rendering data
-	payload := protocol.GameStatePayload{
-		State: createStatePayload(&state, mapData),
+		log.Printf("Map not found for game %s: %s", gameID, state.Settings.MapID)
+		return false
 	}
 
 	log.Printf("Broadcasting game state for game %s", gameID)
-	h.hub.notifyGamePlayers(gameID, protocol.TypeGameState, payload)
+	h.sendGameState(gameID, &state, mapData)
 	log.Printf("Game state broadcast complete")
 
 	// Also broadcast history to keep it in sync
@@ -1054,19 +1081,12 @@ func (h *Handlers) broadcastGameStateImmediate(gameID string) {
 		}
 	}
 
-	mapData := maps.Get(state.Settings.MapID)
+	mapData := h.gameMap(gameID, state.Settings.MapID)
 	if mapData == nil {
-		mapData = h.loadMapFromDatabase(gameID, state.Settings.MapID)
-		if mapData == nil {
-			return
-		}
+		return
 	}
 
-	payload := protocol.GameStatePayload{
-		State: createStatePayload(&state, mapData),
-	}
-
-	h.hub.notifyGamePlayers(gameID, protocol.TypeGameState, payload)
+	h.sendGameState(gameID, &state, mapData)
 	h.broadcastGameHistory(gameID)
 }
 
@@ -1120,11 +1140,58 @@ func (h *Handlers) loadMapFromDatabase(gameID, mapID string) *maps.Map {
 		return nil
 	}
 
-	// Register it for future lookups
-	maps.Register(mapData)
-	log.Printf("Loaded and registered map %s from database", mapID)
+	h.hub.cacheGameMap(gameID, mapData)
+	log.Printf("Loaded map %s for game %s from database", mapID, gameID)
 
 	return mapData
+}
+
+// gameMap returns the processed map for a game, loading it from the database on first use.
+func (h *Handlers) gameMap(gameID, mapID string) *maps.Map {
+	if m := h.hub.cachedGameMap(gameID); m != nil {
+		return m
+	}
+	return h.loadMapFromDatabase(gameID, mapID)
+}
+
+// sendGameState sends the game state to every client in the game. In card mode each
+// client's copy includes only their own card hand.
+func (h *Handlers) sendGameState(gameID string, state *game.GameState, mapData *maps.Map) {
+	shared := createStatePayload(state, mapData)
+	if state.Settings.CombatMode != game.CombatModeCards {
+		h.hub.notifyGamePlayers(gameID, protocol.TypeGameState, protocol.GameStatePayload{State: shared})
+		return
+	}
+
+	sharedPlayers := shared["players"].(map[string]interface{})
+	for _, client := range h.hub.clientsInGame(gameID) {
+		perClient := make(map[string]interface{}, len(shared))
+		for k, v := range shared {
+			perClient[k] = v
+		}
+
+		if p := state.Players[client.PlayerID]; p != nil {
+			players := make(map[string]interface{}, len(sharedPlayers))
+			for id, pd := range sharedPlayers {
+				players[id] = pd
+			}
+			own := make(map[string]interface{})
+			for k, v := range sharedPlayers[client.PlayerID].(map[string]interface{}) {
+				own[k] = v
+			}
+			own["attackCards"] = p.AttackCards
+			own["defenseCards"] = p.DefenseCards
+			players[client.PlayerID] = own
+			perClient["players"] = players
+		}
+
+		msg, err := protocol.NewMessage(protocol.TypeGameState, protocol.GameStatePayload{State: perClient})
+		if err != nil {
+			log.Printf("Failed to build game state message: %v", err)
+			return
+		}
+		client.Send(msg)
+	}
 }
 
 // createStatePayload creates a simplified state payload for clients.
@@ -1175,10 +1242,10 @@ func createStatePayload(state *game.GameState, mapData *maps.Map) map[string]int
 			}
 		}
 
-		// Include combat cards if card mode is active
+		// Hands are secret; sendGameState adds each recipient's own cards
 		if state.Settings.CombatMode == game.CombatModeCards {
-			playerData["attackCards"] = p.AttackCards
-			playerData["defenseCards"] = p.DefenseCards
+			playerData["attackCardCount"] = len(p.AttackCards)
+			playerData["defenseCardCount"] = len(p.DefenseCards)
 		}
 
 		players[id] = playerData
@@ -1332,6 +1399,11 @@ func (h *Handlers) handlePlaceStockpile(client *Client, msg *protocol.Message) e
 	h.logHistory(client.GameID, state.Round, state.Phase.String(), client.PlayerID, client.Name,
 		database.EventStockpilePlaced, fmt.Sprintf("Placed stockpile on %s", terrName))
 
+	allPlaced := state.AllStockpilesPlaced()
+	if allPlaced {
+		state.ProductionPending = true
+	}
+
 	// Save updated state
 	stateJSON2, err := json.Marshal(state)
 	if err != nil {
@@ -1345,20 +1417,9 @@ func (h *Handlers) handlePlaceStockpile(client *Client, msg *protocol.Message) e
 
 	log.Printf("Player %s placed stockpile at %s", client.Name, payload.TerritoryID)
 
-	// Broadcast updated state (without triggering AI yet)
+	// With production pending, broadcasting starts the production animation
 	h.broadcastGameState(client.GameID)
-
-	// Check if all stockpiles are placed - if so, trigger production animation
-	if state.AllStockpilesPlaced() {
-		log.Printf("All stockpiles placed - triggering production animation")
-		// Set production pending flag and save
-		state.ProductionPending = true
-		stateJSON3, _ := json.Marshal(state)
-		h.hub.server.db.SaveGameState(client.GameID, string(stateJSON3),
-			state.CurrentPlayerID, state.Round, state.Phase.String())
-
-		h.triggerProductionAnimation(client.GameID, &state)
-	} else {
+	if !allPlaced {
 		// Still waiting for stockpiles, trigger AI placement
 		go h.checkAndTriggerAI(client.GameID)
 	}
@@ -1420,7 +1481,7 @@ func (h *Handlers) handleYourGames(client *Client, msg *protocol.Message) error 
 				if err := json.Unmarshal([]byte(stateJSON), &state); err == nil {
 					isYourTurn = state.CurrentPlayerID == client.PlayerID
 					round = state.Round
-					phase = string(state.Phase)
+					phase = state.Phase.String()
 
 					// Get player names from state
 					for _, p := range state.Players {
@@ -1529,6 +1590,7 @@ func (h *Handlers) handleDeleteGame(client *Client, msg *protocol.Message) error
 		}
 		delete(h.hub.gameClients, payload.GameID)
 	}
+	delete(h.hub.gameMaps, payload.GameID)
 	h.hub.mu.Unlock()
 
 	// Send confirmation to requester
@@ -1590,6 +1652,8 @@ func (h *Handlers) sendUpdatedGameList(client *Client) {
 func (h *Handlers) checkAndTriggerAI(gameID string) {
 	// Small delay to ensure state is fully saved and broadcast
 	time.Sleep(100 * time.Millisecond)
+
+	defer h.hub.lockGame(gameID)()
 
 	// Load current game state
 	stateJSON, err := h.hub.server.db.GetGameState(gameID)
@@ -2165,13 +2229,7 @@ func (h *Handlers) aiCardAttack(gameID string, state *game.GameState, attackerID
 
 	log.Printf("AI Card Combat: Waiting for defender %s to select defense cards (battle %s)", defenderID, battleID)
 
-	// Wait for defender's card selection (no timeout)
-	defenseCardIDs := <-pendingBattle.DefenseCardsChan
-
-	// Clean up pending battle
-	h.hub.mu.Lock()
-	delete(h.hub.pendingCardBattles, battleID)
-	h.hub.mu.Unlock()
+	defenseCardIDs := h.awaitDefenseCards(pendingBattle)
 
 	// Re-load state (may have changed while waiting)
 	stateJSON2, err := h.hub.server.db.GetGameState(gameID)
@@ -2664,9 +2722,13 @@ func (h *Handlers) handleRespondTrade(client *Client, msg *protocol.Message) err
 		return err
 	}
 
-	// Get the pending trade
+	// Get the pending trade (only its target, in the same game, may consume it)
 	h.hub.mu.Lock()
 	trade, exists := h.hub.pendingTrades[payload.TradeID]
+	if exists && (trade.ToPlayerID != client.PlayerID || trade.GameID != client.GameID) {
+		h.hub.mu.Unlock()
+		return errors.New("not the trade target")
+	}
 	if exists {
 		delete(h.hub.pendingTrades, payload.TradeID)
 	}
@@ -2674,11 +2736,6 @@ func (h *Handlers) handleRespondTrade(client *Client, msg *protocol.Message) err
 
 	if !exists {
 		return errors.New("trade not found or expired")
-	}
-
-	// Verify this is the target player
-	if trade.ToPlayerID != client.PlayerID {
-		return errors.New("not the trade target")
 	}
 
 	if payload.Accepted {
@@ -3515,6 +3572,8 @@ func (h *Handlers) handleExecuteAttack(client *Client, msg *protocol.Message) er
 		log.Printf("Battle at %s: Final allies - Attacker: %v, Defender: %v", terrName, attackerAllies, defenderAllies)
 	} // End of cachedPlan == nil block
 
+	defer h.hub.lockGame(client.GameID)()
+
 	// Re-load game state in case it changed during voting
 	stateJSON, err = h.hub.server.db.GetGameState(client.GameID)
 	if err != nil {
@@ -3639,10 +3698,11 @@ func (h *Handlers) executeCardAttack(
 	attackerAllies, defenderAllies []string,
 	terrName, defenderID, defenderName string,
 ) error {
-	attacker := state.Players[client.PlayerID]
-	if attacker == nil {
-		return errors.New("attacker not found")
+	// Validate before taking cards from the attacker's hand
+	if err := state.ValidateAttack(client.PlayerID, payload.TargetTerritory, brought); err != nil {
+		return err
 	}
+	attacker := state.Players[client.PlayerID]
 
 	// Validate and remove attacker's selected attack cards from hand
 	attackCards := attacker.RemoveCardsFromHand(payload.AttackCardIDs)
@@ -3720,13 +3780,7 @@ func (h *Handlers) executeCardAttack(
 
 	log.Printf("Card combat: Waiting for defender %s to select defense cards (battle %s)", defenderID, battleID)
 
-	// Wait for defender's card selection (no timeout per plan)
-	defenseCardIDs := <-pendingBattle.DefenseCardsChan
-
-	// Clean up pending battle
-	h.hub.mu.Lock()
-	delete(h.hub.pendingCardBattles, battleID)
-	h.hub.mu.Unlock()
+	defenseCardIDs := h.awaitDefenseCards(pendingBattle)
 
 	// Re-load state (may have changed)
 	stateJSON2, err := h.hub.server.db.GetGameState(client.GameID)
@@ -3755,6 +3809,37 @@ func (h *Handlers) executeCardAttack(
 	return h.resolveCardCombat(client, &freshState, payload, brought, attackerAllies, defenderAllies, validAttackCards, defenseCards, terrName, defenderID, defenderName)
 }
 
+// defenseCardTimeout is how long a human defender has to choose defense cards.
+const defenseCardTimeout = 60 * time.Second
+
+// awaitDefenseCards waits for the defender's card choice, returning nil if they are offline
+// or time out. Must be called with the game lock held; the lock is released while waiting,
+// so the caller has to reload game state afterwards.
+func (h *Handlers) awaitDefenseCards(battle *PendingCardBattle) []string {
+	defer func() {
+		h.hub.mu.Lock()
+		delete(h.hub.pendingCardBattles, battle.ID)
+		h.hub.mu.Unlock()
+	}()
+
+	if !h.hub.IsPlayerOnline(battle.DefenderID) {
+		log.Printf("Card combat: defender %s is offline, resolving without defense cards", battle.DefenderID)
+		return nil
+	}
+
+	mu := h.hub.gameMutex(battle.GameID)
+	mu.Unlock()
+	defer mu.Lock()
+
+	select {
+	case ids := <-battle.DefenseCardsChan:
+		return ids
+	case <-time.After(defenseCardTimeout):
+		log.Printf("Card combat: defender %s did not choose cards in time (battle %s)", battle.DefenderID, battle.ID)
+		return nil
+	}
+}
+
 // resolveCardCombat resolves a card combat and broadcasts the result.
 func (h *Handlers) resolveCardCombat(
 	client *Client,
@@ -3765,15 +3850,11 @@ func (h *Handlers) resolveCardCombat(
 	attackCards, defenseCards []game.CombatCard,
 	terrName, defenderID, defenderName string,
 ) error {
-	// Validate attack (phase, turn, etc.) - the attack must still be valid
+	// The attack must still be valid against the (possibly reloaded) state
+	if err := state.ValidateAttack(client.PlayerID, payload.TargetTerritory, brought); err != nil {
+		return err
+	}
 	attacker := state.Players[client.PlayerID]
-	if attacker == nil || attacker.AttacksRemaining <= 0 {
-		return errors.New("no attacks remaining")
-	}
-
-	if state.Phase != game.PhaseConquest {
-		return game.ErrInvalidAction
-	}
 
 	// Execute card combat
 	plan := &game.AttackPlan{
@@ -3787,7 +3868,8 @@ func (h *Handlers) resolveCardCombat(
 	if !result.AttackerWins && attacker.AttacksRemaining == 1 {
 		attacker.AttacksRemaining = 0
 	}
-	if attacker.AttacksRemaining <= 0 {
+	// A counter-attack that eliminates the attacker has already passed the turn on
+	if attacker.AttacksRemaining <= 0 && state.CurrentPlayerID == client.PlayerID {
 		state.AdvanceConquestTurn()
 	}
 
@@ -3939,11 +4021,13 @@ func (h *Handlers) handleSelectDefenseCards(client *Client, msg *protocol.Messag
 	}
 
 	// Find the pending card battle for this defender
+	// Remove the battle as the choice is delivered so a repeated submit can't block or reuse it
 	h.hub.mu.Lock()
 	var battle *PendingCardBattle
-	for _, b := range h.hub.pendingCardBattles {
+	for id, b := range h.hub.pendingCardBattles {
 		if b.DefenderID == client.PlayerID && b.GameID == client.GameID {
 			battle = b
+			delete(h.hub.pendingCardBattles, id)
 			break
 		}
 	}
@@ -3955,8 +4039,10 @@ func (h *Handlers) handleSelectDefenseCards(client *Client, msg *protocol.Messag
 
 	log.Printf("Defender %s selected %d defense cards for battle %s", client.Name, len(payload.CardIDs), battle.ID)
 
-	// Send the card IDs through the channel to unblock the attacker's goroutine
-	battle.DefenseCardsChan <- payload.CardIDs
+	select {
+	case battle.DefenseCardsChan <- payload.CardIDs:
+	default:
+	}
 
 	return nil
 }
@@ -4077,11 +4163,7 @@ func (h *Handlers) sendGameHistory(client *Client, gameID string) {
 
 // broadcastGameHistory sends the game history to all players in a game.
 func (h *Handlers) broadcastGameHistory(gameID string) {
-	h.hub.mu.RLock()
-	clients := h.hub.gameClients[gameID]
-	h.hub.mu.RUnlock()
-
-	for client := range clients {
+	for _, client := range h.hub.clientsInGame(gameID) {
 		h.sendGameHistory(client, gameID)
 	}
 }
@@ -4150,7 +4232,7 @@ func (h *Handlers) handleSetAlliance(client *Client, msg *protocol.Message) erro
 	if err != nil {
 		return err
 	}
-	if err := h.hub.server.db.SaveGameState(client.GameID, string(newStateJSON), state.CurrentPlayerID, state.Round, string(state.Phase)); err != nil {
+	if err := h.hub.server.db.SaveGameState(client.GameID, string(newStateJSON), state.CurrentPlayerID, state.Round, state.Phase.String()); err != nil {
 		log.Printf("Failed to save game state: %v", err)
 		return err
 	}
@@ -4237,7 +4319,7 @@ func (h *Handlers) handleSurrender(client *Client, msg *protocol.Message) error 
 	if err != nil {
 		return err
 	}
-	if err := h.hub.server.db.SaveGameState(client.GameID, string(newStateJSON), state.CurrentPlayerID, state.Round, string(state.Phase)); err != nil {
+	if err := h.hub.server.db.SaveGameState(client.GameID, string(newStateJSON), state.CurrentPlayerID, state.Round, state.Phase.String()); err != nil {
 		log.Printf("Failed to save game state: %v", err)
 		return err
 	}
@@ -4283,12 +4365,18 @@ func (h *Handlers) handleAllianceVote(client *Client, msg *protocol.Message) err
 	// Record the vote in the pending battle
 	h.hub.mu.Lock()
 	battle := h.hub.pendingBattles[payload.BattleID]
+	if battle != nil && (battle.GameID != client.GameID || !slices.Contains(battle.ThirdParties, client.PlayerID)) {
+		h.hub.mu.Unlock()
+		return errors.New("not invited to vote in this battle")
+	}
 	if battle != nil {
+		_, alreadyVoted := battle.Votes[client.PlayerID]
 		battle.Votes[client.PlayerID] = payload.Side
-		// Signal that we received a vote
-		select {
-		case battle.VoteChan <- client.PlayerID:
-		default:
+		if !alreadyVoted {
+			select {
+			case battle.VoteChan <- client.PlayerID:
+			default:
+			}
 		}
 	}
 	h.hub.mu.Unlock()
@@ -4370,16 +4458,31 @@ func (h *Handlers) broadcastWithAck(gameID, eventID, eventType string, msgType p
 	log.Printf("Broadcasting %s event %s to game %s, waiting for %d human players",
 		eventType, eventID, gameID, len(humanPlayers))
 
-	// Send the message to all players
-	h.hub.notifyGamePlayers(gameID, msgType, payload)
+	if len(humanPlayers) == 0 {
+		h.hub.notifyGamePlayers(gameID, msgType, payload)
+		h.hub.CreatePendingEvent(eventID, eventType, gameID, humanPlayers, onComplete)
+		return
+	}
 
-	// Create pending event and wait for acks
+	// Register before sending so a fast acknowledgment isn't dropped as unknown
 	h.hub.CreatePendingEvent(eventID, eventType, gameID, humanPlayers, onComplete)
+	h.hub.notifyGamePlayers(gameID, msgType, payload)
 }
 
 // triggerProductionAnimation sends production results to all players for animation.
 // Each player receives only their own production data.
 func (h *Handlers) triggerProductionAnimation(gameID string, state *game.GameState) {
+	if state.ProductionApplied {
+		if h.hub.hasPendingEvent(gameID, protocol.EventProduction) {
+			// Still waiting for acknowledgments; just refresh clients
+			h.broadcastGameStateImmediate(gameID)
+			return
+		}
+		// Acknowledgment event was lost (e.g. server restart) - finish without re-applying
+		h.completeProductionPhase(gameID)
+		return
+	}
+
 	log.Printf("Triggering production animation for game %s", gameID)
 
 	// First, broadcast the current game state so clients see "Production" phase
@@ -4389,8 +4492,8 @@ func (h *Handlers) triggerProductionAnimation(gameID string, state *game.GameSta
 	pm := game.NewPhaseManager(state)
 	eventID := fmt.Sprintf("production-%s-%d", gameID, time.Now().UnixNano())
 	playersToWaitFor := make([]string, 0)
+	results := make(map[string]protocol.ProductionResultsPayload)
 
-	// Send production results to each player
 	for _, player := range state.Players {
 		if player.Eliminated {
 			continue
@@ -4429,31 +4532,34 @@ func (h *Handlers) triggerProductionAnimation(gameID string, state *game.GameSta
 		// Apply production to state immediately (animation is just visual)
 		pm.ApplyProductionResults(player.ID, productions)
 
-		// Send to this player only (if online)
 		if h.hub.IsPlayerOnline(player.ID) {
-			h.hub.sendToPlayer(player.ID, protocol.TypeProductionResults, payload)
-
-			// Track human players we need to wait for
+			results[player.ID] = payload
 			if !player.IsAI {
 				playersToWaitFor = append(playersToWaitFor, player.ID)
 			}
 		}
-
-		log.Printf("Sent production results to player %s: %d productions", player.Name, len(productions))
 	}
 
 	// Save state with production applied
+	state.ProductionApplied = true
 	stateJSON, _ := json.Marshal(state)
 	h.hub.server.db.SaveGameState(gameID, string(stateJSON),
 		state.CurrentPlayerID, state.Round, state.Phase.String())
 
-	// Wait for all human players to acknowledge
+	// Register before sending so a fast acknowledgment isn't dropped as unknown
 	if len(playersToWaitFor) > 0 {
 		h.hub.CreatePendingEvent(eventID, protocol.EventProduction, gameID, playersToWaitFor, func() {
-			// All players acknowledged - complete production phase
+			// Runs from an ack or timeout goroutine, outside any handler's lock
+			defer h.hub.lockGame(gameID)()
 			h.completeProductionPhase(gameID)
 		})
-	} else {
+	}
+	for playerID, payload := range results {
+		h.hub.sendToPlayer(playerID, protocol.TypeProductionResults, payload)
+		log.Printf("Sent production results to player %s: %d productions", playerID, len(payload.Productions))
+	}
+
+	if len(playersToWaitFor) == 0 {
 		// No human players to wait for (all AI) - complete immediately
 		h.completeProductionPhase(gameID)
 	}
@@ -4473,6 +4579,10 @@ func (h *Handlers) completeProductionPhase(gameID string) {
 	var state game.GameState
 	if err := json.Unmarshal([]byte(stateJSON), &state); err != nil {
 		log.Printf("Failed to unmarshal game state: %v", err)
+		return
+	}
+
+	if !state.ProductionPending {
 		return
 	}
 

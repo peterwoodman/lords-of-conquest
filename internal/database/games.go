@@ -380,6 +380,10 @@ func (db *DB) AddAIPlayer(gameID, color, personality string) error {
 		return err
 	}
 
+	if game.Status != GameStatusWaiting {
+		return errors.New("game already started")
+	}
+
 	if game.PlayerCount >= game.MaxPlayers {
 		return ErrGameFull
 	}
@@ -417,13 +421,19 @@ func (db *DB) AddAIPlayer(gameID, color, personality string) error {
 	return err
 }
 
-// StartGame marks a game as started.
+// StartGame marks a waiting game as started. Fails if the game isn't in the lobby.
 func (db *DB) StartGame(gameID string) error {
 	now := time.Now()
-	_, err := db.conn.Exec(`
-		UPDATE games SET status = ?, started_at = ? WHERE id = ?
-	`, GameStatusStarted, now, gameID)
-	return err
+	result, err := db.conn.Exec(`
+		UPDATE games SET status = ?, started_at = ? WHERE id = ? AND status = ?
+	`, GameStatusStarted, now, gameID, GameStatusWaiting)
+	if err != nil {
+		return err
+	}
+	if rows, _ := result.RowsAffected(); rows == 0 {
+		return errors.New("game already started")
+	}
+	return nil
 }
 
 // EndGame marks a game as finished with a winner.

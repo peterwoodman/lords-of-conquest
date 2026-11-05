@@ -316,20 +316,7 @@ func (g *GameState) ExecuteAttackWithAllies(attackerID string, plan *AttackPlan,
 			g.moveBroughtUnit(plan.BroughtUnit, target)
 		}
 
-		// Check for stockpile capture
-		defender := g.Players[defenderID]
-		if defender != nil && defender.StockpileTerritory == target.ID {
-			result.StockpileCaptured = defender.Stockpile.Clone()
-			attacker := g.Players[attackerID]
-			// Transfer resources
-			attacker.Stockpile.Coal += defender.Stockpile.Coal
-			attacker.Stockpile.Gold += defender.Stockpile.Gold
-			attacker.Stockpile.Iron += defender.Stockpile.Iron
-			attacker.Stockpile.Timber += defender.Stockpile.Timber
-			// Clear defender's stockpile
-			defender.Stockpile = NewStockpile()
-			defender.StockpileTerritory = ""
-		}
+		result.StockpileCaptured = g.captureStockpile(attackerID, defenderID, target.ID)
 
 		// Check if defender is eliminated
 		g.checkElimination(defenderID)
@@ -414,18 +401,7 @@ func (g *GameState) ExecuteCardAttackWithAllies(attackerID string, plan *AttackP
 			g.moveBroughtUnit(plan.BroughtUnit, target)
 		}
 
-		// Check for stockpile capture
-		defender := g.Players[defenderID]
-		if defender != nil && defender.StockpileTerritory == target.ID {
-			result.StockpileCaptured = defender.Stockpile.Clone()
-			attacker := g.Players[attackerID]
-			attacker.Stockpile.Coal += defender.Stockpile.Coal
-			attacker.Stockpile.Gold += defender.Stockpile.Gold
-			attacker.Stockpile.Iron += defender.Stockpile.Iron
-			attacker.Stockpile.Timber += defender.Stockpile.Timber
-			defender.Stockpile = NewStockpile()
-			defender.StockpileTerritory = ""
-		}
+		result.StockpileCaptured = g.captureStockpile(attackerID, defenderID, target.ID)
 
 		// Blitz: return attack cards to attacker's hand
 		attacker := g.Players[attackerID]
@@ -475,8 +451,9 @@ func (g *GameState) ExecuteCardAttackWithAllies(attackerID string, plan *AttackP
 		// Counter-Attack: defender captures a random attacker adjacent territory
 		if cardResult.CounterAttackTerr != "" {
 			counterTerr := g.Territories[cardResult.CounterAttackTerr]
-			if counterTerr != nil && counterTerr.Owner == attackerID {
+			if counterTerr != nil && counterTerr.Owner == attackerID && defenderID != "" {
 				counterTerr.Owner = defenderID
+				g.captureStockpile(defenderID, attackerID, counterTerr.ID)
 				// Check if attacker is now eliminated
 				g.checkElimination(attackerID)
 			}
@@ -533,6 +510,24 @@ func (g *GameState) moveBroughtUnit(brought *BroughtUnit, target *Territory) {
 	}
 }
 
+// captureStockpile moves loserID's stockpile to captorID if it sits on territoryID.
+// Returns the captured resources, or nil if there was no stockpile there.
+func (g *GameState) captureStockpile(captorID, loserID, territoryID string) *Stockpile {
+	loser := g.Players[loserID]
+	captor := g.Players[captorID]
+	if loser == nil || captor == nil || loser.StockpileTerritory != territoryID {
+		return nil
+	}
+	captured := loser.Stockpile.Clone()
+	captor.Stockpile.Coal += loser.Stockpile.Coal
+	captor.Stockpile.Gold += loser.Stockpile.Gold
+	captor.Stockpile.Iron += loser.Stockpile.Iron
+	captor.Stockpile.Timber += loser.Stockpile.Timber
+	loser.Stockpile = NewStockpile()
+	loser.StockpileTerritory = ""
+	return captured
+}
+
 // checkElimination checks if a player has been eliminated.
 func (g *GameState) checkElimination(playerID string) {
 	for _, t := range g.Territories {
@@ -542,6 +537,7 @@ func (g *GameState) checkElimination(playerID string) {
 	}
 	if player := g.Players[playerID]; player != nil {
 		player.Eliminated = true
+		g.passTurnOfLeavingPlayer(playerID)
 		g.removeFromPlayerOrder(playerID)
 	}
 }

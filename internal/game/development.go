@@ -316,6 +316,8 @@ func (g *GameState) skipToAfterProduction() {
 // It clears the pending flag and advances to the next phase.
 func (g *GameState) CompleteProduction() {
 	g.ProductionPending = false
+	g.ProductionApplied = false
+	g.StockpilePlacementPending = false
 
 	if g.InitCommercePhase() {
 		g.Phase = PhaseConquest
