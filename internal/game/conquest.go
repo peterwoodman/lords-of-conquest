@@ -84,7 +84,7 @@ func (g *GameState) GetAttackPlan(attackerID, targetID string) *PlanAttackResult
 		// because they are never counted in base attack strength
 		if t.TotalBoats() > 0 && t.IsCoastal() {
 			for waterID, boatCount := range t.Boats {
-				if boatCount > 0 && g.canBoatReachTargetViaWater(attackerID, id, targetID, waterID) {
+				if boatCount > 0 && g.canBoatReachTargetViaWater(targetID, waterID) {
 					opt := ReinforcementOption{
 						UnitType:      "boat",
 						FromTerritory: id,
@@ -150,41 +150,13 @@ func (g *GameState) canHorseReachTarget(playerID, fromID, targetID string) bool 
 }
 
 // canBoatReachTargetViaWater checks if a boat in a specific water body can attack the target.
-// Boats can attack:
-// 1. Coastal territories that share the same water body (direct water attack)
-// 2. Truly landlocked territories (no water bodies at all) adjacent to a coastal territory the attacker owns
-func (g *GameState) canBoatReachTargetViaWater(attackerID, fromID, targetID, waterBodyID string) bool {
+// Boats can only attack territories that border the same water body.
+func (g *GameState) canBoatReachTargetViaWater(targetID, waterBodyID string) bool {
 	target := g.Territories[targetID]
-	water := g.WaterBodies[waterBodyID]
-	if water == nil {
+	if target == nil || g.WaterBodies[waterBodyID] == nil {
 		return false
 	}
-
-	// Check if target borders this water body (boat can attack directly from water)
-	for _, tw := range target.WaterBodies {
-		if tw == waterBodyID {
-			return true
-		}
-	}
-
-	// If target has ANY water bodies (is coastal on any body of water), boats can only
-	// attack it via direct water access (checked above). Per game rules: "Boats MUST be
-	// able to reach a coastal tile of the target territory."
-	if len(target.WaterBodies) > 0 {
-		return false
-	}
-
-	// Target is truly landlocked (no water bodies at all).
-	// Check if it's adjacent to a coastal territory the attacker owns in this water body.
-	// This allows boats to "land" at an owned coastal territory and attack adjacent inland territories.
-	for _, coastalID := range water.Territories {
-		coastal := g.Territories[coastalID]
-		if coastal != nil && coastal.Owner == attackerID && g.IsAdjacent(coastalID, targetID) {
-			return true
-		}
-	}
-
-	return false
+	return slices.Contains(target.WaterBodies, waterBodyID)
 }
 
 // Attack executes an attack during the conquest phase.

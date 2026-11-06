@@ -2,7 +2,6 @@ package game
 
 import (
 	"math/rand"
-	"slices"
 )
 
 // CombatResult represents the outcome of a battle.
@@ -495,16 +494,13 @@ func (g *GameState) moveBroughtUnit(brought *BroughtUnit, target *Territory) {
 		from.HasWeapon = false
 		target.HasWeapon = true
 	case UnitBoat:
-		// Boat stays in the same water body, so it remains at its origin if the
-		// captured territory doesn't border that water. If the territory is full,
-		// the attacking boat replaces one of the captured boats.
-		if slices.Contains(target.WaterBodies, brought.WaterBodyID) {
-			if !target.CanAddBoat() {
-				target.removeReplacedBoat(brought.WaterBodyID)
-			}
-			from.RemoveBoat(brought.WaterBodyID)
-			target.AddBoat(brought.WaterBodyID)
+		// Boat stays in the same water body; if the captured territory is full,
+		// the attacking boat replaces one of its boats
+		if !target.CanAddBoat() {
+			target.removeReplacedBoat(brought.WaterBodyID)
 		}
+		from.RemoveBoat(brought.WaterBodyID)
+		target.AddBoat(brought.WaterBodyID)
 		if brought.CarryingHorse {
 			horseFrom := g.Territories[brought.HorseFromTerritory]
 			horseFrom.HasHorse = false

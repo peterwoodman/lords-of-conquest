@@ -225,21 +225,21 @@ func TestProduction_HorsesDoNotShareDestination(t *testing.T) {
 	}
 }
 
-func TestBoatAttack_BoatStaysHomeWhenTargetIsInland(t *testing.T) {
+func TestBoatAttack_OnlyTargetsOnSameWater(t *testing.T) {
 	g := newRulesTestState(PhaseConquest)
+	g.WaterBodies = map[string]*WaterBody{"w1": {ID: "w1", Territories: []string{"a1", "c1"}}}
 	from := g.Territories["a1"]
 	from.WaterBodies = []string{"w1"}
 	from.CoastalTiles = 2
 	from.AddBoat("w1")
-	target := g.Territories["b1"] // no water bodies
+	g.Territories["c1"].WaterBodies = []string{"w1"}
 
-	g.moveBroughtUnit(&BroughtUnit{UnitType: UnitBoat, FromTerritory: "a1", WaterBodyID: "w1"}, target)
-
-	if target.TotalBoats() != 0 {
-		t.Fatal("boat should not land in a territory that doesn't border its water")
+	if !g.canBoatReachTargetViaWater("c1", "w1") {
+		t.Fatal("boat should reach a territory on the same water")
 	}
-	if from.Boats["w1"] != 1 {
-		t.Fatal("boat should remain at its origin")
+	// b1 is landlocked but next to A's coastal a1
+	if g.canBoatReachTargetViaWater("b1", "w1") {
+		t.Fatal("boat must not attack a territory that doesn't border its water")
 	}
 }
 
