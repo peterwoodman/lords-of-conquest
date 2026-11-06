@@ -1,5 +1,6 @@
 // Package ai makes decisions for CPU players. Functions read game state and return
-// a decision; they never modify the state they are given.
+// a decision. Some try out moves on the state while evaluating them, but always leave
+// it as they found it; callers must hold the game lock.
 package ai
 
 import (

@@ -1753,6 +1753,14 @@ func newAIRand() *rand.Rand {
 	return rand.New(rand.NewSource(time.Now().UnixNano()))
 }
 
+// territoryName returns a territory's display name, falling back to its ID.
+func territoryName(state *game.GameState, id string) string {
+	if t := state.Territories[id]; t != nil {
+		return t.Name
+	}
+	return id
+}
+
 // aiSelectTerritory makes the AI select a territory during territory selection.
 func (h *Handlers) aiSelectTerritory(gameID string, state *game.GameState) {
 	var difficulty game.AIDifficulty
@@ -1827,15 +1835,11 @@ func (h *Handlers) aiPlaceStockpile(gameID string, state *game.GameState) {
 			continue // Already placed or eliminated
 		}
 
-		// Find player's territories
-		territories := state.GetPlayerTerritories(playerID)
-		if len(territories) == 0 {
+		selectedID := ai.ChooseStockpile(state, playerID, player.AIDifficulty, newAIRand())
+		if selectedID == "" {
 			log.Printf("AI: Player %s has no territories", playerID)
 			continue
 		}
-
-		// Pick a random territory
-		selectedID := territories[rand.Intn(len(territories))]
 
 		// Get territory name and player name
 		terrName := selectedID
@@ -1905,19 +1909,25 @@ func (h *Handlers) aiShipment(gameID string, state *game.GameState) {
 		return
 	}
 
-	// Simple AI: 50% chance to skip, 50% chance to move stockpile somewhere random
+	playerID := state.CurrentPlayerID
+	decision := ai.PlanShipment(state, playerID, player.AIDifficulty, newAIRand())
 	moved := false
-	if rand.Float32() >= 0.5 {
-		// Try to move stockpile
-		destinations := state.GetValidStockpileDestinations(state.CurrentPlayerID)
-		if len(destinations) > 0 {
-			dest := destinations[rand.Intn(len(destinations))]
-			log.Printf("AI: Moving stockpile to %s", dest)
-			if err := state.MoveStockpile(state.CurrentPlayerID, dest); err != nil {
-				log.Printf("AI: Failed to move stockpile: %v", err)
-			} else {
-				moved = true
-			}
+	switch decision.Kind {
+	case ai.ShipStockpile:
+		log.Printf("AI: %s moving stockpile to %s", player.Name, decision.To)
+		if err := state.MoveStockpile(playerID, decision.To); err != nil {
+			log.Printf("AI: Failed to move stockpile: %v", err)
+		} else {
+			moved = true
+			h.logHistory(gameID, state.Round, state.Phase.String(), playerID, player.Name,
+				database.EventStockpileMoved, fmt.Sprintf("Moved stockpile to %s", territoryName(state, decision.To)))
+		}
+	case ai.ShipUnit:
+		log.Printf("AI: %s moving %s from %s to %s", player.Name, decision.UnitType, decision.From, decision.To)
+		if err := state.MoveUnit(playerID, decision.UnitType, decision.From, decision.To, decision.WaterBodyID, false, false); err != nil {
+			log.Printf("AI: Failed to move %s: %v", decision.UnitType, err)
+		} else {
+			moved = true
 		}
 	}
 

@@ -139,18 +139,25 @@ resource-rich area. Easy weights resources over adjacency and adds noise.
 
 ## Stockpile Placement and Shipment
 
-**Safety score** for a candidate territory:
-`safety = clusterSize - 3 * enemyNeighbours - threat / max(1, ownDefense)`,
-with a bonus for territories that are not coastal to an enemy-held water body.
+Implemented in `internal/game/ai/shipment.go`, around an **expected loss**
+estimate:
 
-- Placement: Easy picks a random territory with no enemy neighbours (falls back
-  to random); Medium/Hard pick the highest safety score.
-- Shipment: move the stockpile only when the current location's safety is
-  meaningfully worse than the best valid destination (Hard also moves away
-  from a territory an opponent could beat next round).
-- Unit shipment (Medium/Hard): move one horse, weapon or boat to the frontier
-  territory with the highest `threat - defense`, or toward the highest-value
-  attack target for next round (Hard). Easy never moves units.
+- `threat(t)` is the strongest attack a single opponent could make on an owned
+  territory: its adjacent strength plus the best unit it could bring.
+- `expectedLoss = Σ winProbability(threat(t), defense(t)) * value(t)`, where
+  `value` is 1 + resource value, +6 for a city, +1.5 weapon, +0.5 horse, +1 per
+  boat, and +10 where the stockpile is.
+
+Placement: Easy prefers territories with few enemy neighbours (with Easy
+noise). Medium/Hard pick the territory least likely to fall, tie-broken by
+defence margin.
+
+Shipment allows one action per turn (move the stockpile, move one unit, or
+pass). Every possible stockpile move, and for Medium/Hard every horse, weapon
+and boat move, is scored by how much it lowers expected loss. The CPU passes
+unless the chosen action saves at least 0.5. Easy only considers moving the
+stockpile. Units are moved defensively only; positioning for the next attack
+is left for later tuning.
 
 ## Conquest
 
