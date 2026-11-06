@@ -139,8 +139,8 @@ func TestGameAgainstAIReachesRoundThree(t *testing.T) {
 				MapData:  generatedMapData(),
 			})
 			// Sent back to back: the server must handle one client's messages in order
-			c.send(protocol.TypeAddAI, protocol.AddAIPayload{Personality: "aggressive"})
-			c.send(protocol.TypeAddAI, protocol.AddAIPayload{Personality: "aggressive"})
+			c.send(protocol.TypeAddAI, protocol.AddAIPayload{Difficulty: "easy"})
+			c.send(protocol.TypeAddAI, protocol.AddAIPayload{Difficulty: "hard"})
 			c.send(protocol.TypePlayerReady, protocol.PlayerReadyPayload{Ready: true})
 			c.send(protocol.TypeStartGame, struct{}{})
 

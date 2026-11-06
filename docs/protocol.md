@@ -77,13 +77,24 @@ Leave the current game.
 ```
 
 #### `add_ai`
-Add an AI player (host only).
+Add an AI player (host only). `difficulty` is `easy`, `medium` (default) or `hard`.
 ```json
 {
   "type": "add_ai",
   "payload": {
-    "personality": "aggressive",
-    "name": "CPU-1"
+    "difficulty": "medium"
+  }
+}
+```
+
+#### `set_ai_difficulty`
+Change an AI player's difficulty (host only, lobby only).
+```json
+{
+  "type": "set_ai_difficulty",
+  "payload": {
+    "player_id": "ai-1a2b3c4d",
+    "difficulty": "hard"
   }
 }
 ```
@@ -158,7 +169,7 @@ Current lobby state.
         "name": "Player1",
         "color": "orange",
         "is_ai": false,
-        "ai_personality": null,
+        "ai_difficulty": "",
         "ready": true
       }
     ]

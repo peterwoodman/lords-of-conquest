@@ -29,7 +29,7 @@ type Player struct {
 	Name               string          `json:"name"`
 	Color              PlayerColor     `json:"color"`
 	IsAI               bool            `json:"isAI"`
-	AIPersonality      AIPersonality   `json:"aiPersonality"`
+	AIDifficulty       AIDifficulty    `json:"aiDifficulty,omitempty"`
 	Stockpile          *Stockpile      `json:"stockpile"`
 	StockpileTerritory string          `json:"stockpileTerritory"` // Territory ID where stockpile is located
 	AttacksRemaining   int             `json:"attacksRemaining"`
@@ -40,27 +40,46 @@ type Player struct {
 	DefenseCards       []CombatCard    `json:"defenseCards"`  // Combat cards (card mode only)
 }
 
-// AIPersonality defines AI behavior type.
-type AIPersonality int
+// AIDifficulty is the skill level of a CPU player.
+type AIDifficulty string
 
 const (
-	AIPersonalityNone AIPersonality = iota
-	AIAggressive
-	AIDefensive
-	AIPassive
+	AIEasy   AIDifficulty = "easy"
+	AIMedium AIDifficulty = "medium"
+	AIHard   AIDifficulty = "hard"
 )
 
-// String returns the personality name.
-func (p AIPersonality) String() string {
-	switch p {
-	case AIAggressive:
-		return "Aggressive"
-	case AIDefensive:
-		return "Defensive"
-	case AIPassive:
-		return "Passive"
+// ParseAIDifficulty converts a string to a difficulty, defaulting to medium.
+func ParseAIDifficulty(s string) AIDifficulty {
+	switch AIDifficulty(s) {
+	case AIEasy, AIHard:
+		return AIDifficulty(s)
 	default:
-		return "Human"
+		return AIMedium
+	}
+}
+
+// Next returns the following difficulty in the easy -> medium -> hard cycle.
+func (d AIDifficulty) Next() AIDifficulty {
+	switch ParseAIDifficulty(string(d)) {
+	case AIEasy:
+		return AIMedium
+	case AIMedium:
+		return AIHard
+	default:
+		return AIEasy
+	}
+}
+
+// Label returns the display name of the difficulty.
+func (d AIDifficulty) Label() string {
+	switch ParseAIDifficulty(string(d)) {
+	case AIEasy:
+		return "Easy"
+	case AIHard:
+		return "Hard"
+	default:
+		return "Medium"
 	}
 }
 

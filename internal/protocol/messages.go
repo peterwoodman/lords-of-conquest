@@ -41,6 +41,7 @@ const (
 	TypeDeleteGame     MessageType = "delete_game"
 	TypeGameDeleted    MessageType = "game_deleted"
 	TypeAddAI          MessageType = "add_ai"
+	TypeSetAIDifficulty MessageType = "set_ai_difficulty"
 	TypeRemovePlayer   MessageType = "remove_player"
 	TypeUpdateSettings MessageType = "update_settings"
 	TypeUpdateMap      MessageType = "update_map"

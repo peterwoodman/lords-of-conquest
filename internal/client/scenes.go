@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strings"
 
+	"lords-of-conquest/internal/game"
 	"lords-of-conquest/internal/protocol"
 	"lords-of-conquest/pkg/maps"
 
@@ -1124,11 +1125,12 @@ func NewWaitingScene(game *Game) *WaitingScene {
 	btnH := 45
 
 	s.playerList = NewList(leftMargin, 210, 380, 410)
+	s.playerList.OnSelect = s.onPlayerClicked
 
 	s.addAIBtn = &Button{
 		X: rightPanelX, Y: 210, W: btnW, H: btnH,
 		Text:    "Add CPU",
-		OnClick: func() { s.game.AddAI("aggressive") },
+		OnClick: func() { s.game.AddAI("medium") },
 	}
 
 	s.readyBtn = &Button{
@@ -1252,6 +1254,21 @@ func NewWaitingScene(game *Game) *WaitingScene {
 func (s *WaitingScene) OnEnter() {}
 func (s *WaitingScene) OnExit()  {}
 
+// onPlayerClicked cycles a CPU's difficulty when the host clicks its row.
+func (s *WaitingScene) onPlayerClicked(id string) {
+	lobby := s.game.lobbyState
+	if lobby == nil || lobby.HostID != s.game.config.PlayerID {
+		return
+	}
+	for _, p := range lobby.Players {
+		if p.ID == id && p.IsAI {
+			next := game.AIDifficulty(p.AIDifficulty).Next()
+			s.game.SetAIDifficulty(id, string(next))
+			return
+		}
+	}
+}
+
 func (s *WaitingScene) Update() error {
 	// Handle settings dialog
 	if s.showSettings {
@@ -1284,11 +1301,15 @@ func (s *WaitingScene) Update() error {
 	// Update based on lobby state
 	if lobby := s.game.lobbyState; lobby != nil {
 		// Update player list
+		isHost := lobby.HostID == s.game.config.PlayerID
 		items := make([]ListItem, len(lobby.Players))
 		for i, p := range lobby.Players {
 			status := ""
 			if p.IsAI {
-				status = fmt.Sprintf("AI (%s)", p.AIPersonality)
+				status = fmt.Sprintf("CPU (%s)", game.AIDifficulty(p.AIDifficulty).Label())
+				if isHost {
+					status += " - click to change"
+				}
 			} else if p.Ready {
 				status = "Ready"
 			} else if p.IsConnected {
@@ -1305,7 +1326,6 @@ func (s *WaitingScene) Update() error {
 		s.playerList.SetItems(items)
 
 		// Show/hide host-only buttons
-		isHost := lobby.HostID == s.game.config.PlayerID
 		s.startBtn.Disabled = !isHost || !s.canStart()
 		s.addAIBtn.Disabled = !isHost || len(lobby.Players) >= lobby.Settings.MaxPlayers
 		s.mapBtn.Disabled = !isHost

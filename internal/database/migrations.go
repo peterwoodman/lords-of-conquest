@@ -137,4 +137,12 @@ var migrations = []migration{
 			ALTER TABLE games ADD COLUMN win_reason TEXT;
 		`,
 	},
+	{
+		id:   7,
+		name: "add_ai_difficulty",
+		sql: `
+			-- Replaces ai_personality, which is no longer read
+			ALTER TABLE game_players ADD COLUMN ai_difficulty TEXT DEFAULT 'medium';
+		`,
+	},
 }

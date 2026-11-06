@@ -39,7 +39,7 @@ func TestCleanup_RemovesLobbyWithOnlyAIConnected(t *testing.T) {
 	db := newTestDB(t)
 	host, _ := db.CreatePlayer("Host")
 	game, _ := db.CreateGame("g", host.ID, "orange", GameSettings{MaxPlayers: 4}, true, "")
-	if err := db.AddAIPlayer(game.ID, "blue", "aggressive"); err != nil {
+	if err := db.AddAIPlayer(game.ID, "blue", "medium"); err != nil {
 		t.Fatal(err)
 	}
 	db.SetPlayerConnected(game.ID, host.ID, false)
@@ -64,10 +64,47 @@ func TestJoinGame_RespectsCapacity(t *testing.T) {
 	other, _ := db.CreatePlayer("Other")
 	game, _ := db.CreateGame("g", host.ID, "orange", GameSettings{MaxPlayers: 2}, true, "")
 
-	if err := db.AddAIPlayer(game.ID, "blue", "aggressive"); err != nil {
+	if err := db.AddAIPlayer(game.ID, "blue", "medium"); err != nil {
 		t.Fatal(err)
 	}
 	if err := db.JoinGame(game.ID, other.ID, "green"); !errors.Is(err, ErrGameFull) {
 		t.Fatalf("expected game full, got %v", err)
+	}
+}
+
+func TestSetAIDifficulty_OnlyChangesAIPlayers(t *testing.T) {
+	db := newTestDB(t)
+	host, _ := db.CreatePlayer("Host")
+	game, _ := db.CreateGame("g", host.ID, "orange", GameSettings{MaxPlayers: 4}, true, "")
+	if err := db.AddAIPlayer(game.ID, "blue", "easy"); err != nil {
+		t.Fatal(err)
+	}
+
+	aiDifficulty := func() (string, string) {
+		players, err := db.GetGamePlayers(game.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, p := range players {
+			if p.IsAI {
+				return p.PlayerID, p.AIDifficulty
+			}
+		}
+		t.Fatal("no AI player")
+		return "", ""
+	}
+
+	aiID, difficulty := aiDifficulty()
+	if difficulty != "easy" {
+		t.Fatalf("expected easy, got %q", difficulty)
+	}
+	if err := db.SetAIDifficulty(game.ID, aiID, "hard"); err != nil {
+		t.Fatal(err)
+	}
+	if _, difficulty = aiDifficulty(); difficulty != "hard" {
+		t.Fatalf("expected hard, got %q", difficulty)
+	}
+	if err := db.SetAIDifficulty(game.ID, host.ID, "hard"); err == nil {
+		t.Fatal("expected error changing a human player's difficulty")
 	}
 }

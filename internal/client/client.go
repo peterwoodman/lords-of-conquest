@@ -432,11 +432,20 @@ func (g *Game) StartGame() error {
 }
 
 // AddAI adds an AI player to the game (host only).
-func (g *Game) AddAI(personality string) error {
+func (g *Game) AddAI(difficulty string) error {
 	payload := protocol.AddAIPayload{
-		Personality: personality,
+		Difficulty: difficulty,
 	}
 	return g.network.SendPayload(protocol.TypeAddAI, payload)
+}
+
+// SetAIDifficulty changes an AI player's difficulty (host only).
+func (g *Game) SetAIDifficulty(playerID, difficulty string) error {
+	payload := protocol.SetAIDifficultyPayload{
+		PlayerID:   playerID,
+		Difficulty: difficulty,
+	}
+	return g.network.SendPayload(protocol.TypeSetAIDifficulty, payload)
 }
 
 // UpdateGameSettings updates a single game setting (host only).

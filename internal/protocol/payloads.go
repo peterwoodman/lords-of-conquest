@@ -99,7 +99,13 @@ type GameDeletedPayload struct {
 
 // AddAIPayload is sent to add an AI player.
 type AddAIPayload struct {
-	Personality string `json:"personality"` // aggressive, defensive, passive
+	Difficulty string `json:"difficulty,omitempty"` // easy, medium (default), hard
+}
+
+// SetAIDifficultyPayload is sent to change an AI player's difficulty (host only, lobby only).
+type SetAIDifficultyPayload struct {
+	PlayerID   string `json:"player_id"`
+	Difficulty string `json:"difficulty"` // easy, medium, hard
 }
 
 // RemovePlayerPayload is sent to remove a player (host only).
@@ -167,13 +173,13 @@ type LobbyStatePayload struct {
 
 // LobbyPlayer is a player in the lobby.
 type LobbyPlayer struct {
-	ID            string `json:"id"`
-	Name          string `json:"name"`
-	Color         string `json:"color"`
-	IsAI          bool   `json:"is_ai"`
-	AIPersonality string `json:"ai_personality,omitempty"`
-	Ready         bool   `json:"ready"`
-	IsConnected   bool   `json:"is_connected"`
+	ID           string `json:"id"`
+	Name         string `json:"name"`
+	Color        string `json:"color"`
+	IsAI         bool   `json:"is_ai"`
+	AIDifficulty string `json:"ai_difficulty,omitempty"`
+	Ready        bool   `json:"ready"`
+	IsConnected  bool   `json:"is_connected"`
 }
 
 // PlayerJoinedPayload is sent when a player joins.

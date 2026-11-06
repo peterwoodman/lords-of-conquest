@@ -60,7 +60,7 @@ type GamePlayer struct {
 	Slot            int
 	Color           string
 	IsAI            bool
-	AIPersonality   string
+	AIDifficulty    string // "easy", "medium" or "hard"
 	IsReady         bool
 	IsConnected     bool
 	JoinedAt        time.Time
@@ -350,7 +350,7 @@ func (db *DB) LeaveGame(gameID, playerID string) error {
 func (db *DB) GetGamePlayers(gameID string) ([]*GamePlayer, error) {
 	rows, err := db.conn.Query(`
 		SELECT gp.game_id, gp.player_id, p.name, gp.slot, gp.color, 
-		       gp.is_ai, gp.ai_personality, gp.is_ready, gp.is_connected, gp.joined_at,
+		       gp.is_ai, COALESCE(gp.ai_difficulty, 'medium'), gp.is_ready, gp.is_connected, gp.joined_at,
 		       COALESCE(gp.alliance_setting, 'ask')
 		FROM game_players gp
 		LEFT JOIN players p ON gp.player_id = p.id
@@ -365,15 +365,11 @@ func (db *DB) GetGamePlayers(gameID string) ([]*GamePlayer, error) {
 	var players []*GamePlayer
 	for rows.Next() {
 		var gp GamePlayer
-		var aiPersonality sql.NullString
 		var playerName sql.NullString
 		if err := rows.Scan(&gp.GameID, &gp.PlayerID, &playerName, &gp.Slot, &gp.Color,
-			&gp.IsAI, &aiPersonality, &gp.IsReady, &gp.IsConnected, &gp.JoinedAt,
+			&gp.IsAI, &gp.AIDifficulty, &gp.IsReady, &gp.IsConnected, &gp.JoinedAt,
 			&gp.AllianceSetting); err != nil {
 			return nil, err
-		}
-		if aiPersonality.Valid {
-			gp.AIPersonality = aiPersonality.String
 		}
 		if playerName.Valid {
 			gp.PlayerName = playerName.String
@@ -418,8 +414,23 @@ func (db *DB) SetAllianceSetting(gameID, playerID, setting string) error {
 	return err
 }
 
+// SetAIDifficulty changes the difficulty of an AI player. Fails if the player isn't an AI in the game.
+func (db *DB) SetAIDifficulty(gameID, playerID, difficulty string) error {
+	result, err := db.conn.Exec(`
+		UPDATE game_players SET ai_difficulty = ? WHERE game_id = ? AND player_id = ? AND is_ai = TRUE
+	`, difficulty, gameID, playerID)
+	if err != nil {
+		return err
+	}
+	rows, _ := result.RowsAffected()
+	if rows == 0 {
+		return errors.New("AI player not in game")
+	}
+	return nil
+}
+
 // AddAIPlayer adds an AI player to a game.
-func (db *DB) AddAIPlayer(gameID, color, personality string) error {
+func (db *DB) AddAIPlayer(gameID, color, difficulty string) error {
 	tx, err := db.conn.Begin()
 	if err != nil {
 		return err
@@ -452,9 +463,9 @@ func (db *DB) AddAIPlayer(gameID, color, personality string) error {
 
 	// Add AI to game
 	_, err = tx.Exec(`
-		INSERT INTO game_players (game_id, player_id, slot, color, is_ai, ai_personality, is_ready, is_connected, joined_at)
+		INSERT INTO game_players (game_id, player_id, slot, color, is_ai, ai_difficulty, is_ready, is_connected, joined_at)
 		VALUES (?, ?, ?, ?, TRUE, ?, TRUE, TRUE, ?)
-	`, gameID, aiID, slot, color, personality, time.Now())
+	`, gameID, aiID, slot, color, difficulty, time.Now())
 	if err != nil {
 		return err
 	}

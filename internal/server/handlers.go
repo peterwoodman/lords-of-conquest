@@ -48,6 +48,8 @@ func (h *Handlers) Handle(client *Client, msg *protocol.Message) {
 		err = h.handleDeleteGame(client, msg)
 	case protocol.TypeAddAI:
 		err = h.handleAddAI(client, msg)
+	case protocol.TypeSetAIDifficulty:
+		err = h.handleSetAIDifficulty(client, msg)
 	case protocol.TypeUpdateSettings:
 		err = h.handleUpdateSettings(client, msg)
 	case protocol.TypeUpdateMap:
@@ -116,6 +118,7 @@ func locksGameState(t protocol.MessageType) bool {
 	switch t {
 	case protocol.TypeLeaveGame,
 		protocol.TypeAddAI,
+		protocol.TypeSetAIDifficulty,
 		protocol.TypeUpdateSettings,
 		protocol.TypeUpdateMap,
 		protocol.TypePlayerReady,
@@ -447,11 +450,11 @@ func (h *Handlers) handleAddAI(client *Client, msg *protocol.Message) error {
 	}
 
 	// Verify client is host
-	game, err := h.hub.server.db.GetGame(client.GameID)
+	dbGame, err := h.hub.server.db.GetGame(client.GameID)
 	if err != nil {
 		return err
 	}
-	if game.HostPlayerID != client.PlayerID {
+	if dbGame.HostPlayerID != client.PlayerID {
 		return errors.New("only host can add AI")
 	}
 
@@ -464,13 +467,45 @@ func (h *Handlers) handleAddAI(client *Client, msg *protocol.Message) error {
 	players, _ := h.hub.server.db.GetGamePlayers(client.GameID)
 	color := h.pickColor(players, "")
 
-	if err := h.hub.server.db.AddAIPlayer(client.GameID, color, payload.Personality); err != nil {
+	difficulty := game.ParseAIDifficulty(payload.Difficulty)
+	if err := h.hub.server.db.AddAIPlayer(client.GameID, color, string(difficulty)); err != nil {
 		return err
 	}
 
 	// Broadcast updated lobby state
 	h.broadcastLobbyState(client.GameID)
 
+	return nil
+}
+
+// handleSetAIDifficulty changes an AI player's difficulty (host only, before the game starts).
+func (h *Handlers) handleSetAIDifficulty(client *Client, msg *protocol.Message) error {
+	if client.GameID == "" {
+		return errors.New("not in a game")
+	}
+
+	dbGame, err := h.hub.server.db.GetGame(client.GameID)
+	if err != nil {
+		return err
+	}
+	if dbGame.HostPlayerID != client.PlayerID {
+		return errors.New("only host can change CPU difficulty")
+	}
+	if dbGame.Status != database.GameStatusWaiting {
+		return errors.New("game has already started")
+	}
+
+	var payload protocol.SetAIDifficultyPayload
+	if err := msg.ParsePayload(&payload); err != nil {
+		return err
+	}
+
+	difficulty := game.ParseAIDifficulty(payload.Difficulty)
+	if err := h.hub.server.db.SetAIDifficulty(client.GameID, payload.PlayerID, string(difficulty)); err != nil {
+		return err
+	}
+
+	h.broadcastLobbyState(client.GameID)
 	return nil
 }
 
@@ -797,7 +832,7 @@ func (h *Handlers) sendLobbyState(client *Client, gameID string) {
 			Name:          p.PlayerName,
 			Color:         p.Color,
 			IsAI:          p.IsAI,
-			AIPersonality: p.AIPersonality,
+			AIDifficulty:  p.AIDifficulty,
 			Ready:         p.IsReady,
 			IsConnected:   p.IsConnected,
 		}
@@ -889,7 +924,7 @@ func (h *Handlers) initializeGameState(gameID string, dbGame *database.Game, dbP
 		player := game.NewPlayer(dbp.PlayerID, dbp.PlayerName, game.PlayerColor(dbp.Color))
 		if dbp.IsAI {
 			player.IsAI = true
-			player.AIPersonality = parseAIPersonality(dbp.AIPersonality)
+			player.AIDifficulty = game.ParseAIDifficulty(dbp.AIDifficulty)
 			player.Alliance = game.AllianceNeutral // AI is always neutral
 		} else {
 			// Apply alliance setting from database
@@ -1435,19 +1470,6 @@ func parseChanceLevel(s string) game.ChanceLevel {
 		return game.ChanceHigh
 	default:
 		return game.ChanceMedium
-	}
-}
-
-func parseAIPersonality(s string) game.AIPersonality {
-	switch s {
-	case "aggressive":
-		return game.AIAggressive
-	case "defensive":
-		return game.AIDefensive
-	case "passive":
-		return game.AIPassive
-	default:
-		return game.AIAggressive
 	}
 }
 
@@ -2353,7 +2375,7 @@ func (h *Handlers) aiDevelopment(gameID string, state *game.GameState) {
 // aiBuyCards has AI buy combat cards with remaining resources.
 func (h *Handlers) aiBuyCards(state *game.GameState, player *game.Player) {
 	// AI card purchasing strategy:
-	// - Prefer attack cards if aggressive personality, defense if defensive
+	// - Prefer attack cards, switching to defense when the attack hand is full
 	// - Buy up to 2 cards per turn if affordable
 	// - Use the most abundant resource
 	cardsBought := 0
@@ -2378,17 +2400,6 @@ func (h *Handlers) aiBuyCards(state *game.GameState, player *game.Player) {
 
 		// Decide attack or defense
 		cardType := game.CardTypeAttack
-		if player.AIPersonality == game.AIDefensive {
-			// Defensive AI prefers defense cards
-			if len(player.DefenseCards) < game.MaxDefenseCards {
-				cardType = game.CardTypeDefense
-			}
-		} else {
-			// Aggressive/balanced: prefer attack cards
-			if len(player.AttackCards) >= game.MaxAttackCards && len(player.DefenseCards) < game.MaxDefenseCards {
-				cardType = game.CardTypeDefense
-			}
-		}
 
 		// Check hand limits
 		if cardType == game.CardTypeAttack && len(player.AttackCards) >= game.MaxAttackCards {
