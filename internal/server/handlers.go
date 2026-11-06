@@ -11,6 +11,7 @@ import (
 
 	"lords-of-conquest/internal/database"
 	"lords-of-conquest/internal/game"
+	"lords-of-conquest/internal/game/ai"
 	"lords-of-conquest/internal/protocol"
 	"lords-of-conquest/pkg/maps"
 )
@@ -1746,25 +1747,25 @@ func (h *Handlers) checkAndTriggerAI(gameID string) {
 	}
 }
 
-// aiSelectTerritory makes the AI select a random available territory.
-func (h *Handlers) aiSelectTerritory(gameID string, state *game.GameState) {
-	// Find all unclaimed territories
-	var availableTerritories []string
-	for id, territory := range state.Territories {
-		if territory.Owner == "" {
-			availableTerritories = append(availableTerritories, id)
-		}
-	}
+// newAIRand returns a random source for one AI decision. Games run concurrently, so
+// decisions don't share a source.
+func newAIRand() *rand.Rand {
+	return rand.New(rand.NewSource(time.Now().UnixNano()))
+}
 
-	if len(availableTerritories) == 0 {
+// aiSelectTerritory makes the AI select a territory during territory selection.
+func (h *Handlers) aiSelectTerritory(gameID string, state *game.GameState) {
+	var difficulty game.AIDifficulty
+	if p := state.Players[state.CurrentPlayerID]; p != nil {
+		difficulty = p.AIDifficulty
+	}
+	selectedID := ai.ChooseTerritory(state, state.CurrentPlayerID, difficulty, newAIRand())
+	if selectedID == "" {
 		log.Printf("AI: No territories available to select")
 		// Still trigger next AI check in case phase changed
 		go h.checkAndTriggerAI(gameID)
 		return
 	}
-
-	// Select random territory
-	selectedID := availableTerritories[rand.Intn(len(availableTerritories))]
 
 	// Get territory name and player name
 	terrName := selectedID
@@ -1776,7 +1777,7 @@ func (h *Handlers) aiSelectTerritory(gameID string, state *game.GameState) {
 		playerName = player.Name
 	}
 
-	log.Printf("AI: Selecting territory %s from %d available", selectedID, len(availableTerritories))
+	log.Printf("AI: %s (%s) selecting territory %s", playerName, difficulty.Label(), selectedID)
 
 	// Execute selection
 	if err := state.SelectTerritory(state.CurrentPlayerID, selectedID); err != nil {

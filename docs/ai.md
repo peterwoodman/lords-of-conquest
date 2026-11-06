@@ -100,14 +100,18 @@ An injected `*rand.Rand` makes tests deterministic.
 The user-specified priority: **owning adjacent territories matters most**, then
 gold, then grassland, then other resources.
 
+Implemented in `internal/game/ai/selection.go`:
+
 ```
 score(t) =  W_adj      * ownedNeighbours(t)          // contiguity, dominant term
-          + W_cluster  * (joins two separate owned clusters ? 1 : 0)
+          + W_joins    * (owned regions t connects - 1)
           + W_res      * resourceValue(t.Resource)
-          + W_cityGrid * resourceNeighboursOwned(t)  // future city doubling
+          + W_cityGrid * ownedNeighboursWithResource(t)  // future city doubling
+          + W_room     * unclaimedNeighbours(t)
+          + W_seed     * resourceValue of unclaimed neighbours   // first pick only
           + W_coast    * (coastal && noOwnedCoast ? 1 : 0)
-          - W_exposed  * enemyNeighbours(t)          // Medium/Hard only
-          + W_deny     * opponentOwnedNeighbours(t) * opponentClusterSize  // Hard only
+          - W_exposed  * enemyNeighbours(t)
+          + W_deny     * neighbours owned by the most-adjacent opponent
 ```
 
 Resource values: gold 5, grassland 3, coal / iron / timber 2, none 0.
@@ -116,19 +120,22 @@ Default weights (tuned later by simulation):
 
 | Weight | Easy | Medium | Hard |
 |--------|------|--------|------|
-| `W_adj` | 1 | 6 | 6 |
-| `W_cluster` | 0 | 4 | 5 |
+| `W_adj` | 1 | 8 | 8 |
+| `W_joins` | 0 | 4 | 5 |
 | `W_res` | 1 | 1 | 1 |
 | `W_cityGrid` | 0 | 0.5 | 1 |
+| `W_room` | 0 | 0.25 | 0.25 |
+| `W_seed` | 0 | 0.3 | 0.4 |
 | `W_coast` | 0 | 1 | 1.5 |
-| `W_exposed` | 0 | 0.5 | 1 |
-| `W_deny` | 0 | 0 | 0.5 |
+| `W_exposed` | 0 | 0.5 | 0.5 |
+| `W_deny` | 0 | 0 | 1 |
 
-With `W_adj = 6`, one owned neighbour (6) beats gold on its own (5), so the
-CPU keeps its land contiguous and takes gold when there is a contiguous gold
-territory. The first pick (no owned territories yet) is driven by resource
-value plus how many good unclaimed territories surround it, which gives a gold
-or grassland seed in a resource-rich area.
+With `W_adj = 8`, one owned neighbour outweighs gold plus any open-space and
+coast bonus, so Medium and Hard always keep their land contiguous when they
+can, and take adjacent gold, then grassland, then other resources. The first
+pick (no owned territories yet) is driven by resource value plus the value of
+the unclaimed territories around it, which gives a gold or grassland seed in a
+resource-rich area. Easy weights resources over adjacency and adds noise.
 
 ## Stockpile Placement and Shipment
 
