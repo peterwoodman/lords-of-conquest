@@ -199,19 +199,25 @@ plus 1 if this is the first attack (losing it forfeits the second).
 
 ### Card mode
 
-- Attack: compute the base win probability, then add attack cards in order of
-  efficiency (flat bonuses first, then conditional cards whose bonus applies
-  here) until the threshold is reached. Easy plays all cards; Medium stops at
-  the threshold; Hard also keeps one strong card when the attack is already
-  comfortable.
-- Defence: Easy plays one random card. Medium plays cards until the visible
-  attack strength is beaten, but only for stockpile, city or gold territories.
-  Hard does the same while weighting the territory's value and the cards left.
-  It plays Sabotage only when weapons contribute, Bribe only on stockpile or
-  city defence when it has 3 gold, and Double Defense on high-base territories.
-- Buying: keep the hand balanced, using attack cards when strong and defence
-  cards when exposed. Never spend resources that would prevent building a city
-  this development phase (Medium/Hard).
+Implemented in `internal/game/ai/cards.go`. Hand sizes are public, so CPUs use
+card counts but never card contents.
+
+- Attack: Medium/Hard assume +1 defence per card the defender holds (max 3),
+  then add their strongest attack cards (Rally Cavalry, Arsenal, Naval
+  Bombardment and Double Attack valued for this battle) until the attack
+  reaches the win threshold. They add Safe Retreat when bringing a unit and the
+  win isn't certain, and Blitz when playing two or more cards. Each card played
+  costs 0.5 in the attack score. Easy ignores defence cards and plays its whole
+  hand.
+- Defence: Easy plays one random card. Medium defends only territory worth ≥ 6
+  (stockpile, city, gold); Hard anything worth ≥ 3. Both assume +1 attack per
+  attack card played, use Bribe first when they have 3 gold, then add their
+  strongest cards until their chance of losing is ≤ 25%. They keep all their
+  cards if those can't improve the outcome.
+- Buying (up to 2 per turn): Medium/Hard keep one of each city resource (three
+  gold when holding a Bribe), spend gold last, and buy defence cards when their
+  defence hand is smaller or their expected loss is high. Easy spends its most
+  plentiful resource.
 
 ## Development
 

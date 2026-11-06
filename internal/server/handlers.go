@@ -2114,12 +2114,11 @@ func (h *Handlers) aiCardAttack(gameID string, state *game.GameState, attackerID
 		return
 	}
 
-	// AI selects attack cards: play all available attack cards
 	var attackCards []game.CombatCard
-	if len(attacker.AttackCards) > 0 {
-		attackCards = make([]game.CombatCard, len(attacker.AttackCards))
-		copy(attackCards, attacker.AttackCards)
-		attacker.AttackCards = []game.CombatCard{} // Remove from hand
+	for _, c := range attacker.RemoveCardsFromHand(decision.AttackCards) {
+		if c.CardType == game.CardTypeAttack {
+			attackCards = append(attackCards, c)
+		}
 	}
 
 	log.Printf("AI Card Combat: %s attacking %s with %d cards", playerName, terrName, len(attackCards))
@@ -2156,12 +2155,7 @@ func (h *Handlers) aiCardAttack(gameID string, state *game.GameState, attackerID
 	defender := state.Players[defenderID]
 
 	if defenderID == "" || defender == nil || defender.IsAI {
-		// AI defender: play all defense cards
-		if defender != nil && len(defender.DefenseCards) > 0 {
-			defenseCards = make([]game.CombatCard, len(defender.DefenseCards))
-			copy(defenseCards, defender.DefenseCards)
-			defender.DefenseCards = []game.CombatCard{}
-		}
+		defenseCards = h.aiDefenseCards(state, defenderID, targetID, baseAttack, baseDefense, len(attackCards))
 
 		// Resolve immediately
 		err := h.resolveCardCombat(aiClient, state, payload, brought, attackerAllies, defenderAllies, attackCards, defenseCards, terrName, defenderID, defenderName)
@@ -2311,57 +2305,34 @@ func (h *Handlers) aiDevelopment(gameID string, state *game.GameState) {
 	}
 }
 
+// aiDefenseCards removes and returns the defence cards a CPU defender plays. Returns nil
+// for unclaimed territory and human defenders.
+func (h *Handlers) aiDefenseCards(state *game.GameState, defenderID, targetID string, baseAttack, baseDefense, attackCardCount int) []game.CombatCard {
+	defender := state.Players[defenderID]
+	if defender == nil || !defender.IsAI {
+		return nil
+	}
+	ids := ai.ChooseDefenseCards(state, defenderID, targetID, baseAttack, baseDefense, attackCardCount,
+		defender.AIDifficulty, newAIRand())
+	var cards []game.CombatCard
+	for _, c := range defender.RemoveCardsFromHand(ids) {
+		if c.CardType == game.CardTypeDefense {
+			cards = append(cards, c)
+		}
+	}
+	log.Printf("AI: %s defends %s with %d of its defense cards", defender.Name, targetID, len(cards))
+	return cards
+}
+
 // aiBuyCards has AI buy combat cards with remaining resources.
 func (h *Handlers) aiBuyCards(state *game.GameState, player *game.Player) {
-	// AI card purchasing strategy:
-	// - Prefer attack cards, switching to defense when the attack hand is full
-	// - Buy up to 2 cards per turn if affordable
-	// - Use the most abundant resource
-	cardsBought := 0
-	maxCardsToBuy := 2
-
-	for cardsBought < maxCardsToBuy {
-		// Find the best resource to spend (most abundant, >= 2)
-		bestResource := game.ResourceNone
-		bestAmount := 0
-		resources := []game.ResourceType{game.ResourceCoal, game.ResourceGold, game.ResourceIron, game.ResourceTimber}
-		for _, res := range resources {
-			amount := player.Stockpile.Get(res)
-			if amount >= game.CardBuyCost && amount > bestAmount {
-				bestAmount = amount
-				bestResource = res
-			}
-		}
-
-		if bestResource == game.ResourceNone {
-			break // Can't afford any cards
-		}
-
-		// Decide attack or defense
-		cardType := game.CardTypeAttack
-
-		// Check hand limits
-		if cardType == game.CardTypeAttack && len(player.AttackCards) >= game.MaxAttackCards {
-			if len(player.DefenseCards) < game.MaxDefenseCards {
-				cardType = game.CardTypeDefense
-			} else {
-				break // Both hands full
-			}
-		}
-		if cardType == game.CardTypeDefense && len(player.DefenseCards) >= game.MaxDefenseCards {
-			if len(player.AttackCards) < game.MaxAttackCards {
-				cardType = game.CardTypeAttack
-			} else {
-				break // Both hands full
-			}
-		}
-
-		card, err := state.BuyCard(state.CurrentPlayerID, cardType, bestResource)
+	for _, purchase := range ai.PlanCardPurchases(state, player.ID, player.AIDifficulty) {
+		card, err := state.BuyCard(player.ID, purchase.Type, purchase.Resource)
 		if err != nil {
+			log.Printf("AI: Failed to buy %s card: %v", purchase.Type, err)
 			break
 		}
-		log.Printf("AI: Bought %s card: %s (%s)", cardType, card.Name, card.Rarity)
-		cardsBought++
+		log.Printf("AI: %s bought %s card with %s: %s (%s)", player.Name, purchase.Type, purchase.Resource, card.Name, card.Rarity)
 	}
 }
 
@@ -3634,15 +3605,7 @@ func (h *Handlers) executeCardAttack(
 	// If defender is unclaimed or AI, resolve immediately with no defense cards
 	defender := state.Players[defenderID]
 	if defenderID == "" || defender == nil || defender.IsAI {
-		// AI card defense: simple heuristic - play all defense cards if under threat
-		var defenseCards []game.CombatCard
-		if defender != nil && defender.IsAI && len(defender.DefenseCards) > 0 {
-			// AI plays all defense cards
-			defenseCards = make([]game.CombatCard, len(defender.DefenseCards))
-			copy(defenseCards, defender.DefenseCards)
-			defender.DefenseCards = []game.CombatCard{} // Remove all from hand
-		}
-
+		defenseCards := h.aiDefenseCards(state, defenderID, payload.TargetTerritory, baseAttack, baseDefense, len(validAttackCards))
 		return h.resolveCardCombat(client, state, payload, brought, attackerAllies, defenderAllies, validAttackCards, defenseCards, terrName, defenderID, defenderName)
 	}
 

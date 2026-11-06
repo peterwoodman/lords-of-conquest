@@ -14,6 +14,7 @@ type AttackDecision struct {
 	Brought        *game.BroughtUnit // nil when attacking without bringing a unit
 	AttackerAllies []string
 	DefenderAllies []string
+	AttackCards    []string // card IDs to play (card combat only)
 	WinChance      float64
 }
 
@@ -45,6 +46,7 @@ func PlanAttack(s *game.GameState, playerID string, d game.AIDifficulty, rng *ra
 	}
 	profile := attackProfiles[game.ParseAIDifficulty(string(d))]
 	defence := newDefenceModel(s, playerID)
+	cardMode := s.Settings.CombatMode == game.CombatModeCards
 
 	decisions := make(map[string]*AttackDecision)
 	var opts []option
@@ -71,6 +73,11 @@ func PlanAttack(s *game.GameState, playerID string, d game.AIDifficulty, rng *ra
 			}
 			attack := s.CalculateAttackWithAllies(playerID, target, brought, attackerAllies)
 			defense := s.CalculateDefenseWithAllies(target, defenderAllies)
+			var cards []string
+			if cardMode {
+				defense += estimatedDefenseCards(s, target, d)
+				cards, attack = chooseAttackCards(s, player, target, brought, attack, defense, minChance, d)
+			}
 			chance := winProbability(s, attack, defense)
 			if chance < minChance {
 				continue
@@ -87,12 +94,14 @@ func PlanAttack(s *game.GameState, playerID string, d game.AIDifficulty, rng *ra
 			if brought != nil {
 				score -= 0.01 // prefer keeping units home when it makes no difference
 			}
+			score -= cardSpendCost * float64(len(cards))
 			key := fmt.Sprintf("%s:%d", targetID, len(opts))
 			decisions[key] = &AttackDecision{
 				Target:         targetID,
 				Brought:        brought,
 				AttackerAllies: attackerAllies,
 				DefenderAllies: defenderAllies,
+				AttackCards:    cards,
 				WinChance:      chance,
 			}
 			opts = append(opts, option{id: key, score: score})
