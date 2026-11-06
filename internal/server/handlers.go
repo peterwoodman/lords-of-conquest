@@ -1969,50 +1969,9 @@ func (h *Handlers) aiConquest(gameID string, state *game.GameState) {
 		return
 	}
 
-	// Get attackable targets
-	targets := state.GetAttackableTargets(state.CurrentPlayerID)
-
-	if len(targets) == 0 {
-		log.Printf("AI: No attackable targets, ending conquest")
-		state.EndConquest(state.CurrentPlayerID)
-		// Check for game over - if still in Conquest phase, game is over
-		if state.Phase == game.PhaseConquest && state.IsGameOver() {
-			log.Printf("AI: Game over at end of Conquest phase")
-			h.saveAndBroadcastAIState(gameID, state)
-			h.handleGameOver(gameID, state)
-			return
-		}
-		if !h.saveAndBroadcastAIState(gameID, state) {
-			go h.checkAndTriggerAI(gameID)
-		}
-		return
-	}
-
-	// Simple AI: Try to attack if we have a strength advantage
-	var bestTarget string
-	var bestOdds float64 = 0
-
-	for _, targetID := range targets {
-		plan := state.GetAttackPlan(state.CurrentPlayerID, targetID)
-		if plan == nil || !plan.CanAttack {
-			continue
-		}
-
-		// Calculate odds
-		if plan.DefenseStrength == 0 {
-			bestTarget = targetID
-			bestOdds = 999
-			break
-		}
-		odds := float64(plan.AttackStrength) / float64(plan.DefenseStrength)
-		if odds > bestOdds {
-			bestOdds = odds
-			bestTarget = targetID
-		}
-	}
-
-	// Only attack if we have at least 1:1 odds (simple AI)
-	if bestTarget != "" && bestOdds >= 1.0 {
+	decision := ai.PlanAttack(state, state.CurrentPlayerID, player.AIDifficulty, newAIRand())
+	if decision != nil {
+		bestTarget := decision.Target
 		// Capture attacker ID BEFORE attack (Attack() may advance turn)
 		attackerID := state.CurrentPlayerID
 
@@ -2036,15 +1995,16 @@ func (h *Handlers) aiConquest(gameID string, state *game.GameState) {
 			}
 		}
 
-		log.Printf("AI: Attacking %s (odds: %.2f)", bestTarget, bestOdds)
+		log.Printf("AI: %s attacking %s (win chance %.2f, bringing unit: %v, allies %v vs %v)", playerName, bestTarget,
+			decision.WinChance, decision.Brought != nil, decision.AttackerAllies, decision.DefenderAllies)
 
 		// Card combat mode: route through card combat flow
 		if state.Settings.CombatMode == game.CombatModeCards {
-			h.aiCardAttack(gameID, state, attackerID, playerName, bestTarget, terrName)
+			h.aiCardAttack(gameID, state, attackerID, playerName, decision, terrName)
 			return
 		}
 
-		result, err := state.Attack(attackerID, bestTarget, nil)
+		result, err := state.AttackWithAllies(attackerID, bestTarget, decision.Brought, decision.AttackerAllies, decision.DefenderAllies)
 		if err != nil {
 			log.Printf("AI: Attack failed: %v", err)
 			state.EndConquest(attackerID)
@@ -2124,7 +2084,7 @@ func (h *Handlers) aiConquest(gameID string, state *game.GameState) {
 	}
 
 	// No favorable attacks - end conquest
-	log.Printf("AI: No favorable attacks (best odds: %.2f), ending conquest", bestOdds)
+	log.Printf("AI: No favorable attacks, ending conquest")
 
 	state.EndConquest(state.CurrentPlayerID)
 
@@ -2145,7 +2105,10 @@ func (h *Handlers) aiConquest(gameID string, state *game.GameState) {
 
 // aiCardAttack handles an AI player's attack in card combat mode.
 // It selects attack cards, handles the defender (AI or human), and resolves combat.
-func (h *Handlers) aiCardAttack(gameID string, state *game.GameState, attackerID, playerName, targetID, terrName string) {
+func (h *Handlers) aiCardAttack(gameID string, state *game.GameState, attackerID, playerName string, decision *ai.AttackDecision, terrName string) {
+	targetID := decision.Target
+	brought := decision.Brought
+	attackerAllies, defenderAllies := decision.AttackerAllies, decision.DefenderAllies
 	attacker := state.Players[attackerID]
 	if attacker == nil {
 		return
@@ -2174,8 +2137,8 @@ func (h *Handlers) aiCardAttack(gameID string, state *game.GameState, attackerID
 	}
 
 	// Calculate base strengths
-	baseAttack := state.CalculateAttackWithAllies(attackerID, target, nil, nil)
-	baseDefense := state.CalculateDefenseWithAllies(target, nil)
+	baseAttack := state.CalculateAttackWithAllies(attackerID, target, brought, attackerAllies)
+	baseDefense := state.CalculateDefenseWithAllies(target, defenderAllies)
 
 	// Create a synthetic client for the AI attacker (used by resolveCardCombat/finishAttack)
 	aiClient := &Client{
@@ -2201,7 +2164,7 @@ func (h *Handlers) aiCardAttack(gameID string, state *game.GameState, attackerID
 		}
 
 		// Resolve immediately
-		err := h.resolveCardCombat(aiClient, state, payload, nil, nil, nil, attackCards, defenseCards, terrName, defenderID, defenderName)
+		err := h.resolveCardCombat(aiClient, state, payload, brought, attackerAllies, defenderAllies, attackCards, defenseCards, terrName, defenderID, defenderName)
 		if err != nil {
 			log.Printf("AI Card Combat: resolve error: %v", err)
 			state.EndConquest(attackerID)
@@ -2232,9 +2195,9 @@ func (h *Handlers) aiCardAttack(gameID string, state *game.GameState, attackerID
 		AttackerID:       attackerID,
 		DefenderID:       defenderID,
 		TargetTerritory:  targetID,
-		BroughtUnit:      nil,
-		AttackerAllies:   nil,
-		DefenderAllies:   nil,
+		BroughtUnit:      brought,
+		AttackerAllies:   attackerAllies,
+		DefenderAllies:   defenderAllies,
 		AttackCards:      attackCards,
 		DefenseCardsChan: make(chan []string, 1),
 	}
@@ -2286,7 +2249,7 @@ func (h *Handlers) aiCardAttack(gameID string, state *game.GameState, attackerID
 	log.Printf("AI Card Combat: Defender %s selected %d defense cards", defenderID, len(defenseCards))
 
 	// Resolve using freshState
-	err = h.resolveCardCombat(aiClient, &freshState, payload, nil, nil, nil, attackCards, defenseCards, terrName, defenderID, defenderName)
+	err = h.resolveCardCombat(aiClient, &freshState, payload, brought, attackerAllies, defenderAllies, attackCards, defenseCards, terrName, defenderID, defenderName)
 	if err != nil {
 		log.Printf("AI Card Combat: resolve error: %v", err)
 		freshState.EndConquest(attackerID)
@@ -3120,54 +3083,16 @@ func (h *Handlers) handleRequestAttackPlan(client *Client, msg *protocol.Message
 		}
 	}
 
-	// Collect allies based on alliance settings - this part triggers voting
-	attackerAllies := []string{}
-	defenderAllies := []string{}
+	// Collect allies based on alliance settings; online "ask" players are prompted to vote
+	attackerAllies, defenderAllies, maybeAsk := state.SortAllies(client.PlayerID, target)
 	askPlayers := []string{}
-	thirdParties := state.GetThirdPartyPlayers(client.PlayerID, target)
-
-	log.Printf("RequestAttackPlan at %s: Found %d third party players: %v", terrName, len(thirdParties), thirdParties)
-
-	for _, tpID := range thirdParties {
-		tp := state.Players[tpID]
-		if tp == nil {
-			continue
-		}
-
-		alliance := string(tp.Alliance)
-		log.Printf("  Third party %s (%s): alliance setting = '%s'", tpID, tp.Name, alliance)
-
-		switch alliance {
-		case "neutral", "":
-			log.Printf("    -> Neutral (not participating)")
-			continue
-		case "ask":
-			if h.hub.IsPlayerOnline(tpID) {
-				log.Printf("    -> Ask (online, will be prompted)")
-				askPlayers = append(askPlayers, tpID)
-			} else {
-				log.Printf("    -> Ask (offline, treated as neutral)")
-			}
-		case "defender":
-			log.Printf("    -> Supporting defender")
-			defenderAllies = append(defenderAllies, tpID)
-		default:
-			if alliance == client.PlayerID {
-				log.Printf("    -> Supporting attacker (allied with %s)", client.PlayerID)
-				attackerAllies = append(attackerAllies, tpID)
-			} else if alliance == defenderID {
-				log.Printf("    -> Supporting defender (allied with %s)", defenderID)
-				defenderAllies = append(defenderAllies, tpID)
-			} else {
-				if h.hub.IsPlayerOnline(tpID) {
-					log.Printf("    -> Allied with %s (not in combat), treating as 'ask' (online)", alliance)
-					askPlayers = append(askPlayers, tpID)
-				} else {
-					log.Printf("    -> Allied with %s (not in combat), treating as neutral (offline)", alliance)
-				}
-			}
+	for _, tpID := range maybeAsk {
+		if h.hub.IsPlayerOnline(tpID) {
+			askPlayers = append(askPlayers, tpID)
 		}
 	}
+	log.Printf("RequestAttackPlan at %s: attacker allies %v, defender allies %v, asking %v (offline treated as neutral: %d)",
+		terrName, attackerAllies, defenderAllies, askPlayers, len(maybeAsk)-len(askPlayers))
 
 	// If there are "ask" players, we need to wait for their votes
 	if len(askPlayers) > 0 {

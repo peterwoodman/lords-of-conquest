@@ -83,6 +83,28 @@ func TestExecuteTrade_MovesHorseToChosenTerritory(t *testing.T) {
 	}
 }
 
+func TestSortAllies_UsesAllianceSettings(t *testing.T) {
+	g := newRulesTestState(PhaseConquest)
+	target := g.Territories["b1"] // A attacks B; C borders b1
+	cases := []struct {
+		setting       AllianceSetting
+		att, def, ask int
+	}{
+		{AllianceNeutral, 0, 0, 0},
+		{AllianceAsk, 0, 0, 1},
+		{AllianceDefender, 0, 1, 0},
+		{"A", 1, 0, 0},
+		{"B", 0, 1, 0},
+	}
+	for _, c := range cases {
+		g.Players["C"].Alliance = c.setting
+		att, def, ask := g.SortAllies("A", target)
+		if len(att) != c.att || len(def) != c.def || len(ask) != c.ask {
+			t.Errorf("setting %q: got attacker %v, defender %v, ask %v", c.setting, att, def, ask)
+		}
+	}
+}
+
 func TestValidateAttack_RejectsOutOfTurn(t *testing.T) {
 	g := newRulesTestState(PhaseConquest)
 	if err := g.ValidateAttack("B", "a1", nil); err != ErrNotYourTurn {

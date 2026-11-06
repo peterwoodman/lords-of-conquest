@@ -176,14 +176,26 @@ Choose the (target, reinforcement) pair that maximises
 `winProbability * value`, subject to the difficulty's win-probability threshold.
 End the turn when no option clears the threshold. Rules:
 
-- Never bring a unit whose loss would leave our stockpile territory beatable
-  (Medium/Hard).
-- Hard lowers its threshold to 0.4 against the stockpile or the last city of a
-  player who is one city from winning.
-- Allies: before attacking, collect attacker and defender allies from alliance
-  settings exactly as `RequestAttackPlan` does, and include them in the
-  strength calculation. "Ask" players who are online are prompted, as for a
-  human attack.
+Implemented in `internal/game/ai/conquest.go`. Each option is scored
+`chance * value - (1 - chance) * risk`, where risk is the brought unit's value
+plus 1 if this is the first attack (losing it forfeits the second).
+
+| Win chance needed | Easy | Medium | Hard |
+|-------------------|------|--------|------|
+| Ordinary target | 0.75 | 0.6 | 0.65 |
+| Stockpile / city (value ≥ 9) | 0.75 | 0.6 | 0.5 |
+| Stockpile or city of a player one city from winning | 0.75 | 0.5 | 0.4 |
+
+- Easy never brings units. Medium and Hard consider every reinforcement the
+  attack planner offers (carrying any weapon or horse that adds strength), and
+  coastal targets reachable only by boat.
+- Medium/Hard never bring a unit whose loss would make their stockpile
+  territory more likely to fall.
+- Allies: `GameState.SortAllies` (shared with human attacks) sorts third parties
+  by alliance setting. Fixed allies count in the strength calculation and the
+  battle. Humans on "ask" are not prompted during a CPU attack (the CPU acts
+  under the game lock and a vote can take 60 seconds), so they count as
+  neutral.
 
 ### Card mode
 

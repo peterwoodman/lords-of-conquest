@@ -222,6 +222,35 @@ func (g *GameState) GetThirdPartyPlayers(attackerID string, target *Territory) [
 	return thirdParties
 }
 
+// SortAllies sorts the third parties around target by alliance setting into players who
+// always join the attacker, players who always join the defender, and players who must be
+// asked (setting "ask", or allied with a player who isn't in this battle).
+func (g *GameState) SortAllies(attackerID string, target *Territory) (attackerAllies, defenderAllies, ask []string) {
+	for _, tpID := range g.GetThirdPartyPlayers(attackerID, target) {
+		tp := g.Players[tpID]
+		if tp == nil {
+			continue
+		}
+		switch tp.Alliance {
+		case AllianceNeutral, "":
+		case AllianceAsk:
+			ask = append(ask, tpID)
+		case AllianceDefender:
+			defenderAllies = append(defenderAllies, tpID)
+		default:
+			switch string(tp.Alliance) {
+			case attackerID:
+				attackerAllies = append(attackerAllies, tpID)
+			case target.Owner:
+				defenderAllies = append(defenderAllies, tpID)
+			default:
+				ask = append(ask, tpID)
+			}
+		}
+	}
+	return attackerAllies, defenderAllies, ask
+}
+
 // CalculatePlayerStrengthAtTerritory calculates how much strength a player contributes adjacent to a territory.
 func (g *GameState) CalculatePlayerStrengthAtTerritory(playerID string, target *Territory) int {
 	strength := 0
