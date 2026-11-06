@@ -21,6 +21,14 @@ const minBuildScore = 1.0
 // goldSpendPenalty discourages paying gold (needed for cities) for weapons and boats.
 const goldSpendPenalty = 1.5
 
+// weaponAttackWeight scales the offensive worth of a weapon. Simulations show Hard wins
+// more often when it arms its borders to take enemy cities.
+var weaponAttackWeight = map[game.AIDifficulty]float64{
+	game.AIEasy:   1,
+	game.AIMedium: 1,
+	game.AIHard:   2,
+}
+
 // PlanDevelopment picks the CPU's next build, or nil when it should stop building.
 // Call it again after each build.
 func PlanDevelopment(s *game.GameState, playerID string, d game.AIDifficulty, rng *rand.Rand) *BuildDecision {
@@ -31,17 +39,11 @@ func PlanDevelopment(s *game.GameState, playerID string, d game.AIDifficulty, rn
 	difficulty := game.ParseAIDifficulty(string(d))
 	m := newDefenceModel(s, playerID)
 	baseLoss := m.expectedLoss(player.StockpileTerritory)
-	shortfall := cityShortfall(player.Stockpile)
-
 	decisions := make(map[string]*BuildDecision)
 	var opts []option
 	add := func(dec *BuildDecision, score float64) {
 		if dec.UseGold && dec.Type != game.BuildCity {
 			score -= goldSpendPenalty
-		}
-		if difficulty == game.AIHard && dec.Type != game.BuildCity && shortfall == 1 &&
-			spendingDelaysCity(player.Stockpile, dec) && score < 3 {
-			return
 		}
 		if difficulty != game.AIEasy && score < minBuildScore {
 			return
@@ -63,7 +65,8 @@ func PlanDevelopment(s *game.GameState, playerID string, d game.AIDifficulty, rn
 			t.HasWeapon = true
 			gain := baseLoss - m.expectedLoss(player.StockpileTerritory)
 			t.HasWeapon = false
-			add(&BuildDecision{Type: game.BuildWeapon, Territory: id, UseGold: useGold}, gain+weaponAttackValue(s, playerID, t))
+			add(&BuildDecision{Type: game.BuildWeapon, Territory: id, UseGold: useGold},
+				gain+weaponAttackWeight[difficulty]*weaponAttackValue(s, playerID, t))
 		}
 		if useGold, ok := payment(s, playerID, game.BuildBoat, id); ok {
 			for _, wb := range t.WaterBodies {
@@ -128,7 +131,7 @@ func doubledByCity(s *game.GameState, playerID string, t *game.Territory) bool {
 }
 
 // weaponAttackValue is the offensive worth of a weapon on t: it adds 3 to attacks on
-// each enemy neighbour.
+// each enemy neighbour. Scaled by weaponAttackWeight.
 func weaponAttackValue(s *game.GameState, playerID string, t *game.Territory) float64 {
 	return 0.75 * float64(min(enemyNeighbours(s, playerID, t), 3))
 }
@@ -165,27 +168,4 @@ func ownsBoatOn(s *game.GameState, playerID, wb string) bool {
 		}
 	}
 	return false
-}
-
-// cityShortfall is how many more resources the player needs for a city, by the cheaper
-// of the resource and gold payments. 0 means a city is affordable.
-func cityShortfall(sp *game.Stockpile) int {
-	missing := 0
-	for _, have := range []int{sp.Coal, sp.Gold, sp.Iron, sp.Timber} {
-		if have < 1 {
-			missing++
-		}
-	}
-	return min(missing, max(0, game.GoldCost(game.BuildCity)-sp.Gold))
-}
-
-// spendingDelaysCity reports whether paying for dec leaves the player further from a city.
-func spendingDelaysCity(sp *game.Stockpile, dec *BuildDecision) bool {
-	after := *sp
-	if dec.UseGold {
-		after.Gold -= game.GoldCost(dec.Type)
-	} else {
-		after.Subtract(game.GetBuildCost(dec.Type))
-	}
-	return cityShortfall(&after) > cityShortfall(sp)
 }

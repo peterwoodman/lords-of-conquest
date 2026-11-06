@@ -89,6 +89,34 @@ func TestPlanAttack_CountsDefenderAllies(t *testing.T) {
 	}
 }
 
+// TestPlanAttack_HardTakesLongShotAtDecisiveCity: B is winning 3 cities to A's 2. Taking
+// B's fortified city has a 1 in 5 chance but would win A the game, so only Hard tries.
+func TestPlanAttack_HardTakesLongShotAtDecisiveCity(t *testing.T) {
+	m := conquestMap("A", "B")
+	m.s.Settings.ChanceLevel = game.ChanceHigh
+	m.add("home", "A", game.ResourceNone).HasCity = true
+	m.add("a2", "A", game.ResourceNone).HasCity = true
+	city := m.add("city", "B", game.ResourceNone)
+	city.HasCity, city.HasWeapon = true, true
+	m.add("b2", "B", game.ResourceNone).HasCity = true
+	m.add("b3", "B", game.ResourceNone).HasCity = true
+	m.link("a2", "home", "city")
+	m.link("b2", "b3")
+
+	got := PlanAttack(m.s, "A", game.AIHard, seeded(1))
+	if got == nil || got.Target != "city" {
+		t.Fatalf("expected hard to attack the decisive city, got %+v", got)
+	}
+	if got := PlanAttack(m.s, "A", game.AIMedium, seeded(1)); got != nil {
+		t.Fatalf("expected medium to pass on a 1 in 5 attack, got %+v", got)
+	}
+
+	m.s.Settings.VictoryCities = 4
+	if decidesGame(m.s, "A", city) {
+		t.Fatal("with 4 cities needed, the capture leaves nobody winning")
+	}
+}
+
 func TestPlanAttack_NoAttacksRemaining(t *testing.T) {
 	m := reinforcementMap()
 	m.s.Players["A"].AttacksRemaining = 0

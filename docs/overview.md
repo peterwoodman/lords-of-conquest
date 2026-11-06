@@ -48,7 +48,7 @@ A modern client/server implementation of the classic 1986 strategy game "Lords o
 
 ### Players
 - 2-7 players (any combination of human/AI)
-- AI personalities: Aggressive, Defensive, Passive
+- CPU difficulties: Easy, Medium, Hard (set per CPU, see [ai.md](ai.md))
 - Player order rotates each round
 
 ### Victory Conditions
@@ -128,12 +128,7 @@ lords-of-conquest/
 │   │   ├── hub.go        # WebSocket connection hub
 │   │   ├── client.go     # Connected client handling
 │   │   ├── lobby.go      # Game lobby management
-│   │   ├── handlers.go   # Message handlers
-│   │   └── ai/           # AI player implementations
-│   │       ├── ai.go     # AI interface
-│   │       ├── aggressive.go
-│   │       ├── defensive.go
-│   │       └── passive.go
+│   │   └── handlers.go   # Message handlers (CPU turns delegate to game/ai)
 │   ├── database/         # SQLite persistence layer
 │   │   ├── database.go   # Database connection
 │   │   ├── schema.go     # Table definitions
@@ -243,11 +238,11 @@ lords-of-conquest/
   - [ ] Turn execution with validation
   - [ ] State broadcasting
   - [ ] Timeout handling
-- [ ] Implement basic AI
-  - [ ] Territory selection strategy
-  - [ ] Attack evaluation
-  - [ ] Development priorities
-  - [ ] Three personality types
+- [x] Implement CPU players (see [ai.md](ai.md))
+  - [x] Territory selection strategy
+  - [x] Attack evaluation
+  - [x] Development priorities
+  - [x] Easy, Medium and Hard difficulties
 
 ### Phase 4: Client - Basic UI
 **Goal**: Create functional game client with Ebitengine
@@ -355,14 +350,14 @@ lords-of-conquest/
 - **Optimization**: Delta updates can be added later
 
 ### AI Architecture
-- AI runs server-side only
-- Same interface as human players
-- Configurable "thinking time" for realism
-- Three personalities affect:
-  - Territory selection priorities
-  - Attack/defense balance
-  - Risk tolerance
-  - Trade behavior
+- AI runs server-side only; decisions live in `internal/game/ai` and use only
+  what a human could see
+- Uses the same game-state actions as human players
+- Short "thinking" pauses so humans can follow CPU turns
+- Easy, Medium and Hard difficulties affect territory selection, attack risk,
+  development, stockpile and shipment, cards and alliance votes
+- CPUs decline all trades
+- `cmd/aisim` plays CPU-vs-CPU games for balance testing
 
 ---
 

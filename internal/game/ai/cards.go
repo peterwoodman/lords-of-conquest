@@ -2,6 +2,7 @@ package ai
 
 import (
 	"math/rand"
+	"slices"
 	"sort"
 
 	"lords-of-conquest/internal/game"
@@ -51,6 +52,27 @@ func attackCardBonus(s *game.GameState, attackerID string, target *game.Territor
 		bonus += baseAttack
 	}
 	return bonus
+}
+
+// cardPlay is a set of attack cards and the attack strength they give.
+type cardPlay struct {
+	cards  []string
+	attack int
+}
+
+// cardPlays lists the card plays worth scoring for an attack: the fewest cards that reach
+// minChance, and the cards that make the win as sure as possible.
+func cardPlays(s *game.GameState, player *game.Player, target *game.Territory, brought *game.BroughtUnit,
+	attack, defense int, minChance float64, d game.AIDifficulty) []cardPlay {
+
+	var plays []cardPlay
+	for _, goal := range []float64{minChance, 1} {
+		cards, a := chooseAttackCards(s, player, target, brought, attack, defense, goal, d)
+		if len(plays) == 0 || !slices.Equal(plays[0].cards, cards) {
+			plays = append(plays, cardPlay{cards: cards, attack: a})
+		}
+	}
+	return plays
 }
 
 // chooseAttackCards picks the attack cards to play and returns them with the resulting

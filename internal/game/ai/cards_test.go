@@ -54,19 +54,19 @@ func TestPlanAttack_UsesCardToWin(t *testing.T) {
 	}
 
 	m.s.Players["A"].AttackCards = nil
-	if got := PlanAttack(m.s, "A", game.AIHard, seeded(1)); got != nil {
-		t.Fatalf("expected no coin-flip attack without cards, got %+v", got)
+	if got := PlanAttack(m.s, "A", game.AIMedium, seeded(1)); got != nil {
+		t.Fatalf("expected medium to pass on a coin flip without cards, got %+v", got)
 	}
 }
 
 func TestPlanAttack_ExpectsDefenseCards(t *testing.T) {
 	m := cardMap()
 	m.s.Territories["home"].HasHorse = true // 2 attack against 1 defence
-	if got := PlanAttack(m.s, "A", game.AIHard, seeded(1)); got == nil {
+	if got := PlanAttack(m.s, "A", game.AIMedium, seeded(1)); got == nil {
 		t.Fatal("expected attack against a defender with no cards")
 	}
 	m.s.Players["B"].DefenseCards = []game.CombatCard{defenseCard("d1", game.EffectFortify, 1)}
-	if got := PlanAttack(m.s, "A", game.AIHard, seeded(1)); got != nil {
+	if got := PlanAttack(m.s, "A", game.AIMedium, seeded(1)); got != nil {
 		t.Fatalf("expected no attack once the defender holds a card, got %+v", got)
 	}
 }

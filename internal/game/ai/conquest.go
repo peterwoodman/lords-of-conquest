@@ -25,20 +25,28 @@ type attackProfile struct {
 	minCritical      float64 // stockpile or city of a player one city from winning
 	useReinforcement bool
 	protectStockpile bool // never bring a unit whose loss endangers our stockpile
+	playForWin       bool // see decidesGame
 }
 
 var attackProfiles = map[game.AIDifficulty]attackProfile{
 	game.AIEasy:   {minWinChance: 0.75, minHighValue: 0.75, minCritical: 0.75},
 	game.AIMedium: {minWinChance: 0.6, minHighValue: 0.6, minCritical: 0.5, useReinforcement: true, protectStockpile: true},
-	game.AIHard:   {minWinChance: 0.65, minHighValue: 0.5, minCritical: 0.4, useReinforcement: true, protectStockpile: true},
+	game.AIHard:   {minWinChance: 0.5, minHighValue: 0.5, minCritical: 0.4, useReinforcement: true, protectStockpile: true, playForWin: true},
 }
 
 // highValueTarget is the capture value at or above which minHighValue applies.
 const highValueTarget = 9
 
+// decisiveValue is added to the capture value of a city that decides the game.
+const decisiveValue = 20
+
+// minDecisiveChance is the least win chance a playForWin CPU accepts for a decisive city.
+const minDecisiveChance = 0.1
+
 // PlanAttack chooses the CPU's next attack, or returns nil to end its conquest turn.
 // Allies come from fixed alliance settings and CPU votes; humans who would have to be
 // asked are treated as neutral.
+// Hard also takes long shots at cities that decide the game at the end of the round.
 func PlanAttack(s *game.GameState, playerID string, d game.AIDifficulty, rng *rand.Rand) *AttackDecision {
 	player := s.Players[playerID]
 	if player == nil || player.Eliminated || player.AttacksRemaining <= 0 {
@@ -62,6 +70,10 @@ func PlanAttack(s *game.GameState, playerID string, d game.AIDifficulty, rng *ra
 		case value >= highValueTarget:
 			minChance = profile.minHighValue
 		}
+		if profile.playForWin && decidesGame(s, playerID, target) {
+			value += decisiveValue
+			minChance = minDecisiveChance
+		}
 
 		broughtOptions := []*game.BroughtUnit{nil}
 		if profile.useReinforcement {
@@ -71,40 +83,43 @@ func PlanAttack(s *game.GameState, playerID string, d game.AIDifficulty, rng *ra
 			if s.ValidateAttack(playerID, targetID, brought) != nil {
 				continue
 			}
-			attack := s.CalculateAttackWithAllies(playerID, target, brought, attackerAllies)
-			defense := s.CalculateDefenseWithAllies(target, defenderAllies)
-			var cards []string
-			if cardMode {
-				defense += estimatedDefenseCards(s, target, d)
-				cards, attack = chooseAttackCards(s, player, target, brought, attack, defense, minChance, d)
-			}
-			chance := winProbability(s, attack, defense)
-			if chance < minChance {
-				continue
-			}
 			if brought != nil && profile.protectStockpile && endangersStockpile(s, defence, player, brought) {
 				continue
 			}
+			attack := s.CalculateAttackWithAllies(playerID, target, brought, attackerAllies)
+			defense := s.CalculateDefenseWithAllies(target, defenderAllies)
+			plays := []cardPlay{{attack: attack}}
+			if cardMode {
+				defense += estimatedDefenseCards(s, target, d)
+				plays = cardPlays(s, player, target, brought, attack, defense, minChance, d)
+			}
+
 			risk := broughtValue(s, brought)
 			// Losing the first attack also forfeits the second
 			if player.AttacksRemaining == 2 {
 				risk++
 			}
-			score := chance*value - (1-chance)*risk
-			if brought != nil {
-				score -= 0.01 // prefer keeping units home when it makes no difference
+			for _, play := range plays {
+				chance := winProbability(s, play.attack, defense)
+				if chance < minChance {
+					continue
+				}
+				score := chance*value - (1-chance)*risk
+				if brought != nil {
+					score -= 0.01 // prefer keeping units home when it makes no difference
+				}
+				score -= cardSpendCost * float64(len(play.cards))
+				key := fmt.Sprintf("%s:%d", targetID, len(opts))
+				decisions[key] = &AttackDecision{
+					Target:         targetID,
+					Brought:        brought,
+					AttackerAllies: attackerAllies,
+					DefenderAllies: defenderAllies,
+					AttackCards:    play.cards,
+					WinChance:      chance,
+				}
+				opts = append(opts, option{id: key, score: score})
 			}
-			score -= cardSpendCost * float64(len(cards))
-			key := fmt.Sprintf("%s:%d", targetID, len(opts))
-			decisions[key] = &AttackDecision{
-				Target:         targetID,
-				Brought:        brought,
-				AttackerAllies: attackerAllies,
-				DefenderAllies: defenderAllies,
-				AttackCards:    cards,
-				WinChance:      chance,
-			}
-			opts = append(opts, option{id: key, score: score})
 		}
 	}
 
@@ -210,6 +225,38 @@ func isCritical(s *game.GameState, target *game.Territory) bool {
 		return false
 	}
 	return target.HasCity || owner.StockpileTerritory == target.ID
+}
+
+// decidesGame reports whether capturing the city on target changes who wins on cities at
+// the end of the round: playerID would win, or the owner would stop winning.
+func decidesGame(s *game.GameState, playerID string, target *game.Territory) bool {
+	if !target.HasCity || target.Owner == "" {
+		return false
+	}
+	cities := make(map[string]int)
+	for id, p := range s.Players {
+		if !p.Eliminated {
+			cities[id] = s.CountCities(id)
+		}
+	}
+	ownerWins := winsOnCities(s, cities, target.Owner)
+	cities[playerID]++
+	cities[target.Owner]--
+	return winsOnCities(s, cities, playerID) || (ownerWins && !winsOnCities(s, cities, target.Owner))
+}
+
+// winsOnCities reports whether playerID meets the city victory with these city counts.
+func winsOnCities(s *game.GameState, cities map[string]int, playerID string) bool {
+	mine := cities[playerID]
+	if mine < s.Settings.VictoryCities {
+		return false
+	}
+	for id, c := range cities {
+		if id != playerID && c >= mine {
+			return false
+		}
+	}
+	return true
 }
 
 // leadsInCities reports whether playerID has at least one city and no fewer than anyone else.

@@ -88,9 +88,9 @@ An injected `*rand.Rand` makes tests deterministic.
 |--------|------|--------|------|
 | Decision noise | Picks from the top ~50% of options at random; 25% fully random | Picks from the top 3 with weighted randomness | Always the best-scored option (random tie-break) |
 | Territory selection | Resource scoring only, weak adjacency | Full scoring (adjacency first) | Full scoring + denies opponents' clusters and gold |
-| Attack threshold (win probability) | ≥ 0.75, ignores reinforcements | ≥ 0.6, uses best single reinforcement | ≥ 0.5 for high-value targets, ≥ 0.65 otherwise; picks the reinforcement that maximises win probability |
-| Target value | Weakest target | Weighted by value (stockpile, city, resource, adjacency) | Weighted by value + exposure after capture + leader suppression |
-| Development | Random affordable build | Value-ranked builds | Value-ranked builds, saves resources toward a city, reacts to threats |
+| Attack threshold (win probability) | ≥ 0.75, ignores reinforcements | ≥ 0.6, uses best single reinforcement | ≥ 0.5; long shots (≥ 0.1) at cities that decide the game; picks the reinforcement that maximises win probability |
+| Target value | Weakest target | Weighted by value (stockpile, city, resource, adjacency) | Weighted by value + cities that decide the game |
+| Development | Random affordable build | Value-ranked builds | Value-ranked builds, values weapons for attack twice as much |
 | Stockpile | Random interior territory | Safest territory | Safest territory, re-evaluated each shipment |
 | Cards | Plays all attack cards; plays one defence card | Plays enough cards to reach the threshold | Spends the fewest cards needed; holds defence cards for valuable territories |
 | Alliances | Neutral | Votes by simple rule | Votes based on the leader and its own exposure |
@@ -116,22 +116,22 @@ score(t) =  W_adj      * ownedNeighbours(t)          // contiguity, dominant ter
 
 Resource values: gold 5, grassland 3, coal / iron / timber 2, none 0.
 
-Default weights (tuned later by simulation):
+Weights (Hard's tuned by simulation):
 
 | Weight | Easy | Medium | Hard |
 |--------|------|--------|------|
-| `W_adj` | 1 | 8 | 8 |
-| `W_joins` | 0 | 4 | 5 |
-| `W_res` | 1 | 1 | 1 |
-| `W_cityGrid` | 0 | 0.5 | 1 |
+| `W_adj` | 1 | 8 | 12 |
+| `W_joins` | 0 | 4 | 7 |
+| `W_res` | 1 | 1 | 2 |
+| `W_cityGrid` | 0 | 0.5 | 2 |
 | `W_room` | 0 | 0.25 | 0.25 |
 | `W_seed` | 0 | 0.3 | 0.4 |
 | `W_coast` | 0 | 1 | 1.5 |
 | `W_exposed` | 0 | 0.5 | 0.5 |
 | `W_deny` | 0 | 0 | 1 |
 
-With `W_adj = 8`, one owned neighbour outweighs gold plus any open-space and
-coast bonus, so Medium and Hard always keep their land contiguous when they
+With `W_adj` above `W_res` × 5 (gold), one owned neighbour outweighs gold plus
+any open-space and coast bonus, so Medium and Hard always keep their land contiguous when they
 can, and take adjacent gold, then grassland, then other resources. The first
 pick (no owned territories yet) is driven by resource value plus the value of
 the unclaimed territories around it, which gives a gold or grassland seed in a
@@ -169,7 +169,8 @@ value(target) =  10 if it holds an opponent's stockpile
                +  resourceValue(target.Resource)
                +  2 * ownedNeighbours(target)        // consolidates our territory
                +  3 if capture eliminates a player
-               -  exposure after capture (Hard)      // threat it will face next round
+               +  2 if it is a city of the city leader
+               + 20 if the city decides the game (Hard)
 ```
 
 Choose the (target, reinforcement) pair that maximises
@@ -182,9 +183,14 @@ plus 1 if this is the first attack (losing it forfeits the second).
 
 | Win chance needed | Easy | Medium | Hard |
 |-------------------|------|--------|------|
-| Ordinary target | 0.75 | 0.6 | 0.65 |
+| Ordinary target | 0.75 | 0.6 | 0.5 |
 | Stockpile / city (value ≥ 9) | 0.75 | 0.6 | 0.5 |
 | Stockpile or city of a player one city from winning | 0.75 | 0.5 | 0.4 |
+| City whose capture decides the game (Hard only, +20 value) | - | - | 0.1 |
+
+A city decides the game when capturing it would give the attacker the city
+victory at the end of the round, or stop the owner from having it. Captured
+cities change hands, so each one is a two-city swing.
 
 - Easy never brings units. Medium and Hard consider every reinforcement the
   attack planner offers (carrying any weapon or horse that adds strength), and
@@ -204,8 +210,9 @@ card counts but never card contents.
 
 - Attack: Medium/Hard assume +1 defence per card the defender holds (max 3),
   then add their strongest attack cards (Rally Cavalry, Arsenal, Naval
-  Bombardment and Double Attack valued for this battle) until the attack
-  reaches the win threshold. They add Safe Retreat when bringing a unit and the
+  Bombardment and Double Attack valued for this battle). Two plays are scored:
+  the fewest cards that reach the win threshold, and the cards that make the
+  win as sure as possible. They add Safe Retreat when bringing a unit and the
   win isn't certain, and Blitz when playing two or more cards. Each card played
   costs 0.5 in the attack score. Easy ignores defence cards and plays its whole
   hand.
@@ -232,7 +239,8 @@ city(t)   = 4 + 1.5 * value of owned resources it newly doubles (t and neighbour
           + 0.5 * ownedNeighbours(t)
           + 20 if this city reaches VictoryCities
           - 6 * chance t is captured
-weapon(t) = drop in expected loss + 0.75 per enemy neighbour (max 3)
+weapon(t) = drop in expected loss
+          + 0.75 per enemy neighbour (max 3), doubled for Hard
 boat(t)   = drop in expected loss
           + 1 + 0.25 per enemy coastal territory it opens up (max 4), +1 if no boat
             on that water yet
@@ -242,8 +250,8 @@ Paying gold for a weapon or boat costs 1.5 points.
 
 - Easy: no minimum score, Easy noise, so it often wastes resources.
 - Medium: builds anything worth ≥ 1, best first (Medium noise).
-- Hard: like Medium, but when exactly one resource short of a city it skips
-  weapons and boats that would delay the city unless they are worth ≥ 3.
+- Hard: like Medium without the noise. Simulations showed that saving
+  resources for a city, or building only cities, loses to arming the borders.
 
 ## Alliance Voting
 
@@ -277,9 +285,12 @@ online humans).
 
 ## Pacing
 
-Keep the existing 100 ms trigger, but add a short "thinking" delay per action
-(territory pick ~600 ms, attack ~900 ms, build ~400 ms, plus up to 300 ms of
-jitter) so that humans can follow CPU turns. Tests and simulations set it to 0.
+`checkAndTriggerAI` keeps its 100 ms delay and adds a "thinking" pause when it
+is a CPU's turn, so humans can follow CPU turns: territory pick 600 ms,
+shipment 400 ms, each attack 900 ms, development 400 ms, plus up to 300 ms of
+jitter (`aiThinkTimes` in `handlers.go`). The phase is read without the game
+lock, so the pause doesn't hold up other players. Pacing is switched on by
+`server.New`; the server tests and the simulation run without it.
 
 ## Testing
 
@@ -287,10 +298,35 @@ jitter) so that humans can follow CPU turns. Tests and simulations set it to 0.
   adjacent grassland over distant gold", "picks adjacent gold over adjacent
   timber", "never attacks below threshold", "moves stockpile away from threat",
   "builds city where production doubles").
-- Headless simulation harness `cmd/aisim`: runs N games CPU vs CPU directly on
-  `GameState` (no server) and reports win rate by difficulty, average rounds,
-  cities built and attack success. Acceptance target: in 4-player games Hard
-  beats Medium ≥ 60% of head-to-heads and Medium beats Easy ≥ 60%.
+- Headless simulation: `internal/game/ai/sim` plays CPU-vs-CPU games directly
+  on `GameState`, driving the phases the way the server does. `cmd/aisim` runs
+  many games in parallel and reports wins, attack success, cities built and
+  eliminations by difficulty:
+
+  ```
+  go run ./cmd/aisim -games 1000 -players hard,medium
+  go run ./cmd/aisim -games 1000 -players easy,medium,hard -cards -chance high
+  ```
+
+  Other flags: `-cities`, `-rounds`, `-width`, `-territories`, `-islands`,
+  `-resources`, `-seed`, `-workers`. A test plays a few short games in each
+  combat mode to catch rule changes that stall the AI.
+
+Results after tuning (1000 games each, default 50-territory map, 6 cities to
+win):
+
+| Match-up | Result |
+|----------|--------|
+| Hard vs Medium, medium chance | Hard wins 60% |
+| Hard vs Medium, low / high chance | 58% / 64% |
+| Hard vs Medium, card combat | 56% |
+| Hard vs 3 × Medium | Hard wins 37% (an even share is 25%) |
+| Medium vs Easy, classic / cards | Medium wins 94% / 96% |
+| Easy, Medium, Hard | 0% / 42% / 58% |
+
+Two-player games last about 5 rounds. What helped Hard most was taking coin
+flips, long shots at cities that decide the game, and valuing weapons for
+attack. Its territory-selection weights add only a couple of points.
 
 ## Implementation Order
 
@@ -308,4 +344,6 @@ jitter) so that humans can follow CPU turns. Tests and simulations set it to 0.
 8. **Alliance voting** for CPUs.
 9. **Simulation harness** and weight tuning, plus pacing delays.
 
-Steps 3–8 are independent once step 2 lands and can be done in any order.
+All nine steps are done. Possible next steps: CPU trading, positioning units
+for the next round's attacks during shipment, and prompting humans on "ask"
+during CPU attacks.

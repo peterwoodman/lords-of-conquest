@@ -66,16 +66,3 @@ func TestPlanDevelopment_NothingUsefulToBuild(t *testing.T) {
 		}
 	}
 }
-
-func TestPlanDevelopment_HardSavesForNearlyAffordableCity(t *testing.T) {
-	m := weaponMap()
-	// One timber short of a city; a weapon would spend the coal and iron it needs.
-	*m.s.Players["A"].Stockpile = game.Stockpile{Coal: 1, Gold: 1, Iron: 1}
-
-	if got := PlanDevelopment(m.s, "A", game.AIMedium, seeded(1)); got == nil || got.Type != game.BuildWeapon {
-		t.Fatalf("expected medium to build a weapon, got %+v", got)
-	}
-	if got := PlanDevelopment(m.s, "A", game.AIHard, seeded(1)); got != nil {
-		t.Fatalf("expected hard to save for a city, got %+v", got)
-	}
-}

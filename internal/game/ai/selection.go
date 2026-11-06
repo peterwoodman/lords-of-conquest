@@ -8,15 +8,15 @@ import (
 
 // selectionWeights tunes territory selection scoring.
 type selectionWeights struct {
-	adjacent  float64 // per owned neighbour; must dominate resource value
-	joins     float64 // per extra owned region the territory connects
-	resource  float64 // multiplier on resourceValue
-	cityGrid  float64 // per owned neighbour with a resource (future city doubling)
-	room      float64 // per unclaimed neighbour (space to grow)
-	seed      float64 // first pick only: multiplier on unclaimed neighbours' resource value
-	coast     float64 // coastal territory when none owned yet
-	exposed   float64 // penalty per enemy neighbour
-	deny      float64 // per neighbour of the opponent most adjacent to it
+	adjacent float64 // per owned neighbour; must dominate resource value
+	joins    float64 // per extra owned region the territory connects
+	resource float64 // multiplier on resourceValue
+	cityGrid float64 // per owned neighbour with a resource (future city doubling)
+	room     float64 // per unclaimed neighbour (space to grow)
+	seed     float64 // first pick only: multiplier on unclaimed neighbours' resource value
+	coast    float64 // coastal territory when none owned yet
+	exposed  float64 // penalty per enemy neighbour
+	deny     float64 // per neighbour of the opponent most adjacent to it
 }
 
 var selectionProfiles = map[game.AIDifficulty]selectionWeights{
@@ -35,10 +35,10 @@ var selectionProfiles = map[game.AIDifficulty]selectionWeights{
 		exposed:  0.5,
 	},
 	game.AIHard: {
-		adjacent: 8,
-		joins:    5,
-		resource: 1,
-		cityGrid: 1,
+		adjacent: 12,
+		joins:    7,
+		resource: 2,
+		cityGrid: 2,
 		room:     0.25,
 		seed:     0.4,
 		coast:    1.5,

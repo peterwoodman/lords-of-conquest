@@ -24,6 +24,8 @@ type Server struct {
 	hub    *Hub
 	addr   string
 	server *http.Server
+
+	aiPacing bool // CPUs pause before acting (see aiThinkTime); off in tests
 }
 
 // Config holds server configuration.
@@ -40,8 +42,9 @@ func New(cfg Config) (*Server, error) {
 	}
 
 	s := &Server{
-		db:   db,
-		addr: cfg.Addr,
+		db:       db,
+		addr:     cfg.Addr,
+		aiPacing: true,
 	}
 
 	s.hub = NewHub(s)

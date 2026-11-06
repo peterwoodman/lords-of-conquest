@@ -937,7 +937,7 @@ func (h *Handlers) initializeGameState(gameID string, dbGame *database.Game, dbP
 	}
 
 	// Convert map data to game map data
-	gameMapData := convertMapToGameData(mapData)
+	gameMapData := maps.ToGameData(mapData)
 
 	// Convert database settings to game settings
 	gameSettings := game.Settings{
@@ -965,49 +965,6 @@ func (h *Handlers) initializeGameState(gameID string, dbGame *database.Game, dbP
 
 	// Save to database
 	return h.hub.server.db.SaveGameState(gameID, string(stateJSON), state.CurrentPlayerID, state.Round, state.Phase.String())
-}
-
-// convertMapToGameData converts a map to game initialization data.
-func convertMapToGameData(m *maps.Map) game.MapData {
-	territories := make(map[string]game.TerritoryData)
-	for id, t := range m.Territories {
-		adjacent := make([]string, len(t.AdjacentTerritories))
-		for i, adj := range t.AdjacentTerritories {
-			adjacent[i] = maps.TerritoryIDToString(adj)
-		}
-
-		waters := make([]string, len(t.AdjacentWaters))
-		for i, w := range t.AdjacentWaters {
-			waters[i] = maps.WaterIDToString(w)
-		}
-
-		territories[maps.TerritoryIDToString(id)] = game.TerritoryData{
-			Name:         t.Name,
-			Resource:     t.Resource,
-			Adjacent:     adjacent,
-			CoastalTiles: t.CoastalCells,
-			WaterBodies:  waters,
-		}
-	}
-
-	waterBodies := make(map[string]game.WaterBodyData)
-	for id, wb := range m.WaterBodies {
-		coastal := make([]string, len(wb.CoastalTerritories))
-		for i, t := range wb.CoastalTerritories {
-			coastal[i] = maps.TerritoryIDToString(t)
-		}
-
-		waterBodies[maps.WaterIDToString(id)] = game.WaterBodyData{
-			Territories: coastal,
-		}
-	}
-
-	return game.MapData{
-		ID:          m.ID,
-		Name:        m.Name,
-		Territories: territories,
-		WaterBodies: waterBodies,
-	}
 }
 
 // broadcastGameState sends the current game state to all players.
@@ -1670,7 +1627,7 @@ func (h *Handlers) sendUpdatedGameList(client *Client) {
 // checkAndTriggerAI checks if the current player is an AI and triggers their move.
 func (h *Handlers) checkAndTriggerAI(gameID string) {
 	// Small delay to ensure state is fully saved and broadcast
-	time.Sleep(100 * time.Millisecond)
+	time.Sleep(100*time.Millisecond + h.aiThinkTime(gameID))
 
 	defer h.hub.lockGame(gameID)()
 
@@ -1745,6 +1702,40 @@ func (h *Handlers) checkAndTriggerAI(gameID string) {
 	default:
 		log.Printf("AI: No handler for phase: %s", state.Phase)
 	}
+}
+
+// aiThinkTimes is how long a CPU pauses before acting in each phase, so humans can follow
+// its moves. Up to aiThinkJitter is added at random.
+var aiThinkTimes = map[game.Phase]time.Duration{
+	game.PhaseTerritorySelection: 600 * time.Millisecond,
+	game.PhaseCommerce:           400 * time.Millisecond,
+	game.PhaseConquest:           900 * time.Millisecond,
+	game.PhaseDevelopment:        400 * time.Millisecond,
+}
+
+const aiThinkJitter = 300 * time.Millisecond
+
+// aiThinkTime is the pause before the current CPU acts, or 0 if it isn't a CPU's turn.
+// It reads the state without the game lock so other players aren't held up; the CPU
+// re-reads it under the lock before acting.
+func (h *Handlers) aiThinkTime(gameID string) time.Duration {
+	if !h.hub.server.aiPacing {
+		return 0
+	}
+	stateJSON, err := h.hub.server.db.GetGameState(gameID)
+	if err != nil {
+		return 0
+	}
+	var state game.GameState
+	if err := json.Unmarshal([]byte(stateJSON), &state); err != nil {
+		return 0
+	}
+	current := state.Players[state.CurrentPlayerID]
+	think, ok := aiThinkTimes[state.Phase]
+	if current == nil || !current.IsAI || !ok {
+		return 0
+	}
+	return think + time.Duration(rand.Int63n(int64(aiThinkJitter)))
 }
 
 // newAIRand returns a random source for one AI decision. Games run concurrently, so
