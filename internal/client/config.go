@@ -60,12 +60,15 @@ func LoadConfig() (*Config, error) {
 		return DefaultConfig(), err
 	}
 
-	var cfg Config
-	if err := json.Unmarshal(data, &cfg); err != nil {
+	cfg := DefaultConfig()
+	if err := json.Unmarshal(data, cfg); err != nil {
+		// Keep the unreadable file (it may hold the player token) instead of
+		// letting the next Save overwrite it
+		os.WriteFile(path+".bak", data, 0644)
 		return DefaultConfig(), err
 	}
 
-	return &cfg, nil
+	return cfg, nil
 }
 
 // Save saves the config to disk.
@@ -86,7 +89,12 @@ func (c *Config) Save() error {
 		return err
 	}
 
-	return os.WriteFile(path, data, 0644)
+	// Write then rename so a crash mid-write can't leave a truncated config
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, data, 0644); err != nil {
+		return err
+	}
+	return os.Rename(tmp, path)
 }
 
 // configPath returns the path to the config file.

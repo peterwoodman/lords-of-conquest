@@ -73,7 +73,7 @@ func (s *GameplayScene) commitDefenseCards() {
 	}
 
 	log.Printf("Committing defense with %d cards", len(cardIDs))
-	s.game.SelectDefenseCards(cardIDs)
+	s.game.SelectDefenseCards(s.defenseCardBattleID, cardIDs)
 
 	s.showDefenseCardSelect = false
 	s.selectedDefenseCardIDs = make(map[string]bool)
@@ -535,7 +535,7 @@ func (s *GameplayScene) confirmCardSelection() {
 		s.cancelAttackConfirmation()
 	} else if s.cardSelectionMode == "defense" {
 		log.Printf("Committing defense card selection: %d cards", len(cardIDs))
-		s.game.SelectDefenseCards(cardIDs)
+		s.game.SelectDefenseCards(s.defenseCardBattleID, cardIDs)
 		s.ClearHighlightedTerritories()
 	}
 
@@ -560,7 +560,7 @@ func (s *GameplayScene) skipCardSelection() {
 		s.cancelAttackConfirmation()
 	} else if s.cardSelectionMode == "defense" {
 		log.Println("Skipping defense card selection")
-		s.game.SelectDefenseCards(nil)
+		s.game.SelectDefenseCards(s.defenseCardBattleID, nil)
 		s.ClearHighlightedTerritories()
 	}
 

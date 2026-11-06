@@ -80,7 +80,9 @@ var ErrGameFull = errors.New("game is full")
 var ErrAlreadyInGame = errors.New("already in game")
 
 // CreateGame creates a new game.
-func (db *DB) CreateGame(name string, hostPlayerID string, settings GameSettings, isPublic bool, mapJSON string) (*Game, error) {
+// The host is added as a connected player in the same transaction, so lobby
+// cleanup never sees the game without its host.
+func (db *DB) CreateGame(name string, hostPlayerID, hostColor string, settings GameSettings, isPublic bool, mapJSON string) (*Game, error) {
 	id := uuid.New().String()
 	joinCode := generateJoinCode()
 
@@ -89,12 +91,30 @@ func (db *DB) CreateGame(name string, hostPlayerID string, settings GameSettings
 		return nil, err
 	}
 
+	tx, err := db.conn.Begin()
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+
 	now := time.Now()
-	_, err = db.conn.Exec(`
+	_, err = tx.Exec(`
 		INSERT INTO games (id, name, join_code, is_public, status, host_player_id, settings_json, max_players, map_json, created_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`, id, name, joinCode, isPublic, GameStatusWaiting, hostPlayerID, string(settingsJSON), settings.MaxPlayers, mapJSON, now)
 	if err != nil {
+		return nil, err
+	}
+
+	_, err = tx.Exec(`
+		INSERT INTO game_players (game_id, player_id, slot, color, is_ai, is_ready, is_connected, joined_at)
+		VALUES (?, ?, 0, ?, FALSE, FALSE, TRUE, ?)
+	`, id, hostPlayerID, hostColor, now)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := tx.Commit(); err != nil {
 		return nil, err
 	}
 
@@ -106,7 +126,7 @@ func (db *DB) CreateGame(name string, hostPlayerID string, settings GameSettings
 			IsPublic:     isPublic,
 			Status:       GameStatusWaiting,
 			HostPlayerID: hostPlayerID,
-			PlayerCount:  0,
+			PlayerCount:  1,
 			MaxPlayers:   settings.MaxPlayers,
 			CreatedAt:    now,
 		},
@@ -247,42 +267,67 @@ func (db *DB) ListPublicGames() ([]*GameInfo, error) {
 
 // JoinGame adds a player to a game.
 func (db *DB) JoinGame(gameID, playerID, color string) error {
-	// Get game to check status and capacity
-	game, err := db.GetGame(gameID)
+	tx, err := db.conn.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	slot, err := reserveLobbySlot(tx, gameID)
 	if err != nil {
 		return err
 	}
 
-	if game.Status != GameStatusWaiting {
-		return errors.New("game already started")
-	}
-
 	// Check if player already in game
 	var exists int
-	db.conn.QueryRow(`SELECT COUNT(*) FROM game_players WHERE game_id = ? AND player_id = ?`,
-		gameID, playerID).Scan(&exists)
+	if err := tx.QueryRow(`SELECT COUNT(*) FROM game_players WHERE game_id = ? AND player_id = ?`,
+		gameID, playerID).Scan(&exists); err != nil {
+		return err
+	}
 	if exists > 0 {
 		return ErrAlreadyInGame
 	}
 
-	// Check capacity
-	if game.PlayerCount >= game.MaxPlayers {
-		return ErrGameFull
-	}
-
-	// Get next slot
-	var maxSlot sql.NullInt64
-	db.conn.QueryRow(`SELECT MAX(slot) FROM game_players WHERE game_id = ?`, gameID).Scan(&maxSlot)
-	slot := 0
-	if maxSlot.Valid {
-		slot = int(maxSlot.Int64) + 1
-	}
-
-	_, err = db.conn.Exec(`
+	_, err = tx.Exec(`
 		INSERT INTO game_players (game_id, player_id, slot, color, is_ai, is_ready, is_connected, joined_at)
 		VALUES (?, ?, ?, ?, FALSE, FALSE, FALSE, ?)
 	`, gameID, playerID, slot, color, time.Now())
-	return err
+	if err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// reserveLobbySlot checks that a game is in its lobby with room for another
+// player and returns the next free slot. Must run inside the joining transaction.
+func reserveLobbySlot(tx *sql.Tx, gameID string) (int, error) {
+	var status GameStatus
+	var maxPlayers, playerCount int
+	var maxSlot sql.NullInt64
+	err := tx.QueryRow(`
+		SELECT g.status, g.max_players,
+		       (SELECT COUNT(*) FROM game_players WHERE game_id = g.id),
+		       (SELECT MAX(slot) FROM game_players WHERE game_id = g.id)
+		FROM games g WHERE g.id = ?
+	`, gameID).Scan(&status, &maxPlayers, &playerCount, &maxSlot)
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, ErrGameNotFound
+	}
+	if err != nil {
+		return 0, err
+	}
+
+	if status != GameStatusWaiting {
+		return 0, errors.New("game already started")
+	}
+	if playerCount >= maxPlayers {
+		return 0, ErrGameFull
+	}
+
+	if maxSlot.Valid {
+		return int(maxSlot.Int64) + 1, nil
+	}
+	return 0, nil
 }
 
 // LeaveGame removes a player from a game.
@@ -375,37 +420,29 @@ func (db *DB) SetAllianceSetting(gameID, playerID, setting string) error {
 
 // AddAIPlayer adds an AI player to a game.
 func (db *DB) AddAIPlayer(gameID, color, personality string) error {
-	game, err := db.GetGame(gameID)
+	tx, err := db.conn.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	slot, err := reserveLobbySlot(tx, gameID)
 	if err != nil {
 		return err
 	}
 
-	if game.Status != GameStatusWaiting {
-		return errors.New("game already started")
-	}
-
-	if game.PlayerCount >= game.MaxPlayers {
-		return ErrGameFull
-	}
-
-	// Get next slot
-	var maxSlot sql.NullInt64
-	db.conn.QueryRow(`SELECT MAX(slot) FROM game_players WHERE game_id = ?`, gameID).Scan(&maxSlot)
-	slot := 0
-	if maxSlot.Valid {
-		slot = int(maxSlot.Int64) + 1
-	}
-
 	// Count existing AI players in the game to number them
 	var aiCount int
-	db.conn.QueryRow(`SELECT COUNT(*) FROM game_players WHERE game_id = ? AND is_ai = TRUE`, gameID).Scan(&aiCount)
+	if err := tx.QueryRow(`SELECT COUNT(*) FROM game_players WHERE game_id = ? AND is_ai = TRUE`, gameID).Scan(&aiCount); err != nil {
+		return err
+	}
 
 	// Create a player entry for the AI (required for foreign key)
 	aiID := fmt.Sprintf("ai-%s", uuid.New().String()[:8])
 	aiName := fmt.Sprintf("CPU%d", aiCount+1)
 	aiToken := uuid.New().String()
 
-	_, err = db.conn.Exec(`
+	_, err = tx.Exec(`
 		INSERT INTO players (id, token, name, created_at, last_seen_at)
 		VALUES (?, ?, ?, ?, ?)
 	`, aiID, aiToken, aiName, time.Now(), time.Now())
@@ -414,11 +451,14 @@ func (db *DB) AddAIPlayer(gameID, color, personality string) error {
 	}
 
 	// Add AI to game
-	_, err = db.conn.Exec(`
+	_, err = tx.Exec(`
 		INSERT INTO game_players (game_id, player_id, slot, color, is_ai, ai_personality, is_ready, is_connected, joined_at)
 		VALUES (?, ?, ?, ?, TRUE, ?, TRUE, TRUE, ?)
 	`, gameID, aiID, slot, color, personality, time.Now())
-	return err
+	if err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 // StartGame marks a waiting game as started. Fails if the game isn't in the lobby.
@@ -530,10 +570,17 @@ func (db *DB) DeleteGame(gameID string) error {
 	return tx.Commit()
 }
 
-// CleanupAbandonedLobbies removes lobby games where the host is offline.
+// CleanupAbandonedLobbies removes lobby games with no connected human players,
+// along with AI player records no longer used by any game.
 func (db *DB) CleanupAbandonedLobbies() error {
-	// Delete games that are in waiting status and have no connected players
-	_, err := db.conn.Exec(`
+	tx, err := db.conn.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	// AI players are always marked connected, so only humans keep a lobby alive
+	_, err = tx.Exec(`
 		DELETE FROM games 
 		WHERE id IN (
 			SELECT g.id FROM games g
@@ -542,10 +589,25 @@ func (db *DB) CleanupAbandonedLobbies() error {
 				SELECT 1 FROM game_players gp
 				WHERE gp.game_id = g.id
 				AND gp.is_connected = 1
+				AND gp.is_ai = 0
 			)
 		)
 	`, GameStatusWaiting)
-	return err
+	if err != nil {
+		return err
+	}
+
+	_, err = tx.Exec(`
+		DELETE FROM players
+		WHERE id LIKE 'ai-%'
+		AND NOT EXISTS (SELECT 1 FROM game_players gp WHERE gp.player_id = players.id)
+		AND NOT EXISTS (SELECT 1 FROM games g WHERE g.host_player_id = players.id OR g.winner_id = players.id)
+	`)
+	if err != nil {
+		return err
+	}
+
+	return tx.Commit()
 }
 
 // GetPlayerGames retrieves all games a player is participating in.

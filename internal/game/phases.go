@@ -202,13 +202,17 @@ func (g *GameState) InitCommercePhase() bool {
 		log.Printf("InitCommercePhase: Skipping shipment - %s", g.SkippedPhases[len(g.SkippedPhases)-1].Reason)
 	}
 
+	// Commerce and the Conquest that may replace it both start with the first player
+	if len(g.PlayerOrder) > 0 {
+		g.CurrentPlayerID = g.PlayerOrder[0]
+	}
+
 	if g.CommerceTradeSkipped && g.CommerceShipmentSkipped {
 		log.Printf("InitCommercePhase: Both trade and shipment skipped, skipping Commerce entirely")
 		return true
 	}
 
 	g.Phase = PhaseCommerce
-	g.CurrentPlayerID = g.PlayerOrder[0]
 
 	if !g.CommerceTradeSkipped {
 		g.CommerceSubPhase = SubPhaseTrade
@@ -396,6 +400,7 @@ func (pm *PhaseManager) CalculateProductionForPlayer(playerID string) ([]Product
 	}
 
 	results := []ProductionResult{}
+	horseDestinations := make(map[string]bool)
 
 	for terrID, territory := range pm.State.Territories {
 		if territory.Owner != playerID || territory.Resource == ResourceNone {
@@ -404,8 +409,7 @@ func (pm *PhaseManager) CalculateProductionForPlayer(playerID string) ([]Product
 
 		// Grassland produces horses that spread on the map
 		if territory.Resource == ResourceGrassland {
-			// Calculate where horse will go
-			destID, destName := pm.calculateHorseDestination(playerID, territory)
+			destID, destName := pm.calculateHorseDestination(playerID, terrID, horseDestinations)
 			if destID != "" {
 				results = append(results, ProductionResult{
 					TerritoryID:     terrID,
@@ -437,30 +441,28 @@ func (pm *PhaseManager) CalculateProductionForPlayer(playerID string) ([]Product
 }
 
 // calculateHorseDestination determines where a horse will be placed.
-func (pm *PhaseManager) calculateHorseDestination(playerID string, source *Territory) (string, string) {
+// taken holds destinations already claimed this production, and is updated with the result.
+func (pm *PhaseManager) calculateHorseDestination(playerID, sourceID string, taken map[string]bool) (string, string) {
+	source := pm.State.Territories[sourceID]
+
 	// If source doesn't have a horse yet, horse goes there
-	if !source.HasHorse {
-		// Find the territory ID for this source
-		for id, t := range pm.State.Territories {
-			if t == source {
-				return id, source.Name
-			}
-		}
-		return "", ""
+	if !source.HasHorse && !taken[sourceID] {
+		taken[sourceID] = true
+		return sourceID, source.Name
 	}
 
 	// Find an adjacent territory without a horse
 	candidates := []string{}
 	for _, adjID := range source.Adjacent {
 		adj := pm.State.Territories[adjID]
-		if adj.Owner == playerID && !adj.HasHorse {
+		if adj != nil && adj.Owner == playerID && !adj.HasHorse && !taken[adjID] {
 			candidates = append(candidates, adjID)
 		}
 	}
 
 	if len(candidates) > 0 {
-		// Randomly choose one (use consistent seed for determinism)
 		chosen := candidates[rand.Intn(len(candidates))]
+		taken[chosen] = true
 		return chosen, pm.State.Territories[chosen].Name
 	}
 

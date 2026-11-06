@@ -964,10 +964,14 @@ func (s *GameplayScene) ShowPhaseSkipped(eventID, phase, reason string) {
 		Reason:  reason,
 	})
 
-	// If not currently showing a skip, start showing the first one
-	if !s.showPhaseSkip {
+	// If not currently showing a skip (or another notification replaced it), show the next one
+	if !s.showPhaseSkip || s.bottomBarNotification != phaseSkipMessage(s.phaseSkipPhase, s.phaseSkipReason) {
 		s.showNextPhaseSkip()
 	}
+}
+
+func phaseSkipMessage(phase, reason string) string {
+	return fmt.Sprintf("%s was skipped: %s", phase, reason)
 }
 
 // showNextPhaseSkip displays the next queued phase skip as a bottom bar notification.
@@ -979,19 +983,20 @@ func (s *GameplayScene) showNextPhaseSkip() {
 	}
 
 	if len(s.phaseSkipQueue) == 0 {
+		s.showPhaseSkip = false
 		return
 	}
 
 	// Pop from queue
 	skip := s.phaseSkipQueue[0]
 	s.phaseSkipQueue = s.phaseSkipQueue[1:]
+	s.showPhaseSkip = true
 
 	s.phaseSkipEventID = skip.EventID
 	s.phaseSkipPhase = skip.Phase
 	s.phaseSkipReason = skip.Reason
 
-	msg := fmt.Sprintf("%s was skipped: %s", skip.Phase, skip.Reason)
-	s.showBottomBarNotification(msg, "OK", func() {
+	s.showBottomBarNotification(phaseSkipMessage(skip.Phase, skip.Reason), "OK", func() {
 		s.showNextPhaseSkip()
 	})
 }

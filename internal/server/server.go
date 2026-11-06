@@ -77,9 +77,6 @@ func (s *Server) Start() error {
 	log.Printf("")
 	log.Printf("Press Ctrl+C to stop")
 
-	// Start the hub
-	go s.hub.Run()
-
 	return s.server.ListenAndServe()
 }
 
@@ -114,16 +111,13 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	}
 
 	client := NewClient(s.hub, conn)
-	log.Printf("Starting pumps for new client")
 
-	// Start pumps immediately - they manage their own goroutines
+	// Register before reading so a disconnect can never be processed first
+	s.hub.Register(client)
+
+	go client.processInbox()
 	go client.WritePump()
 	go client.ReadPump()
-
-	// Register with hub - this is async via buffered channel
-	log.Printf("Sending client to register channel (buffer: %d)", len(s.hub.register))
-	s.hub.Register(client)
-	log.Printf("Client sent to register channel")
 }
 
 // handleListGames returns a list of public games.
@@ -233,22 +227,7 @@ type Hub struct {
 	// Per-game locks serializing load-modify-save of game state
 	gameLocks map[string]*sync.Mutex
 
-	// Register requests
-	register chan *Client
-
-	// Unregister requests
-	unregister chan *Client
-
-	// Inbound messages from clients
-	broadcast chan *ClientMessage
-
 	mu sync.RWMutex
-}
-
-// ClientMessage wraps a message with its source client.
-type ClientMessage struct {
-	Client  *Client
-	Message *protocol.Message
 }
 
 // NewHub creates a new Hub.
@@ -264,54 +243,48 @@ func NewHub(server *Server) *Hub {
 		pendingCardBattles: make(map[string]*PendingCardBattle),
 		gameMaps:           make(map[string]*maps.Map),
 		gameLocks:          make(map[string]*sync.Mutex),
-		register:           make(chan *Client, 100),
-		unregister:         make(chan *Client, 100),
-		broadcast:          make(chan *ClientMessage, 256),
 	}
 }
 
-// Run starts the hub's main loop.
-func (h *Hub) Run() {
-	log.Println("Hub event loop started")
-	for {
-		select {
-		case client := <-h.register:
-			log.Printf("Hub: Processing registration")
-			// Fast path: just add to map and send welcome
-			// No goroutine needed - this should be very quick
-			h.mu.Lock()
-			h.clients[client] = true
-			h.mu.Unlock()
-
-			// Send welcome - non-blocking because client.Send uses select with default
-			h.sendWelcome(client)
-			log.Printf("Hub: Registration complete")
-
-		case client := <-h.unregister:
-			log.Printf("Hub: Processing unregistration")
-			// Handle disconnection in goroutine to avoid blocking
-			go h.handleDisconnect(client)
-
-		case msg := <-h.broadcast:
-			// Handle messages in a goroutine to avoid blocking
-			go h.handleMessage(msg)
-		}
-	}
-}
-
-// Register adds a client to the hub.
+// Register adds a client to the hub and greets it. Call before starting the client's pumps.
 func (h *Hub) Register(client *Client) {
-	h.register <- client
+	h.mu.Lock()
+	h.clients[client] = true
+	h.mu.Unlock()
+
+	h.sendWelcome(client)
 }
 
-// Unregister removes a client from the hub.
+// Unregister disconnects a client. The cleanup runs on the client's own message
+// goroutine, after any message it is already handling.
 func (h *Hub) Unregister(client *Client) {
-	h.unregister <- client
+	client.post(func() { h.handleDisconnect(client) })
 }
 
-// Broadcast sends a message from a client.
-func (h *Hub) Broadcast(client *Client, msg *protocol.Message) {
-	h.broadcast <- &ClientMessage{Client: client, Message: msg}
+// dispatch routes a message from a client. Replies that another handler may be
+// blocked waiting for run immediately; everything else runs in the order received.
+func (h *Hub) dispatch(client *Client, msg *protocol.Message) {
+	if isReplyMessage(msg.Type) {
+		// Replies run off the inbox and read PlayerID/Name, which are only
+		// stable once authentication has completed
+		if !h.isAuthenticated(client) {
+			return
+		}
+		go h.handleMessage(client, msg)
+		return
+	}
+	client.post(func() { h.handleMessage(client, msg) })
+}
+
+// isReplyMessage reports message types that answer a request a handler is waiting on.
+// They must not queue behind the handler that is waiting for them.
+func isReplyMessage(t protocol.MessageType) bool {
+	switch t {
+	case protocol.TypeClientReady, protocol.TypeAllianceVote,
+		protocol.TypeSelectDefenseCards, protocol.TypeRespondTrade:
+		return true
+	}
+	return false
 }
 
 // sendWelcome sends a welcome message to a new client.
@@ -374,9 +347,9 @@ func (h *Hub) handleDisconnect(client *Client) {
 }
 
 // handleMessage routes incoming messages.
-func (h *Hub) handleMessage(cm *ClientMessage) {
+func (h *Hub) handleMessage(client *Client, msg *protocol.Message) {
 	handlers := NewHandlers(h)
-	handlers.Handle(cm.Client, cm.Message)
+	handlers.Handle(client, msg)
 }
 
 // clientsInGame returns a snapshot of the clients in a game, safe to iterate without the lock.
@@ -510,13 +483,21 @@ func (h *Hub) RemoveClientFromGame(client *Client, gameID string) {
 	}
 }
 
-// SetClientPlayer associates a client with a player ID.
-func (h *Hub) SetClientPlayer(client *Client, playerID string) {
+// SetClientPlayer associates a client with a player.
+func (h *Hub) SetClientPlayer(client *Client, playerID, name string) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
 	client.PlayerID = playerID
+	client.Name = name
 	h.playerClients[playerID] = client
+}
+
+// isAuthenticated reports whether a client has a player identity, read under the hub lock.
+func (h *Hub) isAuthenticated(client *Client) bool {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	return client.PlayerID != ""
 }
 
 // IsPlayerOnline checks if a player is currently connected.
@@ -661,10 +642,21 @@ type Client struct {
 	sendMu     sync.Mutex
 	sendClosed bool
 
+	// Tasks run one at a time on the client's own goroutine (see processInbox)
+	inboxMu     sync.Mutex
+	inbox       []func()
+	inboxClosed bool
+	inboxSignal chan struct{}
+
+	// Identity fields. PlayerID and Name are set once at authentication; GameID is
+	// only changed by tasks on this client's inbox (and under hub.mu).
 	PlayerID string
 	GameID   string
 	Name     string
 }
+
+// maxInbox caps queued messages per client so a flooding client is dropped.
+const maxInbox = 1000
 
 const (
 	writeWait      = 10 * time.Second
@@ -677,9 +669,67 @@ const (
 // NewClient creates a new client.
 func NewClient(hub *Hub, conn *websocket.Conn) *Client {
 	return &Client{
-		hub:  hub,
-		conn: conn,
-		send: make(chan *protocol.Message, 256),
+		hub:         hub,
+		conn:        conn,
+		send:        make(chan *protocol.Message, 256),
+		inboxSignal: make(chan struct{}, 1),
+	}
+}
+
+// post queues a task on the client's goroutine. It never blocks; tasks posted after
+// the inbox closes are dropped.
+func (c *Client) post(task func()) {
+	c.inboxMu.Lock()
+	if c.inboxClosed {
+		c.inboxMu.Unlock()
+		return
+	}
+	if len(c.inbox) >= maxInbox {
+		c.inboxMu.Unlock()
+		log.Printf("Client %s inbox full, disconnecting", c.PlayerID)
+		c.conn.Close(websocket.StatusPolicyViolation, "too many messages")
+		return
+	}
+	c.inbox = append(c.inbox, task)
+	c.inboxMu.Unlock()
+
+	select {
+	case c.inboxSignal <- struct{}{}:
+	default:
+	}
+}
+
+// closeInbox stops accepting tasks; already queued tasks still run.
+func (c *Client) closeInbox() {
+	c.inboxMu.Lock()
+	c.inboxClosed = true
+	c.inboxMu.Unlock()
+
+	select {
+	case c.inboxSignal <- struct{}{}:
+	default:
+	}
+}
+
+// processInbox runs queued tasks in order until the inbox is closed and drained.
+func (c *Client) processInbox() {
+	for {
+		c.inboxMu.Lock()
+		if len(c.inbox) == 0 {
+			closed := c.inboxClosed
+			c.inboxMu.Unlock()
+			if closed {
+				return
+			}
+			<-c.inboxSignal
+			continue
+		}
+		task := c.inbox[0]
+		c.inbox[0] = nil
+		c.inbox = c.inbox[1:]
+		c.inboxMu.Unlock()
+
+		task()
 	}
 }
 
@@ -698,7 +748,7 @@ func (c *Client) Send(msg *protocol.Message) {
 		c.sendMu.Unlock()
 		// Channel full, client too slow - disconnect
 		log.Printf("Client send channel full, disconnecting client")
-		go c.hub.Unregister(c)
+		c.hub.Unregister(c)
 	}
 }
 
@@ -716,6 +766,7 @@ func (c *Client) closeSend() {
 func (c *Client) ReadPump() {
 	defer func() {
 		c.hub.Unregister(c)
+		c.closeInbox()
 		c.conn.Close(websocket.StatusNormalClosure, "")
 	}()
 
@@ -755,7 +806,7 @@ func (c *Client) ReadPump() {
 			continue
 		}
 
-		c.hub.Broadcast(c, &msg)
+		c.hub.dispatch(c, &msg)
 	}
 }
 

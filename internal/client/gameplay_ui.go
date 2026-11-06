@@ -392,14 +392,16 @@ func (s *GameplayScene) showBottomBarNotification(message string, btnText string
 
 // dismissBottomBarNotification clears the notification from the bottom bar.
 func (s *GameplayScene) dismissBottomBarNotification() {
-	if s.bottomBarNotifAction != nil {
-		s.bottomBarNotifAction()
-	}
+	// Clear first: the action may show a follow-up notification
+	action := s.bottomBarNotifAction
 	s.bottomBarNotification = ""
 	s.bottomBarNotifAction = nil
 	s.bottomBarNotifBtnText = ""
 	s.bottomBarNotifAutoTimer = 0
 	s.ResetBarHeight()
+	if action != nil {
+		action()
+	}
 }
 
 // drawBottomBarNotification draws a notification message in the bottom bar.

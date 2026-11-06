@@ -76,7 +76,6 @@ func startTestServer(t *testing.T) *httptest.Server {
 	}
 	s := &Server{db: db}
 	s.hub = NewHub(s)
-	go s.hub.Run()
 
 	ts := httptest.NewServer(http.HandlerFunc(s.handleWebSocket))
 	t.Cleanup(func() {
@@ -139,15 +138,10 @@ func TestGameAgainstAIReachesRoundThree(t *testing.T) {
 				Settings: protocol.GameSettings{MaxPlayers: 4, VictoryCities: 99, ChanceLevel: "low", CombatMode: mode},
 				MapData:  generatedMapData(),
 			})
-			c.waitFor(ctx, protocol.TypeGameCreated)
-			// The server handles each message on its own goroutine, so wait for each to land
-			c.waitFor(ctx, protocol.TypeLobbyState)
+			// Sent back to back: the server must handle one client's messages in order
 			c.send(protocol.TypeAddAI, protocol.AddAIPayload{Personality: "aggressive"})
-			c.waitFor(ctx, protocol.TypeLobbyState)
 			c.send(protocol.TypeAddAI, protocol.AddAIPayload{Personality: "aggressive"})
-			c.waitFor(ctx, protocol.TypeLobbyState)
 			c.send(protocol.TypePlayerReady, protocol.PlayerReadyPayload{Ready: true})
-			c.waitFor(ctx, protocol.TypeLobbyState)
 			c.send(protocol.TypeStartGame, struct{}{})
 
 			playUntilRound(t, c, ctx, 3)
@@ -174,7 +168,8 @@ func playUntilRound(t *testing.T, c *testClient, ctx context.Context, targetRoun
 		case protocol.TypeError:
 			t.Logf("server error: %s", msg.Payload)
 		case protocol.TypeDefenseCardRequest:
-			c.send(protocol.TypeSelectDefenseCards, protocol.SelectCardsPayload{})
+			battleID, _ := generic["battle_id"].(string)
+			c.send(protocol.TypeSelectDefenseCards, protocol.SelectCardsPayload{BattleID: battleID})
 		case protocol.TypeGameEnded:
 			return
 		case protocol.TypeGameState:

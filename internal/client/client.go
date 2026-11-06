@@ -693,9 +693,10 @@ func (g *Game) BuyCard(cardType, resource string) error {
 }
 
 // SelectDefenseCards sends the defender's card selection for card combat.
-func (g *Game) SelectDefenseCards(cardIDs []string) error {
+func (g *Game) SelectDefenseCards(battleID string, cardIDs []string) error {
 	payload := protocol.SelectCardsPayload{
-		CardIDs: cardIDs,
+		BattleID: battleID,
+		CardIDs:  cardIDs,
 	}
 	return g.network.SendPayload(protocol.TypeSelectDefenseCards, payload)
 }
@@ -850,7 +851,8 @@ func (g *Game) handleMessage(msg *protocol.Message) {
 
 	case protocol.TypeGameStarted:
 		log.Println("Game started!")
-		// Switch to gameplay scene
+		// Fresh scene so dialogs, queues and map data from a previous game don't carry over
+		g.gameplayScene = NewGameplayScene(g)
 		g.SetScene(g.gameplayScene)
 
 	case protocol.TypeGameState:

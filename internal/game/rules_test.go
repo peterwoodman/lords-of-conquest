@@ -168,3 +168,96 @@ func TestCaptureStockpile_MovesResources(t *testing.T) {
 		t.Fatal("expected stockpile to move to captor and be cleared from loser")
 	}
 }
+
+func TestResolveCards_SabotageRemovesDoubledWeapons(t *testing.T) {
+	g := newRulesTestState(PhaseConquest)
+	g.Territories["a1"].HasWeapon = true // A's only weapon next to b1
+	target := g.Territories["b1"]
+
+	attack := []CombatCard{{ID: "x", Effect: EffectDoubleAttack}}
+	defense := []CombatCard{{ID: "y", Effect: EffectSabotage}}
+
+	// Base 4 = territory 1 + weapon 3; doubled to 8, minus the doubled weapon = 2
+	result := g.ResolveCards("A", target, 4, 1, attack, defense, nil)
+	if result.FinalAttack != 2 {
+		t.Fatalf("expected attack 2 after sabotage under double attack, got %d", result.FinalAttack)
+	}
+}
+
+func TestResolveCards_NegatedBlitzReturnsNothing(t *testing.T) {
+	g := newRulesTestState(PhaseConquest)
+	g.Settings.ChanceLevel = ChanceLow
+	target := g.Territories["b1"]
+
+	// Shield Wall negates one random card, so with only Blitz played it is always the one negated
+	attack := []CombatCard{{ID: "blitz", Effect: EffectBlitz}}
+	defense := []CombatCard{{ID: "wall", Effect: EffectShieldWall}}
+
+	result := g.ResolveCards("A", target, 10, 0, attack, defense, nil)
+	if !result.AttackerWins {
+		t.Fatal("expected attacker to win")
+	}
+	if len(result.BlitzReturn) != 0 {
+		t.Fatalf("negated Blitz should return no cards, got %d", len(result.BlitzReturn))
+	}
+}
+
+func TestProduction_HorsesDoNotShareDestination(t *testing.T) {
+	g := newRulesTestState(PhaseProduction)
+	// Two grasslands with horses, both next to the same empty territory a1
+	g.Territories["g1"] = &Territory{ID: "g1", Name: "g1", Owner: "A", Resource: ResourceGrassland, HasHorse: true, Adjacent: []string{"a1"}}
+	g.Territories["g2"] = &Territory{ID: "g2", Name: "g2", Owner: "A", Resource: ResourceGrassland, HasHorse: true, Adjacent: []string{"a1"}}
+	g.Territories["a1"].Adjacent = append(g.Territories["a1"].Adjacent, "g1", "g2")
+
+	results, _ := NewPhaseManager(g).CalculateProductionForPlayer("A")
+
+	horses := 0
+	for _, r := range results {
+		if r.Resource == ResourceGrassland {
+			horses++
+			if r.DestinationID != "a1" {
+				t.Fatalf("unexpected horse destination %s", r.DestinationID)
+			}
+		}
+	}
+	if horses != 1 {
+		t.Fatalf("expected exactly one horse sent to a1, got %d", horses)
+	}
+}
+
+func TestBoatAttack_BoatStaysHomeWhenTargetIsInland(t *testing.T) {
+	g := newRulesTestState(PhaseConquest)
+	from := g.Territories["a1"]
+	from.WaterBodies = []string{"w1"}
+	from.CoastalTiles = 2
+	from.AddBoat("w1")
+	target := g.Territories["b1"] // no water bodies
+
+	g.moveBroughtUnit(&BroughtUnit{UnitType: UnitBoat, FromTerritory: "a1", WaterBodyID: "w1"}, target)
+
+	if target.TotalBoats() != 0 {
+		t.Fatal("boat should not land in a territory that doesn't border its water")
+	}
+	if from.Boats["w1"] != 1 {
+		t.Fatal("boat should remain at its origin")
+	}
+}
+
+func TestInitCommercePhase_FullSkipStartsConquestWithFirstPlayer(t *testing.T) {
+	g := newRulesTestState(PhaseProduction)
+	g.CurrentPlayerID = "C" // e.g. the last player who had to place a stockpile
+
+	// Retry until both sub-phases are randomly skipped (or give up; the reset applies either way)
+	g.Settings.ChanceLevel = ChanceHigh
+	for i := 0; i < 1000; i++ {
+		g.SkippedPhases = nil
+		if g.InitCommercePhase() {
+			break
+		}
+		g.CurrentPlayerID = "C"
+	}
+
+	if g.CurrentPlayerID != "A" {
+		t.Fatalf("expected first player A to start, got %s", g.CurrentPlayerID)
+	}
+}

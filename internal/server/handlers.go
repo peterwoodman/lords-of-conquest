@@ -29,8 +29,8 @@ func NewHandlers(hub *Hub) *Handlers {
 func (h *Handlers) Handle(client *Client, msg *protocol.Message) {
 	var err error
 
-	if gameID := client.GameID; gameID != "" && locksGameState(msg.Type) {
-		defer h.hub.lockGame(gameID)()
+	if locksGameState(msg.Type) && client.GameID != "" {
+		defer h.hub.lockGame(client.GameID)()
 	}
 
 	switch msg.Type {
@@ -128,7 +128,6 @@ func locksGameState(t protocol.MessageType) bool {
 		protocol.TypeEndPhase,
 		protocol.TypeBuild,
 		protocol.TypeSetAlliance,
-		protocol.TypeRespondTrade,
 		protocol.TypeSurrender,
 		protocol.TypeRenameTerritory,
 		protocol.TypeDrawTerritory,
@@ -140,6 +139,11 @@ func locksGameState(t protocol.MessageType) bool {
 
 // handleAuthenticate handles player authentication/registration.
 func (h *Handlers) handleAuthenticate(client *Client, msg *protocol.Message) error {
+	// Identity is fixed for the life of a connection (other goroutines read it unlocked)
+	if client.PlayerID != "" {
+		return errors.New("already authenticated")
+	}
+
 	var payload protocol.AuthenticatePayload
 	if err := msg.ParsePayload(&payload); err != nil {
 		return err
@@ -179,8 +183,7 @@ func (h *Handlers) handleAuthenticate(client *Client, msg *protocol.Message) err
 	}
 
 	// Associate client with player
-	h.hub.SetClientPlayer(client, player.ID)
-	client.Name = player.Name
+	h.hub.SetClientPlayer(client, player.ID, player.Name)
 
 	// Send auth result with token
 	response := protocol.AuthResultPayload{
@@ -277,19 +280,13 @@ func (h *Handlers) handleCreateGame(client *Client, msg *protocol.Message) error
 		settings.CombatMode = "classic"
 	}
 
-	game, err := h.hub.server.db.CreateGame(payload.Name, client.PlayerID, settings, payload.IsPublic, mapJSON)
+	game, err := h.hub.server.db.CreateGame(payload.Name, client.PlayerID, "orange", settings, payload.IsPublic, mapJSON)
 	if err != nil {
-		return err
-	}
-
-	// Add creator to the game
-	if err := h.hub.server.db.JoinGame(game.ID, client.PlayerID, "orange"); err != nil {
 		return err
 	}
 
 	// Add client to game channel
 	h.hub.AddClientToGame(client, game.ID)
-	h.hub.server.db.SetPlayerConnected(game.ID, client.PlayerID, true)
 
 	log.Printf("Game created: %s (%s) by %s", game.Name, game.ID, client.Name)
 
@@ -1583,13 +1580,12 @@ func (h *Handlers) handleDeleteGame(client *Client, msg *protocol.Message) error
 	})
 
 	// Remove all players from the game session
-	h.hub.mu.Lock()
-	if session, ok := h.hub.gameClients[payload.GameID]; ok {
-		for c := range session {
-			c.GameID = ""
-		}
-		delete(h.hub.gameClients, payload.GameID)
+	// Each client's GameID is cleared on its own goroutine, where its handlers read it
+	for _, c := range h.hub.clientsInGame(payload.GameID) {
+		c.post(func() { h.hub.RemoveClientFromGame(c, payload.GameID) })
 	}
+	h.hub.mu.Lock()
+	delete(h.hub.gameClients, payload.GameID)
 	delete(h.hub.gameMaps, payload.GameID)
 	h.hub.mu.Unlock()
 
@@ -2739,6 +2735,8 @@ func (h *Handlers) handleRespondTrade(client *Client, msg *protocol.Message) err
 	}
 
 	if payload.Accepted {
+		defer h.hub.lockGame(trade.GameID)()
+
 		// Load game state
 		stateJSON, err := h.hub.server.db.GetGameState(trade.GameID)
 		if err != nil {
@@ -4025,6 +4023,9 @@ func (h *Handlers) handleSelectDefenseCards(client *Client, msg *protocol.Messag
 	h.hub.mu.Lock()
 	var battle *PendingCardBattle
 	for id, b := range h.hub.pendingCardBattles {
+		if payload.BattleID != "" && id != payload.BattleID {
+			continue
+		}
 		if b.DefenderID == client.PlayerID && b.GameID == client.GameID {
 			battle = b
 			delete(h.hub.pendingCardBattles, id)
@@ -4348,10 +4349,6 @@ func (h *Handlers) handleSurrender(client *Client, msg *protocol.Message) error 
 
 // handleAllianceVote handles a player's vote during a battle.
 func (h *Handlers) handleAllianceVote(client *Client, msg *protocol.Message) error {
-	if client.GameID == "" {
-		return errors.New("not in a game")
-	}
-
 	var payload protocol.AllianceVotePayload
 	if err := msg.ParsePayload(&payload); err != nil {
 		return err

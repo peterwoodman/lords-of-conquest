@@ -35,7 +35,7 @@ func (g *GameState) ValidateTrade(offer *TradeOffer) error {
 	}
 
 	toPlayer := g.Players[offer.ToPlayerID]
-	if toPlayer == nil {
+	if toPlayer == nil || toPlayer.Eliminated || fromPlayer.Eliminated {
 		return ErrInvalidTarget
 	}
 

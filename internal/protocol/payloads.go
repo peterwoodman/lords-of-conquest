@@ -523,7 +523,8 @@ type CardInfo struct {
 
 // SelectCardsPayload is sent by attacker or defender to commit cards face-down.
 type SelectCardsPayload struct {
-	CardIDs []string `json:"card_ids"` // IDs of cards to play (can be empty)
+	BattleID string   `json:"battle_id,omitempty"` // Battle from the defense card request
+	CardIDs  []string `json:"card_ids"`            // IDs of cards to play (can be empty)
 }
 
 // DefenseCardRequestPayload notifies the defender that an attack is incoming

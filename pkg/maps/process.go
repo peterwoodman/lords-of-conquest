@@ -412,6 +412,7 @@ func computeAdjacencies(m *Map) {
 
 		for _, cell := range t.Cells {
 			x, y := cell[0], cell[1]
+			coastal := false
 
 			// Check 4 orthogonal neighbors
 			dirs := [][2]int{{0, -1}, {0, 1}, {-1, 0}, {1, 0}}
@@ -432,8 +433,11 @@ func computeAdjacencies(m *Map) {
 
 				if neighborWater < 0 {
 					adjWaters[neighborWater] = true
-					coastalCount++
+					coastal = true
 				}
+			}
+			if coastal {
+				coastalCount++
 			}
 		}
 

@@ -3,6 +3,8 @@ package game
 import (
 	"fmt"
 	"math/rand"
+
+	"github.com/google/uuid"
 )
 
 // CombatMode determines which combat system is used.
@@ -150,9 +152,6 @@ var defenseCardTemplates = []cardTemplate{
 	{Name: "Bribe", Description: "Pay 3 gold to auto-win defense", CardType: CardTypeDefense, Rarity: RarityUltraRare, Effect: EffectBribe, Value: 0, Weight: 25},
 }
 
-// cardIDCounter is used to generate unique card instance IDs.
-var cardIDCounter int
-
 // DrawCard randomly draws a card of the given type based on rarity weights.
 func DrawCard(cardType CardType) CombatCard {
 	var templates []cardTemplate
@@ -186,9 +185,8 @@ func DrawCard(cardType CardType) CombatCard {
 
 // newCardFromTemplate creates a card instance from a template.
 func newCardFromTemplate(t cardTemplate) CombatCard {
-	cardIDCounter++
 	return CombatCard{
-		ID:          fmt.Sprintf("%s_%s_%d", t.CardType, t.Effect, cardIDCounter),
+		ID:          fmt.Sprintf("%s_%s_%s", t.CardType, t.Effect, uuid.NewString()),
 		Name:        t.Name,
 		Description: t.Description,
 		CardType:    t.CardType,
@@ -290,9 +288,8 @@ func (g *GameState) ResolveCards(
 					weaponCount++
 				}
 			}
-			reduction := weaponCount * 3
-			result.FinalAttack -= reduction
 			result.SabotageCount = weaponCount
+			break
 		}
 	}
 
@@ -341,15 +338,10 @@ func (g *GameState) ResolveCards(
 		}
 	}
 
-	// Apply multipliers to the current strength (which is base + sabotage reduction + synergy)
-	// We want to multiply only the base, so recalculate:
-	// finalAttack = baseAttack * multiplier + (synergy bonuses) - (sabotage reduction)
-	// Actually, per the plan: multipliers apply to base strength only, before flat bonuses.
-	// So we need to track separately.
-
-	// Recalculate: start from base, apply multiplier, then re-add synergy and sabotage
-	synergyBonus := result.FinalAttack - baseAttack + (result.SabotageCount * 3) // undo sabotage to get synergy
-	sabotageReduction := result.SabotageCount * 3
+	// Multipliers apply to base strength only. Weapons are part of the base, so
+	// Sabotage removes their multiplied contribution; synergy bonuses are not multiplied.
+	synergyBonus := result.FinalAttack - baseAttack
+	sabotageReduction := result.SabotageCount * 3 * attackMultiplier
 
 	result.FinalAttack = (baseAttack * attackMultiplier) + synergyBonus - sabotageReduction
 	result.FinalDefense = baseDefense * defenseMultiplier
@@ -391,7 +383,7 @@ func (g *GameState) ResolveCards(
 
 	// Blitz: if attacker wins, return all other played attack cards to hand
 	if result.AttackerWins {
-		for _, c := range attackCards {
+		for _, c := range activeAttackCards {
 			if c.Effect == EffectBlitz {
 				// Return all attack cards EXCEPT Blitz itself
 				for _, rc := range attackCards {

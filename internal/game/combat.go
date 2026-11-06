@@ -494,9 +494,12 @@ func (g *GameState) moveBroughtUnit(brought *BroughtUnit, target *Territory) {
 		from.HasWeapon = false
 		target.HasWeapon = true
 	case UnitBoat:
-		// Boat stays in the same water body
-		from.RemoveBoat(brought.WaterBodyID)
-		target.AddBoat(brought.WaterBodyID)
+		// Boat stays in the same water body; it remains at its origin if the
+		// captured territory doesn't border that water or has no room
+		if target.CanAddBoatToWater(brought.WaterBodyID) {
+			from.RemoveBoat(brought.WaterBodyID)
+			target.AddBoat(brought.WaterBodyID)
+		}
 		if brought.CarryingHorse {
 			horseFrom := g.Territories[brought.HorseFromTerritory]
 			horseFrom.HasHorse = false
