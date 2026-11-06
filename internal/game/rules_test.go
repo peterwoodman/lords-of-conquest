@@ -243,6 +243,27 @@ func TestBoatAttack_BoatStaysHomeWhenTargetIsInland(t *testing.T) {
 	}
 }
 
+func TestBoatAttack_ReplacesBoatInFullTerritory(t *testing.T) {
+	g := newRulesTestState(PhaseConquest)
+	from := g.Territories["a1"]
+	from.WaterBodies = []string{"w1"}
+	from.CoastalTiles = 2
+	from.AddBoat("w1")
+	target := g.Territories["b1"]
+	target.WaterBodies = []string{"w1"}
+	target.CoastalTiles = 1
+	target.AddBoat("w1") // defender's boat fills the only slot
+
+	g.moveBroughtUnit(&BroughtUnit{UnitType: UnitBoat, FromTerritory: "a1", WaterBodyID: "w1"}, target)
+
+	if target.Boats["w1"] != 1 {
+		t.Fatalf("expected the attacking boat to replace the captured one, got %d boats", target.Boats["w1"])
+	}
+	if from.TotalBoats() != 0 {
+		t.Fatal("attacking boat should have left its origin")
+	}
+}
+
 func TestInitCommercePhase_FullSkipStartsConquestWithFirstPlayer(t *testing.T) {
 	g := newRulesTestState(PhaseProduction)
 	g.CurrentPlayerID = "C" // e.g. the last player who had to place a stockpile

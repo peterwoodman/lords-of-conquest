@@ -56,6 +56,18 @@ func (t *Territory) CanAddBoat() bool {
 	return t.TotalBoats() < t.CoastalTiles
 }
 
+// removeReplacedBoat removes the boat an arriving boat replaces, preferring one
+// in the arriving boat's water body.
+func (t *Territory) removeReplacedBoat(waterBodyID string) {
+	if t.RemoveBoat(waterBodyID) {
+		return
+	}
+	for wbID := range t.Boats {
+		t.RemoveBoat(wbID)
+		return
+	}
+}
+
 // CanAddBoatToWater returns true if a boat can be placed in a specific water body.
 func (t *Territory) CanAddBoatToWater(waterBodyID string) bool {
 	// Check if territory borders this water body
