@@ -1,486 +1,275 @@
-# Lords of Conquest - AI System
+# Lords of Conquest - CPU Players
 
-## Overview
+This document is the plan for making CPU players smarter. It replaces the
+earlier personality-based design (aggressive / defensive / passive), which was
+never implemented beyond a label and a card-buying preference.
 
-The AI system replicates the three personality types from the original game: **Aggressive**, **Defensive**, and **Passive**. Each AI makes decisions across all game phases based on its personality.
+## Decisions
 
-## AI Architecture
-
-```go
-type AI interface {
-    // Called during territory selection phase
-    SelectTerritory(state *GameState, available []Territory) Territory
-    
-    // Called during trade phase
-    ProposeTrade(state *GameState, players []Player) *TradeOffer
-    RespondToTrade(state *GameState, offer *TradeOffer) bool
-    
-    // Called during shipment phase
-    DecideShipment(state *GameState) *ShipmentAction
-    
-    // Called during conquest phase
-    PlanAttacks(state *GameState) []AttackPlan
-    VoteAlliance(state *GameState, battle *Battle) AllianceSide
-    
-    // Called during development phase
-    PlanDevelopment(state *GameState) []BuildAction
-}
-```
-
-## Personality Traits
-
-### Aggressive AI
-
-**Philosophy**: Attack first, ask questions later.
-
-| Phase | Behavior |
+| Topic | Decision |
 |-------|----------|
-| Territory Selection | Prioritizes territories adjacent to opponents; values offensive positions |
-| Trade | Rarely trades; demands unfavorable terms; breaks deals easily |
-| Shipment | Moves units toward enemy borders; stockpile near front lines |
-| Conquest | Attacks whenever odds are reasonable (≥70%); takes risks |
-| Alliance | Sides with attackers; loves chaos |
-| Development | Prioritizes weapons over cities; builds cities only when safe |
+| Skill model | Difficulty (Easy / Medium / Hard) **replaces** personality |
+| Selection | Per CPU. "Add CPU" adds a Medium CPU; the host clicks a CPU row in the lobby player list to cycle Easy → Medium → Hard |
+| Fairness | All difficulties play fair: they see only what a human sees (no peeking at cards in hand, no resource bonuses) |
+| Scope | Territory selection, stockpile placement, shipment, conquest, development, card buying/playing, alliance voting |
+| Out of scope | Trading. CPUs keep declining trades and never propose them |
 
-**Evaluation Weights**:
-```go
-AggressiveWeights = Weights{
-    ResourceValue:    0.3,
-    OffensivePosition: 0.5,
-    DefensivePosition: 0.1,
-    CityBuilding:     0.1,
-}
-```
+## Current State
 
-### Defensive AI
+All CPU logic lives in `internal/server/handlers.go` (`aiSelectTerritory`,
+`aiPlaceStockpile`, `aiShipment`, `aiConquest`, `aiCardAttack`,
+`aiDevelopment`, `aiBuyCards`), mixed with persistence and broadcasting.
 
-**Philosophy**: Secure positions, build strength, attack only when certain.
+| Phase | Current behaviour |
+|-------|-------------------|
+| Territory selection | Random unowned territory |
+| Stockpile placement | Random owned territory |
+| Shipment | 50% chance to move the stockpile to a random valid destination; never moves units |
+| Conquest | Attacks the target with the best attack/defence ratio if it is ≥ 1.0; never brings horses, weapons or boats |
+| Card combat | Plays every attack card it holds; as defender plays every defence card it holds |
+| Development | First affordable city on the first city-less territory, else a weapon, else a boat |
+| Card buying | Up to 2 cards with its most plentiful resource |
+| Alliances | Always neutral; treated as offline so "ask" requests never reach it |
 
-| Phase | Behavior |
-|-------|----------|
-| Territory Selection | Prioritizes easily defensible territories; values chokepoints |
-| Trade | Trades fairly; honors agreements; seeks alliances |
-| Shipment | Positions units for defense; stockpile in safest territory |
-| Conquest | Only attacks with overwhelming force (≥90%); consolidates |
-| Alliance | Sides with defenders; maintains stability |
-| Development | Balances weapons and cities; prefers interior city placement |
+Existing problems the rewrite also fixes:
 
-**Evaluation Weights**:
-```go
-DefensiveWeights = Weights{
-    ResourceValue:    0.4,
-    OffensivePosition: 0.1,
-    DefensivePosition: 0.3,
-    CityBuilding:     0.2,
-}
-```
+- CPU attacks call `state.Attack` with no allies, so humans set to support
+  the defender, or allied with the defender, are ignored. CPU attacks
+  should collect allies the same way `RequestAttackPlan` does.
+- A CPU dumps its whole hand of defence cards on the first attack against it.
 
-### Passive AI
+## Architecture
 
-**Philosophy**: Build economy, avoid conflict, win through development.
-
-| Phase | Behavior |
-|-------|----------|
-| Territory Selection | Prioritizes resource-rich territories; avoids contested areas |
-| Trade | Trades generously; seeks positive relationships |
-| Shipment | Moves stockpile to safest location; rarely moves units |
-| Conquest | Rarely attacks; only when near victory or under threat |
-| Alliance | Often neutral; sides with perceived underdog |
-| Development | Heavy city focus; weapons only when threatened |
-
-**Evaluation Weights**:
-```go
-PassiveWeights = Weights{
-    ResourceValue:    0.5,
-    OffensivePosition: 0.0,
-    DefensivePosition: 0.2,
-    CityBuilding:     0.3,
-}
-```
-
----
-
-## Decision Algorithms
-
-### Territory Selection
-
-Territories are scored based on:
+New package `internal/game/ai` (it depends only on `internal/game`, not on the
+server, so it can be unit-tested and run in headless simulations).
 
 ```go
-func ScoreTerritory(t Territory, personality Personality) float64 {
-    score := 0.0
-    
-    // Base resource value
-    if t.Resource != None {
-        score += personality.ResourceValue * ResourceValues[t.Resource]
-    }
-    
-    // Adjacency to own territories (contiguity bonus)
-    score += float64(len(t.AdjacentOwned)) * 0.2
-    
-    // Adjacency to enemy territories
-    score += float64(len(t.AdjacentEnemy)) * personality.OffensivePosition
-    
-    // Defensive value (fewer adjacent territories = easier to defend)
-    defensibility := 1.0 / float64(len(t.Adjacent))
-    score += defensibility * personality.DefensivePosition
-    
-    // Coastal access (for boat building)
-    if t.CoastalTiles > 0 {
-        score += 0.1 * float64(t.CoastalTiles)
-    }
-    
-    return score
-}
+type Difficulty int
+
+const (
+    Easy Difficulty = iota
+    Medium
+    Hard
+)
+
+// Each function reads state and returns a decision. None of them mutate state.
+func ChooseTerritory(s *game.GameState, playerID string, d Difficulty, rng *rand.Rand) string
+func ChooseStockpile(s *game.GameState, playerID string, d Difficulty, rng *rand.Rand) string
+func PlanShipment(s *game.GameState, playerID string, d Difficulty, rng *rand.Rand) *ShipmentDecision
+func PlanAttack(s *game.GameState, playerID string, d Difficulty, rng *rand.Rand) *AttackDecision // nil = end turn
+func PlanDevelopment(s *game.GameState, playerID string, d Difficulty, rng *rand.Rand) []BuildDecision
+func PlanCardPurchases(s *game.GameState, playerID string, d Difficulty, rng *rand.Rand) []CardPurchase
+func ChooseDefenseCards(s *game.GameState, playerID string, battle BattleView, d Difficulty, rng *rand.Rand) []string
+func VoteAlliance(s *game.GameState, playerID string, battle BattleView, d Difficulty, rng *rand.Rand) game.AllianceSide
 ```
 
-### Combat Decision
+The server handlers keep their existing role (lock, apply, log, save,
+broadcast, chain `checkAndTriggerAI`) but delegate every choice to this package.
+An injected `*rand.Rand` makes tests deterministic.
 
-```go
-func (ai *AI) ShouldAttack(state *GameState, target Territory) bool {
-    strength := CalculateAttackStrength(state, target)
-    defense := CalculateDefenseStrength(state, target)
-    
-    ratio := float64(strength) / float64(defense)
-    
-    // Adjust threshold based on personality and chance level
-    threshold := ai.personality.AttackThreshold
-    if state.Settings.ChanceLevel == High {
-        threshold *= 1.2 // More conservative with high randomness
-    }
-    
-    // Strategic value adjustments
-    if target.HasCity {
-        threshold *= 0.8 // Lower threshold for city captures
-    }
-    if target.ID == state.GetStockpileTerritory(target.Owner) {
-        threshold *= 0.7 // Much lower threshold for stockpile captures
-    }
-    
-    return ratio >= threshold
-}
+### Shared evaluation helpers (`ai/eval.go`)
+
+- `frontier(s, pid)`: owned territories adjacent to an enemy-owned or
+  unclaimed territory.
+- `threat(s, pid, terrID)`: strongest attack any single opponent could
+  currently bring against a territory (base adjacency plus reachable horses and
+  boats), computed with the same rules as `CalculateAttackStrength`.
+- `winProbability(s, attack, defense)`: probability of winning given
+  `Settings.ChanceLevel`. Low: `attack >= defense`; Medium: 1 if greater,
+  0.5 if equal, 0 if less; High: `attack / (attack + defense)`.
+- `cityProgress(s, pid)`: cities owned versus `VictoryCities`, to detect
+  "one city from winning" for self and opponents.
+- `clusterSize(s, pid, terrID)`: size of the connected owned region containing
+  a territory.
+
+## Difficulty Levels
+
+| Aspect | Easy | Medium | Hard |
+|--------|------|--------|------|
+| Decision noise | Picks from the top ~50% of options at random; 25% fully random | Picks from the top 3 with weighted randomness | Always the best-scored option (random tie-break) |
+| Territory selection | Resource scoring only, weak adjacency | Full scoring (adjacency first) | Full scoring + denies opponents' clusters and gold |
+| Attack threshold (win probability) | ≥ 0.75, ignores reinforcements | ≥ 0.6, uses best single reinforcement | ≥ 0.5 for high-value targets, ≥ 0.65 otherwise; picks the reinforcement that maximises win probability |
+| Target value | Weakest target | Weighted by value (stockpile, city, resource, adjacency) | Weighted by value + exposure after capture + leader suppression |
+| Development | Random affordable build | Value-ranked builds | Value-ranked builds, saves resources toward a city, reacts to threats |
+| Stockpile | Random interior territory | Safest territory | Safest territory, re-evaluated each shipment |
+| Cards | Plays all attack cards; plays one defence card | Plays enough cards to reach the threshold | Spends the fewest cards needed; holds defence cards for valuable territories |
+| Alliances | Neutral | Votes by simple rule | Votes based on the leader and its own exposure |
+
+## Territory Selection
+
+The user-specified priority: **owning adjacent territories matters most**, then
+gold, then grassland, then other resources.
+
+```
+score(t) =  W_adj      * ownedNeighbours(t)          // contiguity, dominant term
+          + W_cluster  * (joins two separate owned clusters ? 1 : 0)
+          + W_res      * resourceValue(t.Resource)
+          + W_cityGrid * resourceNeighboursOwned(t)  // future city doubling
+          + W_coast    * (coastal && noOwnedCoast ? 1 : 0)
+          - W_exposed  * enemyNeighbours(t)          // Medium/Hard only
+          + W_deny     * opponentOwnedNeighbours(t) * opponentClusterSize  // Hard only
 ```
 
-### Attack Thresholds by Personality
+Resource values: gold 5, grassland 3, coal / iron / timber 2, none 0.
 
-| Personality | Base Threshold | Min Threshold |
-|-------------|----------------|---------------|
-| Aggressive | 0.7 (70%) | 0.5 |
-| Defensive | 1.3 (130%) | 1.0 |
-| Passive | 1.5 (150%) | 1.2 |
+Default weights (tuned later by simulation):
 
-### Development Priority
+| Weight | Easy | Medium | Hard |
+|--------|------|--------|------|
+| `W_adj` | 1 | 6 | 6 |
+| `W_cluster` | 0 | 4 | 5 |
+| `W_res` | 1 | 1 | 1 |
+| `W_cityGrid` | 0 | 0.5 | 1 |
+| `W_coast` | 0 | 1 | 1.5 |
+| `W_exposed` | 0 | 0.5 | 1 |
+| `W_deny` | 0 | 0 | 0.5 |
 
-```go
-func (ai *AI) PrioritizeDevelopment(state *GameState) []BuildAction {
-    options := []BuildOption{}
-    
-    // Evaluate city building
-    for _, t := range state.MyTerritories() {
-        if !t.HasCity && CanBuildCity(state, t) {
-            value := ai.evaluateCityValue(state, t)
-            options = append(options, BuildOption{Type: City, Territory: t, Value: value})
-        }
-    }
-    
-    // Evaluate weapons
-    for _, t := range state.MyTerritories() {
-        if !t.HasWeapon && CanBuildWeapon(state) {
-            value := ai.evaluateWeaponValue(state, t)
-            options = append(options, BuildOption{Type: Weapon, Territory: t, Value: value})
-        }
-    }
-    
-    // Evaluate boats
-    for _, t := range state.MyTerritories() {
-        if t.CoastalTiles > t.Boats && CanBuildBoat(state) {
-            value := ai.evaluateBoatValue(state, t)
-            options = append(options, BuildOption{Type: Boat, Territory: t, Value: value})
-        }
-    }
-    
-    // Sort by value and return affordable actions
-    sort.Slice(options, func(i, j int) bool {
-        return options[i].Value > options[j].Value
-    })
-    
-    return ai.selectAffordableActions(state, options)
-}
+With `W_adj = 6`, one owned neighbour (6) beats gold on its own (5), so the
+CPU keeps its land contiguous and takes gold when there is a contiguous gold
+territory. The first pick (no owned territories yet) is driven by resource
+value plus how many good unclaimed territories surround it, which gives a gold
+or grassland seed in a resource-rich area.
+
+## Stockpile Placement and Shipment
+
+**Safety score** for a candidate territory:
+`safety = clusterSize - 3 * enemyNeighbours - threat / max(1, ownDefense)`,
+with a bonus for territories that are not coastal to an enemy-held water body.
+
+- Placement: Easy picks a random territory with no enemy neighbours (falls back
+  to random); Medium/Hard pick the highest safety score.
+- Shipment: move the stockpile only when the current location's safety is
+  meaningfully worse than the best valid destination (Hard also moves away
+  from a territory an opponent could beat next round).
+- Unit shipment (Medium/Hard): move one horse, weapon or boat to the frontier
+  territory with the highest `threat - defense`, or toward the highest-value
+  attack target for next round (Hard). Easy never moves units.
+
+## Conquest
+
+For each attackable target (and each reinforcement option on Medium/Hard):
+
+```
+value(target) =  10 if it holds an opponent's stockpile
+               +  6 if it has a city (+6 more if that player is one city from winning)
+               +  resourceValue(target.Resource)
+               +  2 * ownedNeighbours(target)        // consolidates our territory
+               +  3 if capture eliminates a player
+               -  exposure after capture (Hard)      // threat it will face next round
 ```
 
-### City Value Evaluation
+Choose the (target, reinforcement) pair that maximises
+`winProbability * value`, subject to the difficulty's win-probability threshold.
+End the turn when no option clears the threshold. Rules:
 
-```go
-func (ai *AI) evaluateCityValue(state *GameState, t Territory) float64 {
-    value := 0.0
-    
-    // Count resources that would be doubled
-    resourceCount := 0
-    for _, adj := range t.AdjacentOwned {
-        if adj.Resource != None && adj.Resource != Horses {
-            resourceCount++
-        }
-    }
-    if t.Resource != None && t.Resource != Horses {
-        resourceCount++
-    }
-    value += float64(resourceCount) * 2.0
-    
-    // Defensive bonus
-    value += float64(len(t.AdjacentOwned)) * 0.3
-    
-    // Penalty for border territories (risk of capture)
-    borderPenalty := float64(len(t.AdjacentEnemy)) * 0.5
-    value -= borderPenalty * (1.0 - ai.personality.OffensivePosition)
-    
-    // Victory progress bonus
-    citiesOwned := state.CountCities(ai.PlayerID)
-    if citiesOwned == state.Settings.VictoryCities-1 {
-        value *= 2.0 // Critical city!
-    }
-    
-    return value * ai.personality.CityBuilding
-}
+- Never bring a unit whose loss would leave our stockpile territory beatable
+  (Medium/Hard).
+- Hard lowers its threshold to 0.4 against the stockpile or the last city of a
+  player who is one city from winning.
+- Allies: before attacking, collect attacker and defender allies from alliance
+  settings exactly as `RequestAttackPlan` does, and include them in the
+  strength calculation. "Ask" players who are online are prompted, as for a
+  human attack.
+
+### Card mode
+
+- Attack: compute the base win probability, then add attack cards in order of
+  efficiency (flat bonuses first, then conditional cards whose bonus applies
+  here) until the threshold is reached. Easy plays all cards; Medium stops at
+  the threshold; Hard also keeps one strong card when the attack is already
+  comfortable.
+- Defence: Easy plays one random card. Medium plays cards until the visible
+  attack strength is beaten, but only for stockpile, city or gold territories.
+  Hard does the same while weighting the territory's value and the cards left.
+  It plays Sabotage only when weapons contribute, Bribe only on stockpile or
+  city defence when it has 3 gold, and Double Defense on high-base territories.
+- Buying: keep the hand balanced, using attack cards when strong and defence
+  cards when exposed. Never spend resources that would prevent building a city
+  this development phase (Medium/Hard).
+
+## Development
+
+Generate every affordable build (resources first, then the gold alternative)
+and score it:
+
+```
+city(t)   = 4 * resourceNeighboursOwned(t)       // production doubling
+          + 3 if t itself has a resource
+          + 8 if this city reaches VictoryCities
+          - 2 * enemyNeighbours(t)               // risk of losing it
+weapon(t) = threat(t) - defense(t) on frontier territories (+2 if stockpile / city)
+          + 2 if it enables a good attack next round (Hard)
+boat(t)   = 3 if it opens an attack across water to a valuable target
+          + 1 if we own no boats in that water body
 ```
 
----
-
-## Trade AI
-
-### Trade Valuation
-
-```go
-// Resource values vary by what the AI needs
-func (ai *AI) GetResourceValue(resource Resource, state *GameState) float64 {
-    baseValue := BaseResourceValues[resource]
-    
-    // Increase value if we need it
-    needs := ai.analyzeNeeds(state)
-    if needs[resource] > 0 {
-        baseValue *= 1.0 + float64(needs[resource])*0.2
-    }
-    
-    // Gold is universal
-    if resource == Gold {
-        baseValue *= 1.2
-    }
-    
-    return baseValue
-}
-
-func (ai *AI) EvaluateTrade(offer *TradeOffer, state *GameState) bool {
-    offering := 0.0
-    for resource, amount := range offer.Offer {
-        offering += ai.GetResourceValue(resource, state) * float64(amount)
-    }
-    
-    requesting := 0.0
-    for resource, amount := range offer.Request {
-        requesting += ai.GetResourceValue(resource, state) * float64(amount)
-    }
-    
-    ratio := offering / requesting
-    
-    // Personality affects acceptance threshold
-    switch ai.Personality {
-    case Aggressive:
-        return ratio >= 1.3 // Demands favorable trades
-    case Defensive:
-        return ratio >= 0.9 // Fair trades
-    case Passive:
-        return ratio >= 0.7 // Accepts some bad trades for goodwill
-    }
-    
-    return false
-}
-```
-
----
+- Easy: random affordable build, cities preferred 50% of the time.
+- Medium: builds greedily in score order until nothing affordable remains.
+- Hard: same, but if it is within 1 resource of a city it skips weapons and
+  boats and saves (unless a frontier threat is critical). It prefers resources
+  over gold and keeps 2 gold for a Bribe in card mode when it holds one.
 
 ## Alliance Voting
 
-```go
-func (ai *AI) VoteAlliance(state *GameState, battle *Battle) AllianceSide {
-    attacker := state.GetPlayer(battle.AttackerID)
-    defender := state.GetPlayer(battle.DefenderID)
-    
-    // Evaluate threats
-    attackerThreat := ai.evaluateThreat(attacker)
-    defenderThreat := ai.evaluateThreat(defender)
-    
-    // Factor in current standings
-    attackerCities := state.CountCities(attacker.ID)
-    defenderCities := state.CountCities(defender.ID)
-    
-    switch ai.Personality {
-    case Aggressive:
-        // Side with attacker unless they're winning
-        if attackerCities >= state.Settings.VictoryCities-1 {
-            return DefenderSide
-        }
-        return AttackerSide
-        
-    case Defensive:
-        // Side with defender unless they're the biggest threat
-        if defenderThreat > attackerThreat {
-            return AttackerSide
-        }
-        return DefenderSide
-        
-    case Passive:
-        // Support the underdog
-        if battle.AttackStrength > battle.DefenseStrength {
-            return DefenderSide
-        }
-        return Neutral
-    }
-    
-    return Neutral
-}
-```
+CPUs stop being treated as offline for alliance purposes. When a CPU is a
+third party on "ask", the server calls `ai.VoteAlliance` immediately, with no
+timeout wait.
 
----
+- Easy: neutral.
+- Medium: support the defender if the attacker leads in cities; otherwise neutral.
+- Hard: support whichever side keeps the leader (most cities, then most
+  territories) from gaining. It never supports an attack on a territory
+  adjacent to its own stockpile.
 
-## Surrender Logic
+The CPU's own alliance setting stays at "ask" so that it can vote; it is no
+longer forced to neutral.
 
-The original game featured AI surrender with humorous messages. We replicate this:
+## Data Model and UI
 
-```go
-func (ai *AI) ShouldSurrender(state *GameState) (bool, string) {
-    myTerritories := len(state.GetTerritories(ai.PlayerID))
-    myCities := state.CountCities(ai.PlayerID)
-    myResources := state.GetStockpile(ai.PlayerID).Total()
-    
-    // Check if hopelessly behind
-    leadingPlayer := state.GetLeadingPlayer()
-    leadingCities := state.CountCities(leadingPlayer.ID)
-    
-    hopelessness := 0.0
-    
-    if myTerritories < 3 {
-        hopelessness += 0.4
-    }
-    if myCities == 0 && leadingCities >= 2 {
-        hopelessness += 0.3
-    }
-    if myResources < 3 {
-        hopelessness += 0.2
-    }
-    if ai.stockpileLost {
-        hopelessness += 0.3
-    }
-    
-    if hopelessness >= 0.7 {
-        return true, ai.getSurrenderMessage()
-    }
-    
-    return false, ""
-}
+- Database: migration `ALTER TABLE game_players ADD COLUMN ai_difficulty TEXT
+  DEFAULT 'medium'`. The old `ai_personality` column is left in place but
+  unused (SQLite cannot drop columns cheaply, and old rows stay readable).
+- `game.Player`: replace `AIPersonality` with `AIDifficulty` (JSON
+  `aiDifficulty`). Saved games with the old field load as Medium.
+- Protocol: `AddAIPayload{Difficulty string}` (default "medium"); new
+  `SetAIDifficultyPayload{PlayerID, Difficulty}` handled host-only and
+  lobby-only; lobby player info gains `ai_difficulty`.
+- Client lobby: the CPU row subtext shows "CPU (Easy / Medium / Hard)".
+  For the host, clicking a CPU row sends `SetAIDifficulty` with the next
+  difficulty in the cycle.
+- `server_test.go` end-to-end tests switch to `AddAIPayload{Difficulty: ...}`.
 
-var surrenderMessages = []string{
-    "You win! I never liked this game anyway.",
-    "I hereby declare you the winner. Happy now?",
-    "My armies have mutinied. You win.",
-    "I'm taking my toys and going home!",
-    "Victory is yours... this time.",
-    "I surrender! Please don't hurt my horses!",
-}
-```
+## Pacing
 
----
+Keep the existing 100 ms trigger, but add a short "thinking" delay per action
+(territory pick ~600 ms, attack ~900 ms, build ~400 ms, plus up to 300 ms of
+jitter) so that humans can follow CPU turns. Tests and simulations set it to 0.
 
-## Performance Considerations
+## Testing
 
-### Thinking Time
+- Unit tests per decision function on small hand-built maps (for example "picks
+  adjacent grassland over distant gold", "picks adjacent gold over adjacent
+  timber", "never attacks below threshold", "moves stockpile away from threat",
+  "builds city where production doubles").
+- Headless simulation harness `cmd/aisim`: runs N games CPU vs CPU directly on
+  `GameState` (no server) and reports win rate by difficulty, average rounds,
+  cities built and attack success. Acceptance target: in 4-player games Hard
+  beats Medium ≥ 60% of head-to-heads and Medium beats Easy ≥ 60%.
 
-To make AI feel more natural and allow players time to observe, AI actions are delayed:
+## Implementation Order
 
-```go
-const (
-    MinThinkingTime = 500 * time.Millisecond
-    MaxThinkingTime = 2 * time.Second
-)
+1. **Difficulty plumbing**: database column, `Player.AIDifficulty`, protocol,
+   lobby display and click-to-cycle, and test updates. Personality code removed.
+2. **AI package skeleton**: `internal/game/ai` with difficulty, rng, the eval
+   helpers and unit tests, and the handlers delegating to it (behaviour
+   unchanged at first).
+3. **Territory selection** scoring.
+4. **Stockpile placement and shipment** (stockpile, then units).
+5. **Conquest**: target valuation, win probability, reinforcements and allies
+   on CPU attacks.
+6. **Development** scoring.
+7. **Card mode**: buying, attack card selection, defence card selection.
+8. **Alliance voting** for CPUs.
+9. **Simulation harness** and weight tuning, plus pacing delays.
 
-func (ai *AI) ThinkingTime(action ActionType) time.Duration {
-    base := MinThinkingTime
-    
-    switch action {
-    case SelectTerritory:
-        base = 800 * time.Millisecond
-    case PlanAttack:
-        base = 1200 * time.Millisecond
-    case Build:
-        base = 600 * time.Millisecond
-    }
-    
-    // Add randomness
-    jitter := time.Duration(rand.Intn(500)) * time.Millisecond
-    return base + jitter
-}
-```
-
-### Move Calculation Timeout
-
-As in the original game, complex calculations have a timeout:
-
-```go
-const AICalculationTimeout = 10 * time.Second
-
-func (ai *AI) CalculateMove(state *GameState) Action {
-    ctx, cancel := context.WithTimeout(context.Background(), AICalculationTimeout)
-    defer cancel()
-    
-    resultChan := make(chan Action)
-    go func() {
-        resultChan <- ai.calculateBestMove(state)
-    }()
-    
-    select {
-    case result := <-resultChan:
-        return result
-    case <-ctx.Done():
-        // Return best move found so far
-        return ai.getBestMoveFoundSoFar()
-    }
-}
-```
-
----
-
-## Testing AI
-
-### AI vs AI Games
-
-For balance testing and debugging:
-
-```go
-func RunAIGame(personalities []Personality, mapID string, settings GameSettings) GameResult {
-    state := NewGame(settings, mapID)
-    
-    ais := make([]AI, len(personalities))
-    for i, p := range personalities {
-        ais[i] = NewAI(p, state.Players[i].ID)
-    }
-    
-    for !state.IsGameOver() {
-        currentAI := ais[state.CurrentPlayerIndex]
-        action := currentAI.GetAction(state)
-        state.ApplyAction(action)
-    }
-    
-    return GameResult{
-        Winner: state.Winner(),
-        Rounds: state.Round,
-        // ... statistics
-    }
-}
-```
-
-### Metrics to Track
-
-- Win rate per personality
-- Average game length
-- Cities built vs conquered ratio
-- Resource efficiency
-- Attack success rate
-
+Steps 3–8 are independent once step 2 lands and can be done in any order.

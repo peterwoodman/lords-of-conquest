@@ -40,7 +40,4 @@ coverage.html
 *.tmp
 *.temp
 
-# Ralph config (may contain API key)
-.cursor/ralph-config.json
-
 data/*.db*
