@@ -2266,69 +2266,34 @@ func (h *Handlers) aiDevelopment(gameID string, state *game.GameState) {
 		return
 	}
 
-	// Simple AI: Try to build things in order of priority: cities > weapons > boats
-	built := false
+	playerID := state.CurrentPlayerID
+	rng := newAIRand()
 
-	// Get player name for history logging
-	playerName := state.CurrentPlayerID
-	if p, ok := state.Players[state.CurrentPlayerID]; ok {
-		playerName = p.Name
-	}
-
-	// Try to build a city if we can afford it
-	if player.Stockpile.CanAffordStockpile(game.GetBuildCost(game.BuildCity)) || player.Stockpile.Gold >= game.GoldCost(game.BuildCity) {
-		// Find a territory without a city
-		for id, t := range state.Territories {
-			if t.Owner == state.CurrentPlayerID && !t.HasCity {
-				useGold := !player.Stockpile.CanAffordStockpile(game.GetBuildCost(game.BuildCity))
-				if err := state.Build(state.CurrentPlayerID, game.BuildCity, id, useGold); err == nil {
-					log.Printf("AI: Built city at %s", id)
-					h.logHistory(gameID, state.Round, state.Phase.String(), state.CurrentPlayerID, playerName,
-						database.EventBuild, fmt.Sprintf("Built city on %s", t.Name))
-					built = true
-					break
-				}
-			}
+	// Each build changes what's affordable and useful, so plan one at a time.
+	// The cap guards against a build that keeps failing.
+	built := 0
+	for range 20 {
+		decision := ai.PlanDevelopment(state, playerID, player.AIDifficulty, rng)
+		if decision == nil {
+			break
 		}
-	}
-
-	// Try to build a weapon if we can afford it and didn't build a city
-	if !built && (player.Stockpile.CanAffordStockpile(game.GetBuildCost(game.BuildWeapon)) || player.Stockpile.Gold >= game.GoldCost(game.BuildWeapon)) {
-		// Find a territory without a weapon
-		for id, t := range state.Territories {
-			if t.Owner == state.CurrentPlayerID && !t.HasWeapon {
-				useGold := !player.Stockpile.CanAffordStockpile(game.GetBuildCost(game.BuildWeapon))
-				if err := state.Build(state.CurrentPlayerID, game.BuildWeapon, id, useGold); err == nil {
-					log.Printf("AI: Built weapon at %s", id)
-					h.logHistory(gameID, state.Round, state.Phase.String(), state.CurrentPlayerID, playerName,
-						database.EventBuild, fmt.Sprintf("Built weapon on %s", t.Name))
-					built = true
-					break
-				}
-			}
+		var err error
+		if decision.Type == game.BuildBoat && decision.WaterBodyID != "" {
+			err = state.BuildBoatInWater(playerID, decision.Territory, decision.WaterBodyID, decision.UseGold)
+		} else {
+			err = state.Build(playerID, decision.Type, decision.Territory, decision.UseGold)
 		}
-	}
-
-	// Try to build a boat if can afford it
-	if !built {
-		if player.Stockpile.CanAffordStockpile(game.GetBuildCost(game.BuildBoat)) || player.Stockpile.Gold >= game.GoldCost(game.BuildBoat) {
-			// Find a coastal territory that can have more boats
-			for id, t := range state.Territories {
-				if t.Owner == state.CurrentPlayerID && t.IsCoastal() && t.CanAddBoat() {
-					useGold := !player.Stockpile.CanAffordStockpile(game.GetBuildCost(game.BuildBoat))
-					if err := state.Build(state.CurrentPlayerID, game.BuildBoat, id, useGold); err == nil {
-						log.Printf("AI: Built boat at %s", id)
-						h.logHistory(gameID, state.Round, state.Phase.String(), state.CurrentPlayerID, playerName,
-							database.EventBuild, fmt.Sprintf("Built boat on %s", t.Name))
-						built = true
-						break
-					}
-				}
-			}
+		if err != nil {
+			log.Printf("AI: Failed to build %s at %s: %v", decision.Type, decision.Territory, err)
+			break
 		}
+		built++
+		log.Printf("AI: %s built %s at %s (gold: %v)", player.Name, decision.Type, decision.Territory, decision.UseGold)
+		h.logHistory(gameID, state.Round, state.Phase.String(), playerID, player.Name,
+			database.EventBuild, fmt.Sprintf("Built %s on %s", decision.Type, territoryName(state, decision.Territory)))
 	}
 
-	if !built {
+	if built == 0 {
 		log.Printf("AI: Nothing to build, ending development")
 	}
 

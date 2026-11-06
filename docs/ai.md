@@ -215,25 +215,29 @@ plus 1 if this is the first attack (losing it forfeits the second).
 
 ## Development
 
-Generate every affordable build (resources first, then the gold alternative)
-and score it:
+Implemented in `internal/game/ai/development.go`. `PlanDevelopment` returns
+one build at a time, and the server keeps building until it returns nil. Each
+affordable build is scored (resources are used when they suffice, otherwise
+gold):
 
 ```
-city(t)   = 4 * resourceNeighboursOwned(t)       // production doubling
-          + 3 if t itself has a resource
-          + 8 if this city reaches VictoryCities
-          - 2 * enemyNeighbours(t)               // risk of losing it
-weapon(t) = threat(t) - defense(t) on frontier territories (+2 if stockpile / city)
-          + 2 if it enables a good attack next round (Hard)
-boat(t)   = 3 if it opens an attack across water to a valuable target
-          + 1 if we own no boats in that water body
+city(t)   = 4 + 1.5 * value of owned resources it newly doubles (t and neighbours,
+                      not grassland, not already next to a city)
+          + 0.5 * ownedNeighbours(t)
+          + 20 if this city reaches VictoryCities
+          - 6 * chance t is captured
+weapon(t) = drop in expected loss + 0.75 per enemy neighbour (max 3)
+boat(t)   = drop in expected loss
+          + 1 + 0.25 per enemy coastal territory it opens up (max 4), +1 if no boat
+            on that water yet
 ```
 
-- Easy: random affordable build, cities preferred 50% of the time.
-- Medium: builds greedily in score order until nothing affordable remains.
-- Hard: same, but if it is within 1 resource of a city it skips weapons and
-  boats and saves (unless a frontier threat is critical). It prefers resources
-  over gold and keeps 2 gold for a Bribe in card mode when it holds one.
+Paying gold for a weapon or boat costs 1.5 points.
+
+- Easy: no minimum score, Easy noise, so it often wastes resources.
+- Medium: builds anything worth ≥ 1, best first (Medium noise).
+- Hard: like Medium, but when exactly one resource short of a city it skips
+  weapons and boats that would delay the city unless they are worth ≥ 3.
 
 ## Alliance Voting
 
