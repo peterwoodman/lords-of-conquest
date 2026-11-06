@@ -926,7 +926,7 @@ func (h *Handlers) initializeGameState(gameID string, dbGame *database.Game, dbP
 		if dbp.IsAI {
 			player.IsAI = true
 			player.AIDifficulty = game.ParseAIDifficulty(dbp.AIDifficulty)
-			player.Alliance = game.AllianceNeutral // AI is always neutral
+			player.Alliance = game.AllianceAsk // CPUs vote on each battle
 		} else {
 			// Apply alliance setting from database
 			if dbp.AllianceSetting != "" {
@@ -1751,6 +1751,19 @@ func (h *Handlers) checkAndTriggerAI(gameID string) {
 // decisions don't share a source.
 func newAIRand() *rand.Rand {
 	return rand.New(rand.NewSource(time.Now().UnixNano()))
+}
+
+// resolveAllies collects the allies in a human's attack on target: fixed alliance settings
+// and immediate CPU votes, plus the online humans who must be asked. Offline humans who
+// would be asked stay neutral.
+func (h *Handlers) resolveAllies(state *game.GameState, attackerID string, target *game.Territory) (attackerAllies, defenderAllies, askPlayers []string) {
+	attackerAllies, defenderAllies, maybeAsk := ai.ResolveAllies(state, attackerID, target)
+	for _, id := range maybeAsk {
+		if h.hub.IsPlayerOnline(id) {
+			askPlayers = append(askPlayers, id)
+		}
+	}
+	return attackerAllies, defenderAllies, askPlayers
 }
 
 // territoryName returns a territory's display name, falling back to its ID.
@@ -3019,16 +3032,9 @@ func (h *Handlers) handleRequestAttackPlan(client *Client, msg *protocol.Message
 		}
 	}
 
-	// Collect allies based on alliance settings; online "ask" players are prompted to vote
-	attackerAllies, defenderAllies, maybeAsk := state.SortAllies(client.PlayerID, target)
-	askPlayers := []string{}
-	for _, tpID := range maybeAsk {
-		if h.hub.IsPlayerOnline(tpID) {
-			askPlayers = append(askPlayers, tpID)
-		}
-	}
-	log.Printf("RequestAttackPlan at %s: attacker allies %v, defender allies %v, asking %v (offline treated as neutral: %d)",
-		terrName, attackerAllies, defenderAllies, askPlayers, len(maybeAsk)-len(askPlayers))
+	attackerAllies, defenderAllies, askPlayers := h.resolveAllies(&state, client.PlayerID, target)
+	log.Printf("RequestAttackPlan at %s: attacker allies %v, defender allies %v, asking %v",
+		terrName, attackerAllies, defenderAllies, askPlayers)
 
 	// If there are "ask" players, we need to wait for their votes
 	if len(askPlayers) > 0 {
@@ -3309,61 +3315,10 @@ func (h *Handlers) handleExecuteAttack(client *Client, msg *protocol.Message) er
 		log.Printf("Battle at %s: Using cached allies - Attacker: %v, Defender: %v", terrName, attackerAllies, defenderAllies)
 	} else {
 		// No cached plan - resolve alliances now (legacy flow or expired plan)
-		askPlayers := []string{} // Players with "ask" setting who are online
-		thirdParties := state.GetThirdPartyPlayers(client.PlayerID, target)
-
-		log.Printf("Battle at %s: Found %d third party players: %v", terrName, len(thirdParties), thirdParties)
-
-		for _, tpID := range thirdParties {
-			tp := state.Players[tpID]
-			if tp == nil {
-				log.Printf("  Third party %s: player not found in state", tpID)
-				continue
-			}
-
-			// Determine which side this player supports based on their alliance setting
-			alliance := string(tp.Alliance)
-			log.Printf("  Third party %s (%s): alliance setting = '%s'", tpID, tp.Name, alliance)
-
-			switch alliance {
-			case "neutral", "":
-				// Neutral players don't participate
-				log.Printf("    -> Neutral (not participating)")
-				continue
-			case "ask":
-				// Check if player is online
-				if h.hub.IsPlayerOnline(tpID) {
-					log.Printf("    -> Ask (online, will be prompted)")
-					askPlayers = append(askPlayers, tpID)
-				} else {
-					log.Printf("    -> Ask (offline, treated as neutral)")
-				}
-			case "defender":
-				// Always support the defender
-				log.Printf("    -> Supporting defender")
-				defenderAllies = append(defenderAllies, tpID)
-			default:
-				// Check if it's a specific player alliance
-				if alliance == client.PlayerID {
-					// Allied with attacker
-					log.Printf("    -> Supporting attacker (allied with %s)", client.PlayerID)
-					attackerAllies = append(attackerAllies, tpID)
-				} else if alliance == defenderID {
-					// Allied with defender
-					log.Printf("    -> Supporting defender (allied with %s)", defenderID)
-					defenderAllies = append(defenderAllies, tpID)
-				} else {
-					// Allied with someone not in this combat - treat as "ask" instead of neutral
-					// This allows the player to choose a side in battles their ally isn't involved in
-					if h.hub.IsPlayerOnline(tpID) {
-						log.Printf("    -> Allied with %s (not in combat), treating as 'ask' (online)", alliance)
-						askPlayers = append(askPlayers, tpID)
-					} else {
-						log.Printf("    -> Allied with %s (not in combat), treating as neutral (offline)", alliance)
-					}
-				}
-			}
-		}
+		var askPlayers []string
+		attackerAllies, defenderAllies, askPlayers = h.resolveAllies(&state, client.PlayerID, target)
+		log.Printf("Battle at %s: attacker allies %v, defender allies %v, asking %v",
+			terrName, attackerAllies, defenderAllies, askPlayers)
 
 		// If there are "ask" players, we need to wait for their votes
 		if len(askPlayers) > 0 {

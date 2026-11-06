@@ -37,8 +37,8 @@ var attackProfiles = map[game.AIDifficulty]attackProfile{
 const highValueTarget = 9
 
 // PlanAttack chooses the CPU's next attack, or returns nil to end its conquest turn.
-// Allies come from the third parties' fixed alliance settings; players who would have to
-// be asked are treated as neutral.
+// Allies come from fixed alliance settings and CPU votes; humans who would have to be
+// asked are treated as neutral.
 func PlanAttack(s *game.GameState, playerID string, d game.AIDifficulty, rng *rand.Rand) *AttackDecision {
 	player := s.Players[playerID]
 	if player == nil || player.Eliminated || player.AttacksRemaining <= 0 {
@@ -52,7 +52,7 @@ func PlanAttack(s *game.GameState, playerID string, d game.AIDifficulty, rng *ra
 	var opts []option
 	for _, targetID := range attackCandidates(s, playerID) {
 		target := s.Territories[targetID]
-		attackerAllies, defenderAllies, _ := s.SortAllies(playerID, target)
+		attackerAllies, defenderAllies, _ := ResolveAllies(s, playerID, target)
 		value := captureValue(s, playerID, target)
 
 		minChance := profile.minWinChance

@@ -247,18 +247,18 @@ Paying gold for a weapon or boat costs 1.5 points.
 
 ## Alliance Voting
 
-CPUs stop being treated as offline for alliance purposes. When a CPU is a
-third party on "ask", the server calls `ai.VoteAlliance` immediately, with no
-timeout wait.
+Implemented in `internal/game/ai/alliance.go`. CPUs start with their alliance
+setting on "ask". `ai.ResolveAllies` applies fixed settings and has CPU third
+parties vote immediately. It is used for CPU attacks and, through
+`Handlers.resolveAllies`, for both human attack paths (which then prompt the
+online humans).
 
 - Easy: neutral.
-- Medium: support the defender if the attacker leads in cities; otherwise neutral.
-- Hard: support whichever side keeps the leader (most cities, then most
-  territories) from gaining. It never supports an attack on a territory
-  adjacent to its own stockpile.
-
-The CPU's own alliance setting stays at "ask" so that it can vote; it is no
-longer forced to neutral.
+- Medium: support the defender if the attacker leads in cities and has more
+  than the defender; otherwise neutral.
+- Hard: always defend territory next to its own stockpile. Otherwise oppose
+  the leading opponent (most cities, then most territories): defend against
+  them, or join attacks on them. Neutral if no single opponent leads.
 
 ## Data Model and UI
 
